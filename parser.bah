@@ -1,0 +1,1071 @@
+const BAH_LINE_DECL_VAR   = 0
+const BAH_LINE_DECL_FN    = 1
+const BAH_LINE_DECL_STRCT = 2
+
+const BAH_LINE_HASH = 3
+
+const BAH_LINE_FLOW_IF   = 4
+const BAH_LINE_FLOW_ELSE = 5
+const BAH_LINE_FLOW_FOR  = 6
+
+#define parseLines(tokens []bahToken, start uint, end uint)
+#define parseLine(tokens []bahToken, start uint, end uint)
+
+consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*, uint] {
+    if end - start == 0 {
+        return [<bahType*>null, start]
+    }
+
+    r = new bahType
+
+    i = start
+
+    if isFuncDecl || tokens[i].cont == "function" {
+        //function type
+        r.type = BAH_TYPE_FUNC
+        r.isNativePtr = true
+        r.size = 8
+
+        if isFuncDecl == false {
+            i++
+        }
+        
+        if i+1 >= end {
+            throwError(&tokens[start], "Invalid function type.")
+        }
+        if tokens[i].cont != "(" {
+            throwError(&tokens[i], "Expected function argument list.")
+        }
+
+        i++
+        lastElem = r
+        for i < end, i++ {
+            if tokens[i].cont == ")" {
+                break
+            }
+
+            if tokens[i].type != TOKEN_TYPE_VAR {
+                throwError(&tokens[i], "Expected argument name.")
+            }
+
+            name = tokens[i].cont
+            i++
+
+            if i == end {
+                throwError(&tokens[i-1], "Expected argument type after its name.")
+            }
+            
+            consArgType = consumeType(tokens, i, end, false)
+            
+            argType = consArgType[0]
+            argType.name = name
+            
+            i = consArgType[1]
+
+            if argType == null {
+                throwError(&tokens[i], "Invalid agument type.")
+            }
+
+            if i == end {
+                throwError(&tokens[i-1], "Incomplete function type.")
+            }
+
+            lastElem.next = argType
+            lastElem = argType
+
+            if tokens[i].cont != "," {
+                break
+            }
+        }
+
+        if i == end {
+            throwError(&tokens[start], "Expected closing function type.")
+        }
+
+        if tokens[i].cont != ")" {
+            throwError(&tokens[i], "Expected closing argument list in function type.")
+        }
+        i++
+
+        retTypeCons = consumeType(tokens, i, end, false)
+        if retTypeCons[0] != null {
+            r.child = retTypeCons[0]
+            i = retTypeCons[1]
+        }
+
+    } else if tokens[i].cont == "[" && i+1 < end {
+        if tokens[i+1].cont == "]" {
+            //array type
+            i += 2
+            r.type = BAH_TYPE_ARRAY
+            r.isNativePtr = true
+            r.size = 8
+            childCons = consumeType(tokens, i, end, false)
+            if childCons[0] == null {
+                throwError(&tokens[start], "Invalid array type without element type.")
+            }
+            i = childCons[1]
+            r.child = childCons[0]
+        } else {
+            //tuple type
+
+        }
+    } else {
+        if tokens[i].type == TOKEN_TYPE_VAR {
+            if tokens[i].cont == "float" {
+                r.type = BAH_TYPE_FLOAT
+                r.size = 8
+            } else if tokens[i].cont == "float32" {
+                r.type = BAH_TYPE_FLOAT
+                r.size = 4
+            } else if tokens[i].cont == "int16" {
+                r.type = BAH_TYPE_INT
+                r.size = 2
+            } else if tokens[i].cont == "int32" {
+                r.type = BAH_TYPE_INT
+                r.size = 4
+            } else if tokens[i].cont == "int" {
+                r.type = BAH_TYPE_INT
+                r.size = 8
+            } else if tokens[i].cont == "byte" || tokens[i].cont == "char" {
+                r.type = BAH_TYPE_UINT
+                r.size = 1
+            } else if tokens[i].cont == "uint16" {
+                r.type = BAH_TYPE_UINT
+                r.size = 2
+            } else if tokens[i].cont == "uint32" {
+                r.type = BAH_TYPE_UINT
+                r.size = 4
+            } else if tokens[i].cont == "uint" {
+                r.type = BAH_TYPE_UINT
+                r.size = 8
+            } else if tokens[i].cont == "str" {
+                r.type = BAH_TYPE_STR
+                r.size = 8
+            } else if tokens[i].cont == "bool" {
+                r.type = BAH_TYPE_BOOL
+            }
+
+            i++
+            for i < end, i++ {
+                if tokens[i].cont != "*" {
+                    break
+                }
+                r = r.getPtr()
+            }
+        }
+    }
+
+    return [r, i]
+}
+
+consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, bool] {
+
+    if start == end {
+        return [<bahLeftValue*>null, start, false]
+    }
+
+    //handle dereference etc and fn call in dereference
+
+    v bahVariable*
+
+    t = tokens[start]
+
+    if t.cont == "*" {
+        if start + 1 == end {
+            throwError(&t, "Expected a symbol after unary '*'.")
+        }
+
+        valCons = consumeLeftValue(tokens, start + 1, end)
+        if valCons[0] == null {
+            throwError(&tokens[start+1], "Expected left-value.")
+        }
+
+        i = valCons[1]
+        varVal = valCons[0]
+
+        if valCons[2] {
+            throwError(&varVal.tok, "Cannot use not yet declared variable.")
+        }
+
+        if varVal.type.isPtr == false {
+            throwError(&varVal.tok, "Cannot set the value of a non pointer symbol.")
+        }
+
+
+        val = new bahLeftValue {
+            isUnary: true
+            next: varVal
+            tok: t
+            type: varVal.type.child
+        }
+
+        return [val, i, false]
+    }
+
+    if t.type == TOKEN_TYPE_VAR {
+        v = parserCtx.findVar(t.cont)
+        isDeclared = v == null
+        if isDeclared {
+            val = new bahLeftValue {
+                isVariable: true
+                tok: t
+            }
+            return [val, start+1, true]
+        }
+    }
+
+    if v == null {
+        return [<bahLeftValue*>null, start+1, false]
+    }
+
+    val = new bahLeftValue {
+        tok: tokens[start]
+        isVariable: true
+        variable: v
+        type: v.type
+    }
+
+    i = start+1
+    for i < end, i++ {
+        // if tokens[i].cont == "[" {
+
+        // } else if tokens[i].cont == "." {
+            
+        // } else {
+        //     break
+        // }
+    }
+
+    //handle arrays, structs...
+
+    return [val, i, false]
+}
+
+consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint) [bahValue*, uint] {
+
+    i = start
+    nbPar = 0
+    parStart = start
+
+    // println("value: "+uintToStr(opLevel)+" ["+uintToStr(start)+" ("+tokens[start].cont+") - "+uintToStr(end)+" ("+tokens[end-1].cont+")] ("+intToStr(parentStart)+")")
+    // println("value: "+uintToStr(opLevel)+" ["+uintToStr(start)+" - "+uintToStr(end)+"] ("+intToStr(parentStart)+")")
+
+    if parentStart != -1 {
+        nbEncl = 0
+        for start >= parentStart, start-- {
+            t = tokens[start]
+            if t.type == TOKEN_TYPE_ENCL {
+                if t.cont[0] == '(' || t.cont[0] == '[' || t.cont[0] == '{' {
+                    nbEncl--
+
+                    continue
+                }
+                nbEncl++
+            }
+
+            if nbEncl == 0 && (t.cont == "," || t.cont == "=") {
+                break
+            }
+        }
+        start++
+
+        if tokens[start].type == TOKEN_TYPE_ENCL {
+            start++
+            end--
+        }
+
+        return consumeValue(tokens, start, end, -1, 0)
+    }
+
+    if tokens[start].cont == "(" && tokens[end-1].cont == ")" {
+        r = consumeValue(tokens, start+1, end-1, parentStart, 0)
+        return r
+    }
+
+    if opLevel == 5 {
+
+        t = tokens[start]
+        if t.cont == "&" {
+            if start+1 == end {
+                throwError(&t, "Expected a symbol to get pointer from.")
+            }
+            valCons = consumeValue(tokens, start + 1, end, parentStart, opLevel)
+            i = valCons[1]
+
+            if valCons[0] == null {
+                throwError(&tokens[start+1], "Expected addressable value.")
+            }
+
+            varVal = valCons[0]
+
+            if varVal.isVariable == false {
+                throwError(&varVal.tok, "Cannot get pointer of anything other than a variable.")
+            }
+
+            nt = valCons[0].type.getPtr()
+
+            val = new bahValue {
+                tok: valCons[0].tok
+                isVariable: true
+                isPointer: true
+
+                type: nt
+            }
+            return [val, i]
+
+        }
+        
+        if t.cont == "*" {
+            if start+1 == end {
+                throwError(&t, "Expected a symbol to access value from pointer.")
+            }
+            valCons = consumeValue(tokens, start + 1, end, parentStart, opLevel)
+            i = valCons[1]
+
+            if valCons[0] == null {
+                throwError(&tokens[start+1], "Expected value as an address.")
+            }
+
+            varVal = valCons[0]
+
+            if valCons[0].type.isPtr == false {
+                throwError(&varVal.tok, "Cannot access value of a non-pointer type.")
+            }
+
+            nt = valCons[0].type.child
+
+            val = new bahValue
+            val.type = nt
+            val.isUnary = true
+            val.left = varVal
+
+            return [val, i]
+        }
+        
+        if t.isValue == false {
+            throwError(&t, "Value expected.")
+        }
+
+        val = new bahValue {
+            tok: t
+        }
+
+        if t.type == TOKEN_TYPE_VAR {
+            v = parserCtx.findVar(t.cont)
+
+            if v != null {
+                val.isVariable = true
+                val.type = v.type
+            } else {
+                fn = parserCtx.findFunc(t.cont)
+                if fn != null {
+                    val.isFunctionSym = true
+                    val.type = fn.type
+                } else {
+                    throwError(&t, "Unknown symbol.")
+                }
+            }
+
+        } else if t.type == TOKEN_TYPE_BOOL {
+            val.type = new bahType {
+                size: 1
+                type: BAH_TYPE_BOOL
+            }
+            val.isStaticValue = true
+        } else if t.type == TOKEN_TYPE_INT {
+            val.type = new bahType {
+                size: 8
+                type: BAH_TYPE_INT
+            }
+            val.isStaticValue = true
+        } else if t.type == TOKEN_TYPE_FLOAT {
+            val.type = new bahType {
+                size: 8
+                type: BAH_TYPE_FLOAT
+            }
+            val.isStaticValue = true
+        } else if t.type == TOKEN_TYPE_STR {
+            val.type = new bahType {
+                size: 8
+                type: BAH_TYPE_STR
+                isNativePtr: true
+            }
+            val.isStaticValue = true
+        } else if t.type == TOKEN_TYPE_CHAR {
+            val.type = new bahType {
+                size: 1
+                type: BAH_TYPE_UINT
+            }
+            val.isStaticValue = true
+        } else {
+            val = null
+        }
+
+        if end - start == 1 || tokens[start+1].type == TOKEN_TYPE_SYNTAX || tokens[start+1].cont == ")" || tokens[start+1].cont == "]" || tokens[start+1].cont == "}" {
+            return [val, start + 1]
+        }
+
+        if val == null {
+            throwError(&t, "Expected a value.")
+        }
+
+        if tokens[start+1].cont == "(" {
+            if val.type.type != BAH_TYPE_FUNC {
+                throwError(&t, "Cannot use symbol as function.")
+            }
+
+            fnSymVal = val
+            val = new bahValue {
+                isFunctionCall: true
+                left: fnSymVal
+                tok: fnSymVal.tok
+                type: fnSymVal.type.child
+            }
+
+            currArg = fnSymVal.type.next
+            currArgVal = val
+
+            i = start + 2
+            nbPar = 1
+            for i < end, i++ {
+                if tokens[i].cont == ")" {
+                    break
+                }
+
+                if currArg == null {
+                    throwError(&tokens[i], "Too many arguments in function call.")
+                }
+
+                argCons = consumeValue(tokens, i, end, -1, 0)
+                i = argCons[1]
+
+                if argCons[0] == null {
+                    throwError(&tokens[i], "Expected value as argument in function call.")
+                }
+
+                if compatibleTypes(argCons[0].type, currArg) == false {
+                    throwError(&tokens[i], "Wrong type in function call.")
+                }
+
+                if i == end {
+                    throwError(&t, "Missing end of function call.")
+                }
+
+                if tokens[i].cont != "," && tokens[i].cont != ")" {
+                    throwError(&tokens[i], "Expected separator between arguments in function call.")
+                }
+
+                currArgVal.right = new bahValue {
+                    isArgumentList: true
+                    left: argCons[0]
+                }
+                currArgVal = currArgVal.right
+                currArg = currArg.next
+            }
+            i--
+
+            return [val, i+1]
+
+        }
+
+        //handle arrays, structs..
+        //in else statement
+
+    }
+
+    for i < end, i++ {
+        if tokens[i].cont == "(" {
+            if nbPar == 0 {
+                parStart = i
+            }
+            nbPar++
+        } else if tokens[i].cont == ")" {
+            nbPar--
+            continue
+        }
+
+        if nbPar > 0 {
+            continue
+        }
+
+        if tokens[i].cont == "," {
+            break
+        }
+
+        if i > start && i+1 < end {
+            if (opLevel == 0 && (tokens[i].cont == "||")) || (opLevel == 1 && (tokens[i].cont == "&&")) || (opLevel == 2 && (tokens[i].cont == "<" || tokens[i].cont == ">" || tokens[i].cont == ">=" || tokens[i].cont == "<=" || tokens[i].cont == "==" || tokens[i].cont == "!=")) || (opLevel == 3 && (tokens[i].cont == "+" || tokens[i].cont == "-")) || (opLevel == 4 && (tokens[i].cont == "*" || tokens[i].cont == "/" || tokens[i].cont == "%"))  {
+                val = new bahValue{
+                    tok: tokens[i]
+                    isOperation: true
+                }
+                leftCons = consumeValue(tokens, i-1, i, <int>start, opLevel+1)
+                val.left = leftCons[0]
+
+                if val.left == null {
+                    if (tokens[i].cont == "*" || tokens[i].cont == "&") {
+                        //is a pointer dereference or pointer
+                        continue
+                    }
+                    throwError(&tokens[i-1], "Cannot do operation on non value on the left.")
+                }
+
+                if tokens[i+1].cont == tokens[i].cont {
+                    val.isSelfOp = true
+                } else {
+                    rightCons = consumeValue(tokens, i+1, end, -1, opLevel)
+                    if rightCons[0] == null {
+                        throwError(&tokens[i+1], "Cannot do operation on non value on the right.")
+                    }
+                    val.right = rightCons[0]
+                    i = rightCons[1]
+                }
+
+                if compatibleTypes(val.left.type, val.right.type) == false {
+                    throwError(&val.right.tok, "Wrong type.")
+                }
+
+                if val.tok.cont == "||" || val.tok.cont == "&&" || val.tok.cont == "<" || val.tok.cont == ">" || val.tok.cont == "<=" || val.tok.cont == ">=" || val.tok.cont == "==" || val.tok.cont == "!=" {
+                    val.type = new bahType {
+                        type: BAH_TYPE_BOOL
+                        size: 1
+                    }
+                } else {
+                    val.type = val.left.type
+                }
+
+
+                return [val, i]
+            }
+        }
+
+    }
+
+    if opLevel == 5 {
+        return [<bahValue*>null, start]
+    }
+
+    return consumeValue(tokens, start, end, -1, opLevel+1)
+}
+
+
+
+parseHashDirective(tokens []bahToken, start uint, end uint) {
+
+    
+    if parserCtx.scope > 0 {
+        throwError(&tokens[start], "Directive should be used at global scope.")
+    }
+
+    if tokens[start].cont == "#define" {
+        if end - start < 3 {
+            throwError(&tokens[start], "Invalid use of #define.")
+        }
+
+        if tokens[start+2].cont == "(" {
+            fnTypeCons = consumeType(tokens, start+2, end, true)
+            fnType = fnTypeCons[0]
+            i = fnTypeCons[1]
+
+            if fnType == null {
+                throwError(&tokens[start], "Invalid function type in function definition.")
+            }
+
+            fn = new bahFunction {
+                name: tokens[start+1].cont
+                type: fnType
+            }
+
+            if tokens[start+1].cont == "main" && fnType.toStr() != "function(args []str) int" {
+                throwError(&tokens[start], "Invalid main function type, should be: function(args []str) int.")
+            }
+
+            parserCtx.addFunc(fn)
+
+            if i != end {
+                throwError(&tokens[i], "Didn't expected anything after function definition.")
+            }
+        }
+    }
+
+}
+
+parseReturn(tokens []bahToken, start uint, end uint) {
+
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Cannot return outside of a function.")
+    }
+
+    if start+1 == end {
+        //handle only return if no ret type
+        if parserCtx.scopeCtx.currentFunction.type.child != null {
+            throwError(&tokens[start], "Expected return value.")
+        }
+        return
+    }
+
+    valCons = consumeValue(tokens, start+1, end, -1, 0)
+    val = valCons[0]
+    if val == null {
+        throwError(&tokens[start+1], "Expected value, cannot return anything other than a value.")
+    }
+
+    if valCons[1] != end {
+        println(uintToStr(valCons[1])+" != "+uintToStr(end))
+        throwError(&tokens[valCons[1]], "Did not expect anything after the return statement.")
+    }
+
+    if parserCtx.scopeCtx.currentFunction.type.child == null {
+        throwError(&val.tok, "Did not expect a return value.")
+    }
+    
+    if compatibleTypes(parserCtx.scopeCtx.currentFunction.type.child, val.type) == false {
+        throwError(&val.tok, "Wrong type in return value.")
+    }
+
+    parserCtx.scopeCtx.hasReturned = true
+
+    valSym = generateBahValueSymbol(val)
+    gen.generateReturn(valSym)
+}
+
+parseIf(tokens []bahToken, start uint, end uint) {
+    nbPar = 1
+    i = end-2
+    ifLineEnd = end
+    for i != -1, i-- {
+        if tokens[i].cont == "{" {
+            nbPar--
+            if nbPar == 0 {
+                ifLineEnd = i
+                break
+            }
+        } else if tokens[i].cont == "}" {
+            nbPar++
+        }
+    }
+
+    condValCons = consumeValue(tokens, start+1, ifLineEnd, -1, 0)
+    if condValCons[0] == null {
+        throwError(&tokens[start+1], "Expected a condition in if statement.")
+    }
+
+    gen.generateIf(generateBahValueSymbol(condValCons[0]))
+
+    ifScope = new parserScope {
+        isConditional: true
+        currentFunction: parserCtx.scopeCtx.currentFunction
+    }
+
+    parserCtx.startScope(ifScope)
+
+    parseLines(tokens, ifLineEnd+1, end-1)
+
+    parserCtx.endScope()
+
+    gen.generateEndIf()
+
+    if end < len(tokens) && tokens[end].cont == "else" {
+        parserCtx.scopeCtx.ifChainLength++
+    } else {
+        parserCtx.scopeCtx.ifChainLength = 0
+    }
+
+}
+
+parseElse(tokens []bahToken, start uint, end uint) {
+
+    if parserCtx.scopeCtx.ifChainLength == 0 {
+        throwError(&tokens[start], "Did not expect else block here.")
+    }
+
+    elseLineEnd = start + 1
+
+    if end - start > 1 && tokens[start+1].cont == "if" {
+        nbPar = 1
+        i = end-2
+        for i != -1, i-- {
+            if tokens[i].cont == "{" {
+                nbPar--
+                if nbPar == 0 {
+                    elseLineEnd = i
+                    break
+                }
+            } else if tokens[i].cont == "}" {
+                nbPar++
+            }
+        }
+
+        condValCons = consumeValue(tokens, start+2, elseLineEnd, -1, 0)
+        if condValCons[0] == null {
+            throwError(&tokens[start+2], "Expected a condition in else if statement.")
+        }
+
+        isNotChainEnd = end < len(tokens) && tokens[end].cont == "else"
+        chainLength = parserCtx.scopeCtx.ifChainLength
+
+        if isNotChainEnd {
+            chainLength = 0
+        }
+
+        gen.generateElseIf(generateBahValueSymbol(condValCons[0]), chainLength)
+
+        ifScope = new parserScope {
+            isConditional: true
+            currentFunction: parserCtx.scopeCtx.currentFunction
+        }
+
+        i= len(parserCtx._scopeCtx) - 1; for i != -1, i-- {
+            if parserCtx._scopeCtx[i].scope == parserCtx.scope + 1 && parserCtx._scopeCtx[i].isConditional {
+                parserCtx._scopeCtx[i].child = ifScope
+                break
+            }
+        }
+
+        parserCtx.startScope(ifScope)
+
+        parseLines(tokens, elseLineEnd+1, end-1)
+
+        parserCtx.endScope()
+
+        gen.generateEndElse()
+
+        if isNotChainEnd {
+            parserCtx.scopeCtx.ifChainLength++
+        } else {
+            parserCtx.scopeCtx.ifChainLength = 0
+        }
+
+    } else {
+        gen.generateElse(parserCtx.scopeCtx.ifChainLength)
+
+        elseScope = new parserScope {
+            isConditional: true
+            isElse: true
+            currentFunction: parserCtx.scopeCtx.currentFunction
+        }
+
+        i= len(parserCtx._scopeCtx) - 1; for i != -1, i-- {
+            if parserCtx._scopeCtx[i].scope == parserCtx.scope + 1 && parserCtx._scopeCtx[i].isConditional {
+                parserCtx._scopeCtx[i].child = elseScope
+                break
+            }
+        }
+
+
+        parserCtx.startScope(elseScope)
+
+        parseLines(tokens, elseLineEnd+1, end-1)
+
+        parserCtx.endScope()
+
+        gen.generateEndElse()
+
+        parserCtx.scopeCtx.ifChainLength = 0
+    }
+    
+}
+
+parseFor(tokens []bahToken, start uint, end uint) {
+    nbPar = 1
+    i = end-2
+    forLineEnd = end
+    for i != -1, i-- {
+        if tokens[i].cont == "{" {
+            nbPar--
+            if nbPar == 0 {
+                forLineEnd = i
+                break
+            }
+        } else if tokens[i].cont == "}" {
+            nbPar++
+        }
+    }
+    
+    condValCons = consumeValue(tokens, start+1, forLineEnd, -1, 0)
+    if condValCons[0] == null {
+        throwError(&tokens[start+1], "Expected at least a condition.")
+    }
+
+    condVal = condValCons[0]
+    i = condValCons[1]
+
+    if condValCons[0].type.type != BAH_TYPE_BOOL {
+        throwError(&condVal.tok, "Wrong type as condition for a loop.")
+    }
+
+    gen.generateFor()
+
+    gen.generateForCond(generateBahValueSymbol(condVal))
+
+    forLoopScope = new parserScope {
+        isConditional: true
+        currentFunction: parserCtx.scopeCtx.currentFunction
+    }
+
+    parserCtx.startScope(forLoopScope)
+
+    if tokens[i].cont == "," {
+        parseLine(tokens, i+1, forLineEnd)
+    }
+
+    gen.generateForIncr()
+
+
+    parseLines(tokens, forLineEnd+1, end-1)
+
+    gen.generateForEnd()
+
+    parserCtx.endScope()
+
+
+}
+
+parseStruct(tokens []bahToken, start uint, end uint) {
+
+}
+
+parseFnDecl(tokens []bahToken, start uint, end uint) {
+    nbPar = 1
+    i = end-2
+    fnLineEnd = end
+    for i != -1, i-- {
+        if tokens[i].cont == "{" {
+            nbPar--
+            if nbPar == 0 {
+                fnLineEnd = i
+                break
+            }
+        } else if tokens[i].cont == "}" {
+            nbPar++
+        }
+    }
+
+    fnTypeCons = consumeType(tokens, start+1, fnLineEnd, true)
+
+    fnType = fnTypeCons[0]
+    i = fnTypeCons[1]
+
+    if fnType == null {
+        throwError(&tokens[start], "Invalid function type in function declaration.")
+    }
+
+    fn = new bahFunction {
+        name: tokens[start].cont
+        type: fnType
+    }
+
+    if tokens[start].cont == "main" && fnType.toStr() != "function(args []str) int" {
+        throwError(&tokens[start], "Invalid main function type, should be: function(args []str) int.")
+    }
+
+    i++
+
+    hasRetType = fnType.child != null
+
+    funcScope = new parserScope {
+        isConditional: false
+        hasReturned: false
+        needsReturn: hasRetType
+
+        currentFunction: fn
+    }
+
+    parserCtx.addFunc(fn)
+
+    parserCtx.startScope(funcScope)
+
+    genArgs = []asmSymbol
+
+    arg = fnType.next
+    for arg != null, arg = arg.next {
+        v = new bahVariable {
+            name: arg.name
+            type: arg
+        }
+        parserCtx.addVar(v)
+        v.sym = gen.generateVarDecl(v.name, v.type.size)
+        genArgs[len(genArgs)] = v.sym
+    }
+
+    gen.generateFnStart(fn.name, genArgs)
+
+    parseLines(tokens, i, end-1)
+
+    if parserCtx.scopeCtx.currentFunction.type.child != null && hasScopeReturned(parserCtx.scopeCtx) == false {
+        throwError(&tokens[end-1], "Function with a return type shall be returned.")
+    }
+
+    gen.generateFnEnd()
+
+    parserCtx.endScope()
+
+}
+
+parseLine(tokens []bahToken, start uint, end uint) {
+    
+    //type by first token
+    t = tokens[start]
+    if t.type == TOKEN_TYPE_KEYWORD {
+        if t.cont[0] == '#' {
+            parseHashDirective(tokens, start, end)
+        } else if t.cont == "return" {
+            parseReturn(tokens, start, end)
+        } else if t.cont == "if" {
+            parseIf(tokens, start, end)
+        } else if t.cont == "else" {
+            parseElse(tokens, start, end)
+            if end - start > 1 && tokens[start + 1].cont == "if" {
+            }
+        } else if t.cont == "for" {
+            parseFor(tokens, start, end)
+        } else if t.cont == "struct" {
+            parseStruct(tokens, start, end)
+        }
+    } else if t.type == TOKEN_TYPE_VAR && end - start > 4 && tokens[start+1].cont == "(" && tokens[end-1].cont == "}" {
+        parseFnDecl(tokens, start, end)
+    } else {
+        i=start; for i < end, i++ {
+            if tokens[i].cont == "=" {
+                break
+            }
+        }
+
+        if i != end {
+            if i == start {
+                throwError(&tokens[i], "Expected a value on the left of equal, got nothing.")
+            }
+            if i == end - 1 {
+                throwError(&tokens[i], "Expected a value on the right of equal, got nothing.")
+            }
+
+            lValCons = consumeLeftValue(tokens, start, i)
+            rValCons = consumeValue(tokens, i+1, end, -1, 0)
+
+            tmpDeclType bahType* = null
+
+            if rValCons[0] == null {
+                throwError(&tokens[i+1], "Expected a value on the right of equal.")
+            }
+
+            if lValCons[0] == null {
+                throwError(&tokens[start], "Expected a symbol or an address on the left of equal.")
+            }
+
+            if lValCons[1] != i {
+                typeCons = consumeType(tokens, lValCons[1], i, false)
+                if typeCons[0] == null {
+                    throwError(&tokens[lValCons[1]], "Expected type.")
+                } else if typeCons[1] != i {
+                    throwError(&tokens[typeCons[1]], "Did not expect anything after the type.")
+                }
+
+                if lValCons[2] == false {
+                    throwError(&tokens[lValCons[1]], "Cannot cast the left value type outside of a declaration.")
+                }
+
+                tmpDeclType = typeCons[0]
+
+                //type?
+                // throwError(&tokens[lValCons[1]], "Didn't expect anything between left value and equal sign.")
+            }
+
+            lVal = lValCons[0]
+            
+            if lValCons[2] {
+                //is declaration
+
+                lVal.variable = new bahVariable {
+                    name: lValCons[0].tok.cont
+                    type: rValCons[0].type
+                }
+
+                if tmpDeclType != null {
+                    lVal.variable.type = tmpDeclType
+                    lVal.type = tmpDeclType
+                }
+
+                parserCtx.addVar(lVal.variable)
+                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size)
+            } else {
+                if compatibleTypes(lValCons[0].type, rValCons[0].type) == false {
+                    t = rValCons[0].tok
+                    throwError(&t, "Wrong type.")
+                }
+            }
+
+            //Generate var setting
+            rValSym = generateBahValueSymbol(rValCons[0])
+            lValSym = generateBahLeftValueSymbol(lVal)
+
+            gen.generateVarSet(lValSym, rValSym)
+        } else {
+            val = consumeValue(tokens, start, end, -1, 0)
+            if val[0] != null {
+                generateBahValueSymbol(val[0])
+            }
+        }
+    }
+
+    
+    // i=start; for i < end, i++ {
+    //     t = tokens[i]
+    // }
+}
+
+parseLines(tokens []bahToken, start uint, end uint) {
+    nbEncl uint = 0
+    currentLine uint = 0
+    startLine uint = start
+    endLine uint = end
+
+    i=start; for i < end, i++ {
+        t = tokens[i]
+
+        if t.type == TOKEN_TYPE_STR && t.begLine == currentLine && t.line != currentLine {
+            currentLine = t.line
+        }
+
+        if t.type == TOKEN_TYPE_ENCL {
+            if t.cont[0] == '(' || t.cont[0] == '[' || t.cont[0] == '{' {
+                nbEncl++
+            } else {
+                if nbEncl == 0 {
+                    throwError(&t, "One too many token.")
+                }
+                nbEncl--
+                if nbEncl == 0 && t.cont[0] == '}' {
+                    endLine = i+1
+                    if startLine != endLine {
+                        parseLine(tokens, startLine, endLine)
+                    }
+                    startLine = endLine
+                    if endLine < end {
+                        currentLine = tokens[endLine].line
+                    }
+                }
+                continue
+            }
+        }
+
+        if t.line != currentLine || t.cont == ";" {
+            if nbEncl == 0 {
+                endLine = i
+                if startLine != endLine {
+                    parseLine(tokens, startLine, endLine)
+                }
+                startLine = endLine
+                if t.cont == ";" {
+                    startLine++
+                }
+            }
+            currentLine = t.line
+        }
+
+    }
+
+    if startLine != i {
+        endLine = i
+        parseLine(tokens, startLine, endLine)
+    }
+}

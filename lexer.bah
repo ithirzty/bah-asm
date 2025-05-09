@@ -1,0 +1,288 @@
+//tokens types
+#define tokenType char
+
+const TOKEN_NO_TYPE =      <tokenType>-1
+const TOKEN_TYPE_INT =     <tokenType>0
+const TOKEN_TYPE_FLOAT =   <tokenType>1
+const TOKEN_TYPE_VAR =     <tokenType>2
+const TOKEN_TYPE_ENCL =    <tokenType>3
+const TOKEN_TYPE_SEP =     <tokenType>4
+const TOKEN_TYPE_STR =     <tokenType>5
+const TOKEN_TYPE_KEYWORD = <tokenType>6
+const TOKEN_TYPE_CHAR =    <tokenType>7
+const TOKEN_TYPE_BOOL =    <tokenType>8
+const TOKEN_TYPE_SYNTAX =  <tokenType>10
+const TOKEN_TYPE_FUNC =    <tokenType>11
+const TOKEN_TYPE_CAST =    <tokenType>12
+
+//a token (the atomic unit for describing the inputed Bah file)
+struct bahToken {
+    cont: str = ""
+    type: tokenType = TOKEN_NO_TYPE
+    pos: uint32 = 0
+    line: uint32 = 1
+    begLine: uint32 = 1
+    isValue: bool
+}
+
+
+enclavers = []char{'(', ')', '{', '}', '[', ']'}
+syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
+                                    //&                                                    //;
+
+keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then", "default", "switch", "case", "while", "typedef"}
+            //     x      x      x        x       x       x          x          x        x         x          x         x       x      x      x       x         x      x        -          -        -       -          -
+            // x: done
+            //  : not done
+            // -: not planned
+
+//Generates a token from all of its properties.
+makeToken(pos int, lineNb int, cont str, type tokenType) bahToken {
+    t = bahToken{
+        cont: cont
+        pos: pos
+        line: lineNb
+        type: type
+    }
+
+    if type == TOKEN_TYPE_VAR && t.cont in keywords {
+        t.type = TOKEN_TYPE_KEYWORD
+    } else if type == TOKEN_TYPE_INT || type == TOKEN_TYPE_STR || type == TOKEN_TYPE_FLOAT || type == TOKEN_TYPE_VAR || type == TOKEN_TYPE_BOOL || type == TOKEN_TYPE_CHAR {
+        t.isValue = true
+    }
+    return t
+}
+
+//If current char is a '-' and next char is a number, returns true.
+isMinus(c char, nc char) bool {
+    return c == '-' && isNumber(nc)
+}
+
+//We never want to have to throw this error as the file is not yet parsed, we have very little information.
+lexerErr(line int, pos int, msg str) {
+    lineStr = intToStr(line)
+    posStr = intToStr(pos)
+    // println("\e[1;31m[LEXER-ERROR]\e[0m "+compilerState.currentFile+":"+lineStr+":"+posStr+"\n\e[0m\n"+msg)
+    exit(1)
+}
+
+//Takes a file as input, outputs an array of tokens.
+lexer(s str) []bahToken {
+    lexerStart = getTimeUnix()
+    tokens = []bahToken
+
+    // totalSize += len(s)
+
+
+    lineNb = 1 //current line number (in source file)
+
+    i=0; for i < len(s), i++ {
+        c = s[i]
+
+        if c == ' ' {
+            continue
+        }
+
+        nc char = <char>0
+        if i+1 < len(s) {
+            nc = s[i+1]
+        }
+
+
+        //testing for comments
+        if c == '/' && nc == '/'{
+            //ignore the content untill we hit a new line
+            for i < len(s), i++ {
+                if s[i] == <char>10 {
+                    break
+                }
+            }
+            //file end
+            if i == len(s) {
+                break
+            }
+            c = s[i]
+        }
+
+        //we have it the new line character
+        if c == <char>10 {
+            lineNb++
+            continue
+        }
+
+        //token is a string
+        if c == '"' {
+            pos = i
+            begLine = lineNb
+            memory = strBuilder{}
+            memory.append(c)
+            i++
+            for i < len(s), i++ {
+                c = s[i]
+                if c == <char>92 { //back slash
+                    memory.append(<char>92)
+                    memory.append(s[i+1])
+                    if s[i+1] == <char>10 {
+                        lineNb++
+                    }
+                    i++
+                    continue
+                }
+                
+                //string ending
+                if c == '"' {
+                    memory.append(c)
+                    break
+                }
+                //escaping line returns
+                if c == <char>10 {
+                    memory.append(<char>92)
+                    memory.append('n')
+                    lineNb++
+                    continue
+                }
+                memory.append(c)
+            }
+            t = makeToken(pos, lineNb, memory.str(), TOKEN_TYPE_STR)
+            t.begLine = begLine
+            tokens[len(tokens)] = t
+        } else if isNumber(c) || isMinus(c, nc) { //token is a number
+            pos = i
+            i++
+            currentType = TOKEN_TYPE_INT
+            isHex = false
+            for i < len(s), i++ {
+                c = s[i]
+                if c == <char>46 {
+                    currentType = TOKEN_TYPE_FLOAT
+                } else if isNumber(c) == false {
+                    if isHex == false {
+                        if c == 'x' {
+                            isHex = true
+                        } else {
+                            break
+                        }
+                    } else {
+                        if isUpper(c) {
+                            c += <char>32
+                        }
+                        if c < 'a' || c > 'f' {
+                            break
+                        }
+                    }
+                    if isHex == false {
+                        break
+                    }
+                }
+            }
+            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
+            i--
+        } else if isAlphaNumeric(c) || c == '_' { //token is a var / keyword
+            pos = i
+            i++
+            //get full token
+            for i < len(s), i++ {
+                c = s[i]
+                if isAlphaNumeric(c) == false {
+                    if c != '_' {
+                        if c == '>' {
+                            if s[i-1] == '-' {
+                                i--
+                                break
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+            currentType = TOKEN_TYPE_VAR
+            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
+            i--
+        } else if c == <char>39 { //is a character
+            i += 2
+            if s[i] != <char>39 {
+                lexerErr(lineNb, i, "Missing closing tag in char declaration.")
+            }
+            t = makeToken(i-2, lineNb, intToStr(<int>nc), TOKEN_TYPE_CHAR)
+            t.cont = s[i-2:i+1]
+            tokens[len(tokens)] = t
+        } else if c == <char>35 { //is a hash keyword
+            pos = i
+            i++
+            for i < len(s), i++ {
+                c = s[i]
+                if isAlphaNumeric(c) == false {
+                    break
+                }
+            }
+            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_KEYWORD)
+            i--
+        } else if c == '.' { //token is a separator
+            tokens[len(tokens)] = makeToken(i, lineNb, ".", TOKEN_TYPE_SEP)
+        } else if c in syntaxes { //token is a syntax element
+            if c == '<' {
+                pos = i
+                isCast = false
+                i++
+                for i < len(s), i++ {
+                    c = s[i]
+                    if isSpace(c) {
+                        continue
+                    }
+                    if c == '>' {
+                        isCast = true
+                        break
+                    }
+                    if isAlphaNumeric(c) == false && c != '*' && c != ':' && c != '_' && c != '[' && c != ']' {
+                        isFnType = (c == '(' || c == ')') && string(s[pos:i+1]).hasPrefix("<function")
+                        if isFnType == false {
+                            break
+                        }
+                    }
+                }
+                if isCast == true {
+                    tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i+1], TOKEN_TYPE_CAST)
+                    continue
+                }
+                i = pos
+                c = '<'
+            }
+            
+            pos = i
+            i++
+            fc = c
+            for i < len(s), i++ {
+                c = s[i]
+                if c in syntaxes == false {
+                    break
+                }
+                //for <=, >=, ==, !=, +=, -=, &&, ||, <<
+                if fc == '<' {
+                    if c != '-' && c != '=' && c != '<' {
+                        break
+                    }
+                } else if c == '|' {
+                    if fc != c {
+                        break
+                    }
+                } else if c == '&' {
+                    if fc != c {
+                        break
+                    }
+                } else if c != '=' {
+                    if c != '>' {
+                        break
+                    }
+                }
+            }
+            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_SYNTAX)
+            i--
+        } else if c in enclavers { //token is enclaver
+            tokens[len(tokens)] = makeToken(i, lineNb, s[i:i+1], TOKEN_TYPE_ENCL)
+        }
+
+    }
+    // totalLines += lineNb - 1
+    // totalLexerTime += (getTimeUnix() - lexerStart)
+    return tokens
+}

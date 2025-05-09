@@ -1,0 +1,8 @@
+compatibleTypes(a bahType*, b bahType*) bool {
+    if a == null || b == null {
+        return false
+    }
+    //handle struct types, fn...
+
+    return a.type == b.type
+}

@@ -1,0 +1,8 @@
+throwError(t bahToken*, s str) {
+
+    println(s)
+
+    println(toJson(t))
+
+    exit(1)
+}

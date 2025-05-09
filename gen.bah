@@ -1,0 +1,135 @@
+generateBahValueSymbol(val bahValue*) asmSymbol {
+    r = asmSymbol {}
+
+    if val.isUnary {
+        return gen.generateUnary(generateBahValueSymbol(val.left))
+    }
+
+    if val.isStaticValue {
+        if val.type.type == BAH_TYPE_INT || val.type.type == BAH_TYPE_UINT {
+            return gen.staticInt(val.tok.cont)
+        } else if val.type.type == BAH_TYPE_FLOAT {
+            if val.type.size == 4 {
+                return gen.staticFloat32(val.tok.cont)
+            } else if val.type.size == 8 {
+                return gen.staticFloat64(val.tok.cont)
+            }
+        } else if val.type.type == BAH_TYPE_STR {
+            return gen.generateStaticStr(val.tok.cont)
+        }
+    }
+
+    if val.isVariable {
+        i=0; for i < len(parserCtx.variables), i++ {
+            if parserCtx.variables[i].name == val.tok.cont {
+                sm = parserCtx.variables[i].sym
+                if val.isPointer {
+                    sm.level = -1
+                }
+                return sm
+            }
+        }
+    }
+
+    if val.isOperation {
+
+        if val.isSelfOp {
+            throwError(&val.tok, "self op not yet implemented")
+        }
+
+        tp = ASM_NUM_INT
+        if val.left.type.type == BAH_TYPE_UINT || val.type.isNativePtr {
+            tp = ASM_NUM_UINT
+        } else if val.left.type.type == BAH_TYPE_FLOAT {
+            tp = ASM_NUM_FLOAT
+        }
+        //handle strings concat and struct methods special operations
+        //also handle conversions
+        //also handle other operations
+        if val.tok.cont == "*" {
+            return gen.generateOpMult(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
+        } else if val.tok.cont == "/" {
+            return gen.generateOpDiv(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
+        } else if val.tok.cont == "-" {
+            return gen.generateOpSub(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
+        } else if val.tok.cont == "+" {
+            return gen.generateOpAdd(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
+        } else if val.tok.cont == "<" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_LESS)
+        } else if val.tok.cont == ">" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_GREATER)
+        } else if val.tok.cont == "<=" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_LESS_OR_EQ)
+        } else if val.tok.cont == ">=" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_GREATER_OR_EQ)
+        } else if val.tok.cont == "==" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_EQ)
+        } else if val.tok.cont == "!=" {
+            return gen.generateCompare(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), ASM_OP_NOT_EQ)
+        } else if val.tok.cont == "||" {
+            gen.generateBoolOrStart()
+
+            if val.right.tok.cont == "||" {
+                currOr = val
+                for currOr != null, currOr = currOr.right {
+                    if currOr.tok.cont != "||" {
+                        return gen.generateBoolOrEnd(generateBahValueSymbol(currOr))
+                    }
+                    gen.generateBoolOr(generateBahValueSymbol(currOr.left))
+                }
+            }
+
+            gen.generateBoolOr(generateBahValueSymbol(val.left))
+            return gen.generateBoolOrEnd(generateBahValueSymbol(val.right))
+
+        } else if val.tok.cont == "&&" {
+            gen.generateBoolAndStart()
+
+            if val.right.tok.cont == "&&" {
+                currOr = val
+                for currOr != null, currOr = currOr.right {
+                    if currOr.tok.cont != "&&" {
+                        return gen.generateBoolAndEnd(generateBahValueSymbol(currOr))
+                    }
+                    gen.generateBoolAnd(generateBahValueSymbol(currOr.left))
+                }
+            }
+
+            gen.generateBoolAnd(generateBahValueSymbol(val.left))
+            return gen.generateBoolAndEnd(generateBahValueSymbol(val.right))
+
+        }
+
+    }
+
+    if val.isFunctionCall {
+        gen.generateFnCallStart()
+        argVal = val.right
+
+        for argVal != null, argVal = argVal.right {
+            gen.generateFnCallArgument(generateBahValueSymbol(argVal.left))
+        }
+
+        return gen.generateFnCall(val.tok.cont)
+    }
+
+    throwError(&val.tok, "Internal error generating value asm symbol: "+toJson(val)+".")
+
+    return r
+}
+
+generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
+    r = asmSymbol{}
+
+    if lval.isUnary {
+        return gen.generateDereference(generateBahLeftValueSymbol(lval.next))
+    }
+
+    if lval.isVariable {
+        return lval.variable.sym
+    }
+
+    throwError(&lval.tok, "Internal error generating left-value asm symbol.")
+
+    return r
+}

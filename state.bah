@@ -1,0 +1,274 @@
+struct compilerStateTag {
+    currentFile: str
+}
+
+compilerState = compilerStateTag{}
+
+
+const BAH_TYPE_BOOL   = 0
+
+const BAH_TYPE_INT   = 1
+
+const BAH_TYPE_UINT   = 2
+
+const BAH_TYPE_FLOAT   = 3
+
+const BAH_TYPE_STR = 4
+
+const BAH_TYPE_STRCT = 5
+const BAH_TYPE_ARRAY = 6
+const BAH_TYPE_MAP   = 7
+const BAH_TYPE_CHAN  = 8
+const BAH_TYPE_FUNC  = 9
+
+struct bahFileLoc {
+    file: str
+    line: uint
+    from: uint
+    to:   uint
+}
+
+struct bahType {
+    name:   str
+    size:   uint32
+    offset: uint32
+    type:   byte
+
+    isPtr: bool
+    isNativePtr: bool
+
+    child: bahType*
+    next:  bahType*
+
+    loc: bahFileLoc
+
+    toStr() str {
+        if this.type == BAH_TYPE_BOOL {
+            return "bool"
+        } else if this.type == BAH_TYPE_INT {
+            if this.size == 8 {
+                return "int"
+            }
+            return "int" + uintToStr(this.size * 8)
+        } else if this.type == BAH_TYPE_UINT {
+            if this.size == 1 {
+                return "byte"
+            } else if this.size == 8 {
+                return "uint"
+            }
+            return "uint" + uintToStr(this.size * 8)
+        } else if this.type == BAH_TYPE_FLOAT {
+            if this.size == 8 {
+                return "float"
+            }
+            return "float" + uintToStr(this.size * 8)
+        } else if this.type == BAH_TYPE_STR {
+            return "str"
+        } else if this.type == BAH_TYPE_STRCT {
+            return this.child.name
+        } else if this.type == BAH_TYPE_ARRAY {
+            return "[]" + this.child.toStr()
+        } else if this.type == BAH_TYPE_MAP {
+            return "map:" + this.child.toStr()
+        } else if this.type == BAH_TYPE_CHAN {
+            return "chan:" + this.child.toStr()
+        } else if this.type == BAH_TYPE_FUNC {
+            s = "function("
+            elem = this.next
+            for elem != null, elem = elem.next {
+                s += elem.name + " " + elem.toStr()
+                if elem.next != null {
+                    s += ", "
+                }
+            }
+            s += ")"
+            if this.child != null {
+                s += " "+this.child.toStr()
+            }
+            return s
+        }
+
+        return "" 
+    }
+
+    getPtr() bahType* {
+        r = new bahType {
+            isPtr: true
+            isNativePtr: true
+            size: 8
+            child: this
+        }
+
+        return r
+    }
+
+}
+
+struct bahVariable {
+    name: str
+    type: bahType*
+
+    scope: uint
+
+    loc: bahFileLoc
+    sym: asmSymbol
+}
+
+struct bahFunction {
+    name: str
+    type: bahType*
+ 
+    loc: bahFileLoc
+}
+
+struct bahValue {
+    isOperation: bool
+    isStaticValue: bool
+    isFunctionSym: bool
+    isFunctionCall: bool
+    isVariable: bool
+    isArgumentList: bool
+    isSelfOp: bool
+    isPointer: bool
+    isUnary: bool
+
+    tok: bahToken
+
+    type: bahType*
+
+    left: bahValue*
+    right: bahValue*
+
+    sym: asmSymbol
+}
+
+struct bahLeftValue {
+    isVariable: bool //final symbol in the left-val tree
+    isArray: bool //is only the array in which is the left-val
+    isStruct: bool //same for struct
+    isUnary: bool
+    type: bahType*
+
+    tok: bahToken
+
+    index: bahValue*
+    variable: bahVariable*
+    next: bahLeftValue*
+}
+
+struct parserScope {
+    isConditional: bool
+    hasReturned:   bool
+    needsReturn:   bool
+    isElse: bool
+    ifChainLength: uint
+    scope: uint
+
+    
+    parent: parserScope*
+    child: parserScope*
+
+    currentFunction: bahFunction*
+}
+
+struct parserContext {
+    variables: []bahVariable*
+    functions: []bahFunction*
+    scope: uint
+
+    _scopeCtx: []parserScope*
+
+    scopeCtx: parserScope*
+
+    addVar(v bahVariable*) {
+        v.scope = this.scope
+        this.variables[len(this.variables)] = v
+    }
+
+    addFunc(fn bahFunction*) {
+        // v.scope = this.scope
+        this.functions[len(this.functions)] = fn
+    }
+
+    startScope(scope parserScope*) {
+        this.scope++
+        scope.parent = this.scopeCtx
+        scope.scope = this.scope
+
+        this._scopeCtx[len(this._scopeCtx)] = scope
+        this.scopeCtx = scope
+    }
+
+    endScope() {
+        this.scope--
+        
+        if this.scope == 0 {
+            clear(this._scopeCtx)
+            this.scopeCtx = null
+        } else {
+            this.scopeCtx = this._scopeCtx[this.scope - 1]
+        }
+
+        i=0; for i < len(this.variables), i++ {
+            if this.variables[i].scope > this.scope {
+                delete(this.variables, i)
+                i--
+            }
+        }
+    }
+
+    findVar(s str) bahVariable* {
+        i=len(this.variables) - 1; for i != -1, i-- {
+            v = this.variables[i]
+            if v.name == s {
+                return v
+            }
+        }
+        return null
+    }
+
+    findFunc(s str) bahFunction* {
+        i=len(this.functions) - 1; for i != -1, i-- {
+            fn = this.functions[i]
+            if fn.name == s {
+                return fn
+            }
+        }
+        return null
+    }
+}
+
+parserCtx = parserContext{}
+
+hasScopeReturned(scope parserScope*) bool {
+    if scope.isConditional == false {
+        if scope.hasReturned {
+            return true
+        }
+
+        i=0; for i < len(parserCtx._scopeCtx), i++ {
+            if parserCtx._scopeCtx[i].parent == scope && parserCtx._scopeCtx[i].child != null && hasScopeReturned(parserCtx._scopeCtx[i]) {
+                println("found returning inner scope")
+                return true
+            }
+        }
+        return false
+    } else {
+        println("testing scope")
+
+        currScope = scope.child
+        for currScope != null, currScope = currScope.child {
+            if hasScopeReturned(currScope) == false {
+                return false
+            }
+
+            if currScope.child == null && currScope.isElse == false {
+                return false
+            }
+        }
+    
+        return scope.hasReturned
+    }
+
+    return false
+}

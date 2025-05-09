@@ -1,0 +1,1627 @@
+//TODO: optimize <jmp else_not> chains
+//TODO: consolidate floats
+//TODO: modulo
+//TODO: bitwise operations
+//TODO: simplify arrays
+
+
+ASM_arguments_registers_64 = []str{"%rdi", "%rsi", "%rdx", "%rcx",  "%r8",  "%r9"}
+ASM_arguments_registers_32 = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
+ASM_arguments_registers_16 = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
+ASM_arguments_registers_8  = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
+
+// ASM_arguments_registers_16 = []str{"%di",  "%si",  "%dx",  "%cx",  "%r8w", "%r9w"}
+// ASM_arguments_registers_8  = []str{"%dil", "%sil", "%dl",  "%cl",  "%r8b", "%r9b"}
+
+ASM_arguments_registers = [][]str{ASM_arguments_registers_8, ASM_arguments_registers_16, ASM_arguments_registers_32, ASM_arguments_registers_64}
+
+ASM_float_registers = []str{"%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7"}
+
+ASM_syscall_registers_64 = []str{"%rax", "%rbx", "%rcx", "%rdx"}
+ASM_syscall_registers_32 = []str{"%eax", "%ebx", "%ecx", "%edx"}
+ASM_syscall_registers_16 = []str{"%eax", "%ebx", "%ecx", "%edx"}
+ASM_syscall_registers_8  = []str{"%eax", "%ebx", "%ecx", "%edx"}
+
+ASM_syscall_registers = [][]str{ASM_syscall_registers_8, ASM_syscall_registers_16, ASM_syscall_registers_32, ASM_syscall_registers_64}
+
+ASM_op_registers_64 = []str{"%rbx", "%rdx",  "%r8",  "%r9",  "%r10",  "%r11",  "%r12",  "%r13",  "%r14",  "%r15"}
+ASM_op_registers_32 = []str{"%ebx", "%edx", "%r8d", "%r9d", "%r10d", "%r11d", "%r12d", "%r13d", "%r14d", "%r15d"}
+ASM_op_registers_16 = []str{ "%bx",  "%dx", "%r8w", "%r9w", "%r10w", "%r11w", "%r12w", "%r13w", "%r14w", "%r15w"}
+ASM_op_registers_8  = []str{ "%bl",  "%dl", "%r8b", "%r9b", "%r10b", "%r11b", "%r12b", "%r13b", "%r14b", "%r15b"}
+
+ASM_op_registers = [][]str{ASM_op_registers_8, ASM_op_registers_16, ASM_op_registers_32, ASM_op_registers_64}
+
+ASM_return_register    = []str{"%al", "%ax", "%eax", "%rax"}
+ASM_addr_dest_register = []str{"%dil", "%di", "%edi", "%rdi"}
+
+ASM_set = []str{"sete", "setne", "setg", "setl", "setle", "setge"}
+
+const ASM_OP_EQ            = 0
+const ASM_OP_NOT_EQ        = 1
+const ASM_OP_GREATER       = 2
+const ASM_OP_LESS          = 3
+const ASM_OP_LESS_OR_EQ    = 4
+const ASM_OP_GREATER_OR_EQ = 5
+
+ASM_mov  = []str{"movb", "movw", "movl", "movq"}
+ASM_push = []str{"pushb", "pushw", "pushl", "pushq"}
+ASM_pop  = []str{"popb", "popw", "popl", "popq"}
+ASM_add  = []str{"addb", "addw", "addl", "addq"}
+ASM_sub  = []str{"subb", "subw", "subl", "subq"}
+ASM_imul = []str{"imulb", "imulw", "imull", "imulq"}
+ASM_mul = []str{"mulb", "mulw", "mull", "mulq"}
+ASM_idiv = []str{"idivb", "idivw", "idivl", "idivq"}
+ASM_div = []str{"divb", "divw", "divl", "divq"}
+ASM_cmp = []str{"cmpb", "cmpw", "cmpl", "cmpq"}
+ASM_mov_float  = []str{"", "", "movss", "movsd"}
+ASM_add_float  = []str{"", "", "addss", "addsd"}
+ASM_mul_float  = []str{"", "", "mulss", "mulsd"}
+ASM_sub_float  = []str{"", "", "subss", "subsd"}
+ASM_div_float  = []str{"", "", "divss", "divsd"}
+
+ASM_NUM_INT   = 0
+ASM_NUM_UINT  = 1
+ASM_NUM_FLOAT = 2
+
+spos(x uint) uint {
+    if x == 1 {
+        return 0
+    }
+    if x == 2 {
+        return 1
+    }
+    if x == 4 {
+        return 2
+    }
+    return 3
+}
+
+// ASM_ =  ["b", "w", "l", "q"]
+
+struct asmInstruction {
+    instruction: str
+    arg1: str
+    arg2: str
+
+    contains(s str) bool {
+        return this.arg1 == s || this.arg2 == s
+    }
+}
+
+#define _asm_append_instruction(ctxPtr ptr, inst asmInstruction)
+
+asmRandId uint = 0
+
+struct asmSymbol {
+    name: str
+    size: uint
+
+    isFloat: bool
+    
+    stack: bool
+    address: uint
+    heapOffset: int
+    parent: ptr
+
+    scope: uint
+
+    level: int
+
+    isValue: bool
+    operStart: int = -1
+
+    toStr() str {
+        if this.isValue {
+            return this.name
+        }
+
+        if this.stack {
+
+            if this.heapOffset != 0 {
+
+                inst = asmInstruction {
+                    "movq", "-"+uintToStr(this.address)+"(%rbp)", "%rax"
+                }
+                _asm_append_instruction(this.parent, inst)
+
+                return intToStr(this.heapOffset)+"(%rax)"
+            }
+
+            return "-"+uintToStr(this.address)+"(%rbp)"
+        }
+
+        return this.name+"(%rip)"
+    }
+}
+
+struct asmContext {
+    // symbols: []asmSymbol
+
+    data: rope*
+    code: rope*
+
+    currentFn: str
+    scope: uint = 0
+
+    verbose: bool = true
+
+    regIndex: uint = 0
+
+    stackOffset: uint = 0
+    lastStackOffset: uint = 0
+
+    endSym: queue
+
+    enableOptimizations: bool = false
+
+    xmmIndex: uint = 0
+
+    instructions: []asmInstruction
+
+    flushInstructions() {
+
+        i=0; for i < len(this.instructions), i++ {
+            istrct = this.instructions[i]
+
+            if istrct.instruction == "noop" {
+                continue
+            }
+
+            if istrct.instruction == "SET_STACK_POINTER" {
+                istrct.instruction = "subq"
+                istrct.arg1 = "$"+uintToStr(this.stackOffset)
+                istrct.arg2 = "%rsp"
+            }
+
+            if this.enableOptimizations {
+
+                //if (and) optimization
+                if istrct.instruction[0] == 'j' && strHasPrefix(istrct.arg1, ".BOOL_AND_") {
+                    j=i+1; for j < len(this.instructions), j++ {
+                        if this.instructions[j].instruction == istrct.arg1 + "_END:" {
+                            break
+                        }
+                    }
+                    if this.instructions[j+1].instruction == "cmpb" && (this.instructions[j+1].arg1 == "%al" || this.instructions[j+1].arg2 == "%al") {
+                        jumpInd = j+2; for jumpInd < len(this.instructions), jumpInd++ {
+                            if this.instructions[jumpInd].instruction == "movb" && this.instructions[jumpInd].arg1 == "%al" {
+                                jumpInd = len(this.instructions)
+                                break
+                            }
+                            if this.instructions[jumpInd].instruction[0] == 'j' {
+                                break
+                            }
+                        }
+
+                        if jumpInd != len(this.instructions) {
+                            endInstrct = j
+                            this.instructions[jumpInd].instruction = "noop"
+                            this.instructions[endInstrct+1].instruction = "noop"
+
+                            found = false
+
+
+                            j=i+1; for j <= endInstrct, j++ {
+                                if found {
+                                    this.instructions[j].instruction = "noop"
+                                    continue
+                                }
+                                if this.instructions[j].instruction[0] == 'j' {
+                                    if this.instructions[j].arg1 == istrct.arg1 {
+                                        this.instructions[j].arg1 = this.instructions[jumpInd].arg1
+                                    } else if this.instructions[j].arg1 == istrct.arg1+"_END" {
+                                        this.instructions[j-1].instruction = "noop"
+                                        this.instructions[j].instruction = "noop"
+                                        found = true
+                                    }
+                                }
+                            }
+                            istrct.arg1 = this.instructions[jumpInd].arg1
+                        }
+                    }
+
+                } else if istrct.instruction[0] == 'j' && strHasPrefix(istrct.arg1, ".BOOL_OR_") {
+                    j=i+1; for j < len(this.instructions), j++ {
+                        if this.instructions[j].instruction == istrct.arg1 + "_END:" {
+                            break
+                        }
+                    }
+                    if this.instructions[j+1].instruction == "cmpb" && (this.instructions[j+1].arg1 == "%al" || this.instructions[j+1].arg2 == "%al") {
+                        jumpInd = j+2; for jumpInd < len(this.instructions), jumpInd++ {
+                            if this.instructions[jumpInd].instruction == "movb" && this.instructions[jumpInd].arg1 == "%al" {
+                                jumpInd = len(this.instructions)
+                                break
+                            }
+                            if this.instructions[jumpInd].instruction[0] == 'j' {
+                                break
+                            }
+                        }
+
+                        if jumpInd != len(this.instructions) {
+                            endInstrct = j
+                            this.instructions[jumpInd].instruction = "noop"
+                            this.instructions[endInstrct+1].instruction = "noop"
+
+                            found = false
+
+                            j=i+1; for j < endInstrct, j++ {
+                                if found {
+                                    this.instructions[j].instruction = "noop"
+                                    continue
+                                }
+                                if this.instructions[j].instruction[0] == 'j' {
+                                    if this.instructions[j].arg1 == istrct.arg1 {
+                                        this.instructions[j].arg1 += "_END"
+                                    } else if this.instructions[j].arg1 == istrct.arg1+"_NOT" {
+                                        this.instructions[j].arg1 = this.instructions[jumpInd].arg1
+                                        found = true
+                                    }
+                                }
+                            }
+                            istrct.arg1 += "_END"
+                        }
+                    }
+
+
+                }
+
+                //mov optimizations
+                if strHasPrefix(istrct.instruction, "mov") {
+
+                    if istrct.arg1 == "%xmm0" {
+                        if istrct.instruction == "movq" {
+                            istrct.instruction = "movsd"
+                        } else {
+                            istrct.instruction = "movss"
+                        }
+                    }
+
+                    //remove un-necessary double mov
+                    if i+1 < len(this.instructions) {
+                        next = this.instructions[i+1]
+                        nextIndex = i+1
+                        j=i+1; for j < len(this.instructions), j++ {
+                            next = this.instructions[j]
+                            nextIndex = j
+                            if strHasPrefix(next.instruction, "mov") == false {
+                                break
+                            }
+                            if strHasPrefix(next.instruction, "mov") && next.arg1 == istrct.arg2 || next.arg2 == istrct.arg2 {
+                                //make optimization: if next.arg2 == istrct.arg2, remove everything above that sets istrct.arg1
+                                break
+                            }
+                        }
+
+                        if j + 1 < len(this.instructions) && strHasPrefix(next.instruction, "add") && next.arg2 == istrct.arg2 && this.instructions[j+1].instruction == istrct.instruction && this.instructions[j+1].arg1 == istrct.arg2 && this.instructions[j+1].arg2 == istrct.arg1 {
+                            naInst = next
+                            naInst.arg2 = istrct.arg1
+                            this.instructions[j+1] = naInst
+                            i = j
+                            continue
+                        }
+
+                        if istrct.instruction == next.instruction && istrct.arg2 == next.arg1 {
+                            j=j+1;for j < len(this.instructions), j++ {
+                                if this.instructions[j].arg2 == istrct.arg2 && strHasPrefix(this.instructions[j].instruction, "mov") {
+                                    j = len(this.instructions)
+                                    break
+                                }
+                                if this.instructions[j].arg1 == istrct.arg2 {
+                                    break
+                                }
+
+                                if this.instructions[j].arg2 == istrct.arg2 {
+                                    break
+                                }
+                            }
+                            if j == len(this.instructions) {
+                                this.instructions[nextIndex].arg1 = istrct.arg1
+                                continue
+
+                            }
+                        } else if strHasPrefix(this.instructions[i+1].instruction, "cmp") && (istrct.arg2 == next.arg2 || istrct.arg2 == next.arg1) {
+                            j=j+1; for j < len(this.instructions), j++ {
+                                if this.instructions[j].arg2 == istrct.arg2 {
+                                    j = len(this.instructions)
+                                    break
+                                }
+                                if this.instructions[j].arg1 == istrct.arg2 {
+                                    break
+                                }
+                            }
+
+                            if istrct.arg2 == next.arg2 {
+                                if j == len(this.instructions) && istrct.arg1[0] != '$' {
+                                    this.instructions[nextIndex].arg2 = istrct.arg1
+                                    continue
+                                }
+                            } else {
+                                if j == len(this.instructions) && (istrct.arg1[0] == '%' || istrct.arg1[0] == '$') {
+                                    this.instructions[nextIndex].arg1 = istrct.arg1
+                                    continue
+                                }
+                            }
+
+                        }
+                    }
+
+                    //remove null mov
+                    if istrct.arg1 == istrct.arg2 {
+                        continue
+                    }
+                }
+
+                if strHasPrefix(istrct.instruction, "cmp") {
+                    if i+2 < len(this.instructions) {
+                        tmpVar = this.instructions[i+2].arg2
+                        jumpInd = i+1; for jumpInd < len(this.instructions), jumpInd++ {
+                            if this.instructions[jumpInd].instruction == "movb" && this.instructions[jumpInd].arg1 == "%al" {
+                                jumpInd = len(this.instructions)
+                                break
+                            }
+                            if this.instructions[jumpInd].instruction[0] == 'j' {
+                                break
+                            }
+                        }
+                        if jumpInd != len(this.instructions) {
+                            j=jumpInd; for j < len(this.instructions), j++ {
+                                if this.instructions[j].arg2 == tmpVar && this.instructions[j].arg1 == "$0" {
+                                    j = len(this.instructions)
+                                    break
+                                }
+                                if this.instructions[j].arg1 == tmpVar && len(this.instructions[j].arg2) != 0 {
+                                    break
+                                }
+                            }
+                            if j == len(this.instructions) {
+                                nextInst = this.instructions[i+1].instruction
+                                oi = i
+                                i = jumpInd - 1
+                                if nextInst == "sete" {
+                                    this.instructions[jumpInd].instruction = "jne"
+                                } else if nextInst == "setne" {
+                                    this.instructions[jumpInd].instruction = "je"
+                                } else if nextInst == "setg" {
+                                    this.instructions[jumpInd].instruction = "jle"
+                                } else if nextInst == "setl" {
+                                    this.instructions[jumpInd].instruction = "jge"
+                                } else if nextInst == "setge" {
+                                    this.instructions[jumpInd].instruction = "jl"
+                                } else if nextInst == "setle" {
+                                    this.instructions[jumpInd].instruction = "jg"
+                                } else {
+                                    i = oi
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if len(istrct.arg2) > 0 {
+                this.code += rope(istrct.instruction+" "+istrct.arg1+", "+istrct.arg2+"\n")
+            } else if len(istrct.arg1) > 0 {
+                this.code += rope(istrct.instruction+" "+istrct.arg1+"\n")
+            } else {
+                this.code += rope(istrct.instruction+"\n")
+            }
+        }
+        clear(this.instructions)
+    }
+
+    resetRegisters() {
+        this.regIndex = 0
+    }
+
+    convertRegister(a asmSymbol*, b asmSymbol*) {
+        if a.name == "%eax" && b.size != 4 {
+            a.size = b.size
+            a.name = ASM_return_register[spos(b.size)]
+        } else if b.name == "%eax" && a.size != 4 {
+            b.size = a.size
+            b.name = ASM_return_register[spos(a.size)]
+        } else if a.isValue && b.isValue == false {
+            a.size = b.size
+        } else if a.isValue == false && b.isValue {
+            b.size = a.size
+        }
+    }
+
+    generateMoveValue(sym asmSymbol, dest str) {
+        if sym.level == -1 {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "leaq", sym.toStr(), dest
+            }
+            return
+        }
+        from = sym.toStr()
+        level = sym.level
+        if level > 0 {
+            for level > 1, level-- {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "movq", "("+from+")", dest
+                }
+                from = dest
+            }
+            if level == 1 {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    ASM_mov[spos(sym.size)], "("+from+")", dest
+                }
+            }
+            return
+        }
+
+        if dest[0] == '(' && sym.isValue == false {
+            tmpReg = ASM_op_registers[spos(sym.size)][this.regIndex]
+            this.generateMoveValue(sym, tmpReg)
+            from = tmpReg
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_mov[spos(sym.size)], from, dest
+        }
+    }
+
+    generateStackAlloc(value str, size uint, level int) uint {        
+        this.stackOffset += size
+        v = asmSymbol {
+            isValue: true
+            name: value
+        }
+        this.generateMoveValue(v, "-"+uintToStr(this.stackOffset)+"(%rbp)")
+
+        return this.stackOffset
+    }
+
+    generateUnary(sym asmSymbol) asmSymbol {
+        addrReg = ASM_op_registers[spos(8)][1]
+        this.generateMoveValue(sym, addrReg)
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "movq", sym.toStr(), addrReg
+        // }
+
+        addrRegFinal = ASM_op_registers[spos(sym.size)][1]
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_mov[spos(sym.size)], "("+addrReg+")", addrRegFinal
+        }
+
+        addr = this.generateStackAlloc(addrRegFinal, sym.size, 0)
+
+        r = asmSymbol {
+            stack: true
+            address: addr
+            parent: this
+            size: sym.size
+        }
+
+        return r
+    }
+
+    generateDereference(sym asmSymbol) asmSymbol {
+        addrReg = ASM_return_register[spos(8)]
+
+        this.generateMoveValue(sym, addrReg)
+
+        r = asmSymbol {
+            isValue: true
+            name: "("+addrReg+")"
+            parent: this
+            size: 8
+        }
+
+        return r
+    }
+
+    // ensureStackPointer() {
+    //     subAmount = <int>this.stackOffset - <int>this.lastStackOffset
+    //     if subAmount == 0 {
+    //         return
+    //     }
+
+    //     this.instructions[len(this.instructions)] = asmInstruction {
+    //         "leaq", "-"+uintToStr(this.stackOffset)+"(%rbp)", "%rsp"
+    //     }
+    //     this.lastStackOffset = this.stackOffset
+    // }
+
+    generateStaticStr(s str) asmSymbol {
+        name = ".VAR_"+uintToStr(asmRandId)
+        this.data += rope(name+":\n.string "+s+"\n")
+
+        r = asmSymbol {
+            parent: this
+            name: name
+            size: 8
+            scope: 0
+            // isValue: true
+            level: -1
+        }
+
+        // this.symbols[len(this.symbols)] = r
+
+        asmRandId++
+
+        return r
+    }
+
+    staticVal(v str) asmSymbol {
+        if v[0] == '"' {
+            return this.generateStaticStr(v[1:len(v)-1])
+        }
+
+        r = asmSymbol {
+            parent: this
+            name: "$"+v
+            size: 8
+            isValue: true
+        }
+
+        return r
+    }
+
+    staticInt(v str) asmSymbol {
+        r = asmSymbol {
+            parent: this
+            name: "$"+v
+            size: 8
+            isValue: true
+        }
+
+        return r
+    }
+
+    staticFloat32(v str) asmSymbol {
+        f = <float32>strToFloat(v)
+        u = *(<uint32*>&f)
+
+        name = ".FLOAT32_"+uintToStr(asmRandId)
+        this.data += rope(name+":\n.long "+uintToStr(u)+"\n")
+        asmRandId++
+
+        floatReg = ASM_float_registers[this.xmmIndex]
+
+        this.xmmIndex = (this.xmmIndex + 1) % len(ASM_float_registers)
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movss", name+"(%rip)", floatReg
+        }
+
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "movss", "%xmm0"
+        // }
+
+        r = asmSymbol {
+            parent: this
+            name: floatReg
+            isValue: true
+            size: 4
+            isFloat: true
+        }
+
+        return r
+    }
+
+    staticFloat64(v str) asmSymbol {
+        f = strToFloat(v)
+        u = *(<uint*>&f)
+
+        partA = <uint32>u
+        partB = <uint32>(u >> 32)
+
+        name = ".FLOAT_"+uintToStr(asmRandId)
+        this.data += rope(name+":\n.long "+uintToStr(partA)+"\n.long: "+uintToStr(partB)+"\n")
+        asmRandId++
+
+        floatReg = ASM_float_registers[this.xmmIndex]
+
+        this.xmmIndex = (this.xmmIndex + 1) % len(ASM_float_registers)
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movss", name+"(%rip)", floatReg
+        }
+
+        r = asmSymbol {
+            parent: this
+            name: floatReg
+            isValue: true
+            size: 8
+            isFloat: true
+        }
+
+        return r
+    }
+
+    generateCompare(a asmSymbol, b asmSymbol, op uint) asmSymbol {
+        this.convertRegister(&a, &b)
+
+        c = a
+        a = b
+        b = c
+
+        operStart = len(this.instructions)
+
+        if a.isValue == false {
+            if b.isValue == false || (op != ASM_OP_GREATER && op != ASM_OP_NOT_EQ) {
+                tmpReg = ASM_op_registers[spos(a.size)][this.regIndex + 1]
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    ASM_mov[spos(a.size)], a.toStr(), tmpReg
+                }
+                a = asmSymbol {
+                    parent: this
+                    name: tmpReg
+                    isValue: true
+                    size: a.size
+                }
+            } else {
+                if op == ASM_OP_LESS {
+                    op = ASM_OP_GREATER_OR_EQ
+                } else if op == ASM_OP_LESS_OR_EQ {
+                    op = ASM_OP_GREATER
+                } else if op == ASM_OP_GREATER {
+                    op = ASM_OP_LESS_OR_EQ
+                } else if op == ASM_OP_GREATER_OR_EQ {
+                    op = ASM_OP_LESS
+                } 
+                return this.generateCompare(a, b, op)
+            }
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_cmp[spos(a.size)], a.toStr(), b.toStr()
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_set[op], "%al"
+        }
+
+
+        r = asmSymbol {
+            parent: this
+            size: 1
+            stack: true
+            address: this.generateStackAlloc("%al", 1, 0)
+            operStart: operStart
+        }
+
+        return r
+    }
+
+    generateBoolOrStart() {
+        operStart = len(this.instructions)
+        jumpSym = ".BOOL_OR_" + uintToStr(asmRandId)
+        asmRandId++
+
+        this.endSym.insert(operStart)
+        this.endSym.insert(jumpSym)
+    }
+
+    generateBoolOr(cond asmSymbol) {
+        operStart = <uint>this.endSym.end.prev.data
+        jumpSym = <str>this.endSym.end.data
+
+        if cond.operStart != -1 {
+            setOpIndex = cond.operStart + 1
+            for setOpIndex < len(this.instructions), setOpIndex++ {
+                if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
+                    break
+                }
+            }
+
+            this.instructions[setOpIndex].instruction = "j" + this.instructions[setOpIndex].instruction[3:]
+            this.instructions[setOpIndex].arg1 = jumpSym
+            this.instructions[setOpIndex+1].instruction = "noop"
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "cmpb", "$1", cond.toStr()
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "je", jumpSym
+            }
+        }
+    }
+
+    generateBoolOrEnd(cond asmSymbol) asmSymbol {
+        jumpSym = <str>this.endSym.pop()
+        operStart = <uint>this.endSym.pop()
+
+        if cond.operStart != -1 {
+            setOpIndex = cond.operStart + 1
+            for setOpIndex < len(this.instructions), setOpIndex++ {
+                if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
+                    break
+                }
+            }
+
+            if this.instructions[setOpIndex].instruction == "sete" {
+                this.instructions[setOpIndex].instruction = "jne"
+            } else if this.instructions[setOpIndex].instruction == "setne" {
+                this.instructions[setOpIndex].instruction = "je"
+            } else if this.instructions[setOpIndex].instruction == "setg" {
+                this.instructions[setOpIndex].instruction = "jle"
+            } else if this.instructions[setOpIndex].instruction == "setl" {
+                this.instructions[setOpIndex].instruction = "jge"
+            } else if this.instructions[setOpIndex].instruction == "setge" {
+                this.instructions[setOpIndex].instruction = "jl"
+            } else if this.instructions[setOpIndex].instruction == "setle" {
+                this.instructions[setOpIndex].instruction = "jg"
+            } else {
+                println(toJson(this.instructions[setOpIndex])+" - "+uintToStr(operStart)+", "+uintToStr(setOpIndex))
+            }
+
+            this.instructions[setOpIndex].arg1 = jumpSym+"_NOT"
+            this.instructions[setOpIndex+1].instruction = "noop"
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "cmpb", "$1", cond.toStr()
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "jne", jumpSym+"_NOT"
+            }
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            jumpSym+":"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movb", "$1", "%al"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "jmp", jumpSym+"_END"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            jumpSym+"_NOT:"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movb", "$0", "%al"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            jumpSym+"_END:"
+        }
+
+        r = asmSymbol {
+            parent: this
+            size: 1
+            name: "%al"
+            isValue: true
+        }
+
+        return r
+    }
+
+    generateBoolAndStart() {
+        operStart = len(this.instructions)
+        jumpSym = ".BOOL_AND_" + uintToStr(asmRandId)
+        asmRandId++
+
+        this.endSym.insert(operStart)
+        this.endSym.insert(jumpSym)
+    }
+
+    generateBoolAnd(cond asmSymbol) {
+        operStart = <uint>this.endSym.end.prev.data
+        jumpSym = <str>this.endSym.end.data
+
+        if cond.operStart != -1 {
+            setOpIndex = cond.operStart + 1
+            for setOpIndex < len(this.instructions), setOpIndex++ {
+                if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
+                    break
+                }
+            }
+
+            if this.instructions[setOpIndex].instruction == "sete" {
+                this.instructions[setOpIndex].instruction = "jne"
+            } else if this.instructions[setOpIndex].instruction == "setne" {
+                this.instructions[setOpIndex].instruction = "je"
+            } else if this.instructions[setOpIndex].instruction == "setg" {
+                this.instructions[setOpIndex].instruction = "jle"
+            } else if this.instructions[setOpIndex].instruction == "setl" {
+                this.instructions[setOpIndex].instruction = "jge"
+            } else if this.instructions[setOpIndex].instruction == "setge" {
+                this.instructions[setOpIndex].instruction = "jl"
+            } else if this.instructions[setOpIndex].instruction == "setle" {
+                this.instructions[setOpIndex].instruction = "jg"
+            } else {
+                println(toJson(this.instructions[setOpIndex])+" - "+uintToStr(operStart)+", "+uintToStr(setOpIndex))
+            }
+
+            this.instructions[setOpIndex].arg1 = jumpSym
+            this.instructions[setOpIndex+1].instruction = "noop"
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "cmpb", "$0", cond.toStr()
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "je", jumpSym
+            }
+        }
+    }
+
+    generateBoolAndEnd(cond asmSymbol) asmSymbol {
+        jumpSym = <str>this.endSym.pop()
+        operStart = <uint>this.endSym.pop()
+
+        if cond.operStart != -1 {
+            setOpIndex = cond.operStart + 1
+            for setOpIndex < len(this.instructions), setOpIndex++ {
+                if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
+                    break
+                }
+            }
+
+            if this.instructions[setOpIndex].instruction == "sete" {
+                this.instructions[setOpIndex].instruction = "jne"
+            } else if this.instructions[setOpIndex].instruction == "setne" {
+                this.instructions[setOpIndex].instruction = "je"
+            } else if this.instructions[setOpIndex].instruction == "setg" {
+                this.instructions[setOpIndex].instruction = "jle"
+            } else if this.instructions[setOpIndex].instruction == "setl" {
+                this.instructions[setOpIndex].instruction = "jge"
+            } else if this.instructions[setOpIndex].instruction == "setge" {
+                this.instructions[setOpIndex].instruction = "jl"
+            } else if this.instructions[setOpIndex].instruction == "setle" {
+                this.instructions[setOpIndex].instruction = "jg"
+            } else {
+                println(toJson(this.instructions[setOpIndex])+" - "+uintToStr(operStart)+", "+uintToStr(setOpIndex))
+            }
+
+            this.instructions[setOpIndex].arg1 = jumpSym
+            this.instructions[setOpIndex+1].instruction = "noop"
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "cmpb", "$0", cond.toStr()
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "je", jumpSym
+            }
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movb", "$1", "%al"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "jmp", jumpSym+"_END"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            jumpSym+":"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movb", "$0", "%al"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            jumpSym+"_END:"
+        }
+
+        r = asmSymbol {
+            parent: this
+            size: 1
+            name: "%al"
+            isValue: true
+        }
+
+        return r
+    }
+
+    generateFor() {
+        this.scope++
+        forLoopStartSym = ".FOR_LOOP_START_"+uintToStr(asmRandId)
+        this.endSym.insert(forLoopStartSym)
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            forLoopStartSym+":"
+        }
+    }
+
+    generateForCond(cond asmSymbol) {
+        forLoopStartSym = <str>this.endSym.pop()
+
+        forNotSym = ".FOR_NOT_"+uintToStr(asmRandId)
+        this.endSym.insert(forNotSym)
+
+        this.endSym.insert(forLoopStartSym)
+        asmRandId++
+
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_cmp[spos(1)], "$0", cond.toStr()
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "je", forNotSym
+        }
+
+        lastInst uint* = memoryAlloc(SIZE_OF_INT)
+        *lastInst = len(this.instructions)
+
+        this.endSym.insert(lastInst)
+    }
+
+    generateForIncr() {
+        lastIndex = *(<uint*>this.endSym.pop())
+
+        incrIstrcts = this.instructions[lastIndex:]
+
+        this.instructions = this.instructions[:len(this.instructions) - len(incrIstrcts)]
+
+        this.endSym.insert(incrIstrcts)   
+    }
+
+    // generateForLoopBegin() {
+    //     forLoopStartSym = <str>this.endSym.pop()
+
+    //     this.endSym.insert(incrInstructs)
+        
+    //     forNotSym = ".FOR_NOT_"+uintToStr(asmRandId)
+    //     this.endSym.insert(forNotSym)
+
+    //     this.endSym.insert(forLoopStartSym)
+    //     asmRandId++
+
+    //     this.instructions[len(this.instructions)] = asmInstruction {
+    //         ASM_cmp[spos(1)], "$0", cond.toStr()
+    //     }
+
+    //     this.instructions[len(this.instructions)] = asmInstruction {
+    //         "je", forNotSym
+    //     }
+    // }
+
+    generateForEnd() {
+        incrInstructs = <[]asmInstruction>this.endSym.pop()
+        loopStart = <str>this.endSym.pop()
+        loopNot = <str>this.endSym.pop()
+
+        i=0; for i < len(incrInstructs), i++ {
+            this.instructions[len(this.instructions)] = incrInstructs[i]
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "jmp", loopStart
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            loopNot+":"
+        }
+        this.scope--
+        
+        // i=0; for i < len(this.symbols), i++ {
+        //     if this.symbols[i].scope > this.scope {
+        //         delete(this.symbols, i)
+        //         i--
+        //     }
+        // }
+    }
+
+    generateIf(cond asmSymbol) {
+        this.scope++
+        ifNotSym = ".IF_NOT_"+uintToStr(asmRandId)
+        this.endSym.insert(ifNotSym)
+        asmRandId++
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_cmp[spos(1)], "$0", cond.toStr()
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "je", ifNotSym
+        }
+    }
+
+    generateEndIf() {
+        this.instructions[len(this.instructions)] = asmInstruction {
+            <str>this.endSym.pop()+":"
+        }
+
+
+        this.scope--
+
+        // i=0; for i < len(this.symbols), i++ {
+        //     if this.symbols[i].scope > this.scope {
+        //         delete(this.symbols, i)
+        //         i--
+        //     }
+        // }
+    }
+
+    generateElseIf(cond asmSymbol, chainLength uint) {
+        this.scope++
+        elseNotSym = ".ELSE_NOT_"+uintToStr(asmRandId)
+
+        lasti = len(this.instructions)
+        for chainLength != 0, chainLength-- {
+            i = len(this.instructions)-1
+            for i != -1, i-- {
+                this.instructions[i+1] = this.instructions[i]
+                if i > lasti {
+                    continue
+                }
+                if strHasPrefix(this.instructions[i].instruction, ".IF_NOT_") || strHasPrefix(this.instructions[i].instruction, ".ELSE_NOT_") {
+                    this.instructions[i] = asmInstruction {
+                        "jmp", elseNotSym
+                    }
+
+                    lasti = i - 1
+                    break
+                }
+            }
+        }
+
+
+        this.endSym.insert(elseNotSym)
+        asmRandId++
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_cmp[spos(1)], "$0", cond.toStr()
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "je", elseNotSym
+        }
+
+    }
+
+    generateElse(chainLength uint) {
+        this.scope++
+        elseNotSym = ".ELSE_NOT_"+uintToStr(asmRandId)
+
+        lasti = len(this.instructions)
+        for chainLength != 0, chainLength-- {
+            i = len(this.instructions)-1
+            for i != -1, i-- {
+                this.instructions[i+1] = this.instructions[i]
+                if i > lasti {
+                    continue
+                }
+                if strHasPrefix(this.instructions[i].instruction, ".IF_NOT_") || strHasPrefix(this.instructions[i].instruction, ".ELSE_NOT_") {
+                    this.instructions[i] = asmInstruction {
+                        "jmp", elseNotSym
+                    }
+
+                    lasti = i - 1
+                    break
+                }
+            }
+        }
+
+        this.endSym.insert(elseNotSym)
+        asmRandId++
+    }
+
+    generateEndElse() {
+        this.instructions[len(this.instructions)] = asmInstruction {
+            <str>this.endSym.pop()+":"
+        }
+
+        this.scope--
+        // i=0; for i < len(this.symbols), i++ {
+        //     if this.symbols[i].scope > this.scope {
+        //         delete(this.symbols, i)
+        //         i--
+        //     }
+        // }
+    }
+
+    generateVarDecl(name str, size uint) asmSymbol {
+        this.stackOffset += size
+
+        r = asmSymbol {
+            parent: this
+            name: name
+            size: size
+            scope: this.scope
+
+            stack: true
+            address: this.stackOffset
+
+        }
+
+        // this.symbols[len(this.symbols)] = r
+
+        return r
+    }
+
+    generateVarSet(a asmSymbol, b asmSymbol) {
+        this.convertRegister(&a, &b)
+
+        // if a.level != 0 {
+        //     this.generateMoveValue(a, "%rbx")
+        //     a.name = "%rbx"
+        //     a.isValue = true
+        // }
+
+        inst = ASM_mov[spos(a.size)]
+
+        if b.isValue == false && a.isValue == false {
+            tmpReg = ASM_op_registers[spos(b.size)][this.regIndex + 1]
+            this.generateMoveValue(b, tmpReg)
+            // this.instructions[len(this.instructions)] = asmInstruction {
+            //     ASM_mov[spos(b.size)], b.toStr(), tmpReg
+            // }
+            b = asmSymbol {
+                parent: this
+                name: tmpReg
+                isValue: true
+                size: b.size
+                level: 0
+            }
+        }
+
+        this.generateMoveValue(b, a.toStr())
+
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     inst, b.toStr(), a.toStr()
+        // }
+    }
+
+    generateOpAdd(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        this.convertRegister(&a, &b)
+
+        operStart = len(this.instructions)
+        
+        inst = ASM_add[spos(a.size)]
+        accReg = [ASM_op_registers[spos(a.size)][this.regIndex], ASM_op_registers[spos(a.size)][this.regIndex+1]]
+
+        if numType == ASM_NUM_FLOAT {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mov_float[spos(a.size)], a.toStr(), "%xmm0"
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_add_float[spos(a.size)], b.toStr(), "%xmm0"
+            }
+            
+            r = asmSymbol {
+                parent: this
+                name: "%xmm0"
+                isValue: true
+                size: a.size
+                operStart: operStart
+            }
+            return r
+        }
+
+        if b.name == accReg[0] {
+            c = a
+            a = b
+            b = c
+            a.size = b.size
+        } else if a.name != accReg[0] {
+            this.generateMoveValue(a, accReg[0])
+        }
+
+
+        if b.level != 0 {
+            this.generateMoveValue(b, accReg[1])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, accReg[1], accReg[0]
+            }
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, b.toStr(), accReg[0]
+            }
+        }
+        
+        r = asmSymbol {
+            parent: this
+            name: accReg[0]
+            size: a.size
+            isValue: true
+            operStart: operStart
+        }
+
+        return r
+    }
+
+    generateOpMult(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        this.convertRegister(&a, &b)
+
+        operStart = len(this.instructions)
+
+        inst = ASM_imul[spos(a.size)]
+        accReg = [ASM_op_registers[spos(a.size)][this.regIndex], ASM_op_registers[spos(a.size)][this.regIndex+1]]
+
+        if numType == ASM_NUM_FLOAT {
+            //unpointerize floats?
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mov_float[spos(a.size)], a.toStr(), "%xmm0"
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mul_float[spos(a.size)], b.toStr(), "%xmm0"
+            }
+            r = asmSymbol {
+                parent: this
+                name: "%xmm0"
+                isValue: true
+                size: a.size
+                operStart: operStart
+            }
+            return r
+        }
+
+        if b.name == accReg[0] {
+            c = a
+            a = b
+            b = c
+            a.size = b.size
+        } else if a.name != accReg[0] {
+            this.generateMoveValue(a, accReg[0])
+        }
+
+
+        if b.level == -1 {
+            this.generateMoveValue(b, accReg[1])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, accReg[1], accReg[0]
+            }
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, b.toStr(), accReg[0]
+            }
+        }
+            
+        r = asmSymbol {
+            parent: this
+            name: accReg[0]
+            isValue: true
+            size: a.size
+            operStart: operStart
+        }
+
+        return r
+    }
+
+    generateOpDiv(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        this.convertRegister(&a, &b)
+
+        operStart = len(this.instructions)
+
+        inst = ASM_idiv[spos(a.size)]
+        accReg = [ASM_op_registers[spos(a.size)][this.regIndex], ASM_op_registers[spos(a.size)][this.regIndex+1]]
+        
+        if numType == ASM_NUM_FLOAT {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mov_float[spos(a.size)], a.toStr(), "%xmm0"
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_div_float[spos(a.size)], b.toStr(), "%xmm0"
+            }
+            
+            r = asmSymbol {
+                parent: this
+                name: "%xmm0"
+                isValue: true
+                size: a.size
+                operStart: operStart
+            }
+            return r
+        }
+
+        if b.name == accReg[0] {
+            c = a
+            a = b
+            b = c
+            a.size = b.size
+        } else if a.name != accReg[0] {
+            this.generateMoveValue(a, accReg[0])
+        }
+
+
+        this.generateMoveValue(b, accReg[0])
+        
+        this.generateMoveValue(a, ASM_return_register[spos(a.size)])
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "cltd"
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            inst, accReg[0]
+        }
+        
+        r = asmSymbol {
+            parent: this
+            name: ASM_return_register[spos(a.size)]
+            isValue: true
+            size: a.size
+            operStart: operStart
+        }
+
+        return r
+    }
+
+
+    generateOpSub(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        this.convertRegister(&a, &b)
+
+        operStart = len(this.instructions)
+
+        inst = ASM_sub[spos(a.size)]
+        accReg = [ASM_op_registers[spos(a.size)][this.regIndex], ASM_op_registers[spos(a.size)][this.regIndex+1]]
+        
+        if numType == ASM_NUM_FLOAT {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mov_float[spos(a.size)], a.toStr(), "%xmm0"
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_sub_float[spos(a.size)], b.toStr(), "%xmm0"
+            }
+            
+            r = asmSymbol {
+                parent: this
+                name: "%xmm0"
+                isValue: true
+                size: a.size
+                operStart: operStart
+            }
+            return r
+        }
+
+        if b.level == -1 {
+            this.generateMoveValue(b, accReg[1])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, accReg[1], accReg[0]
+            }
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, b.toStr(), accReg[0]
+            }
+        }
+        
+        r = asmSymbol {
+            parent: this
+            name: accReg[0]
+            isValue: true
+            size: a.size
+            operStart: operStart
+        }
+
+        return r
+    }
+
+    generateFnStart(fnName str, arguments []asmSymbol) {
+        this.scope++
+        this.stackOffset = 0
+        
+        this.instructions[len(this.instructions)] = asmInstruction {
+            fnName+":"
+        }
+        
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "pushq", "%rbp"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "movq", "%rsp", "%rbp"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "SET_STACK_POINTER"
+        }
+        tmpSyms = []asmSymbol
+        this.currentFn = fnName
+
+        i=len(arguments)-1; for i != -1 , i-- {
+            tmpSyms[len(tmpSyms)] = arguments[i]
+            tmpSyms[len(tmpSyms)-1].stack = true
+            tmpSyms[len(tmpSyms)-1].scope = this.scope
+
+            valueReg = ""
+
+
+            if i >= 5 {
+                valueReg = ASM_addr_dest_register[spos(arguments[i].size)]
+                inst = ASM_pop[spos(arguments[i].size)]
+
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    inst, valueReg
+                }
+            } else {
+                valueReg = ASM_arguments_registers[spos(arguments[i].size)][i]
+            }
+
+            tmpSyms[len(tmpSyms)-1].address = this.generateStackAlloc(valueReg, arguments[i].size, arguments[i].level)
+        }
+
+        // i=len(tmpSyms)-1; for i != -1, i-- {
+        //     this.symbols[len(this.symbols)] = tmpSyms[i]
+        // }
+
+    }
+
+    generateFnEnd() {
+        this.scope--
+        // i=0; for i < len(this.symbols), i++ {
+        //     if this.symbols[i].scope > this.scope {
+        //         delete(this.symbols, i)
+        //         i--
+        //     }
+        // }
+        if len(this.instructions) != 0 && this.instructions[len(this.instructions)-1].instruction == "ret" {
+            this.flushInstructions()
+            return
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "leave"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "ret"
+        }
+
+        this.flushInstructions()
+    }
+
+    generateReturn(value asmSymbol) {
+        inst = ASM_mov[spos(value.size)]
+        retReg = ASM_return_register[spos(value.size)]
+
+
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     inst, value.toStr(), retReg
+        // }
+        this.generateMoveValue(value, retReg)
+
+        if value.size == 1 {
+            this.instructions[len(this.instructions)-1].instruction = "movsbl"
+        } else if value.size == 2 {
+            this.instructions[len(this.instructions)-1].instruction = "movswl"
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "leave"
+        }
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "ret"
+        }
+    }
+
+    generateFnCallStart() {
+        args = []asmSymbol
+        this.endSym.insert(args)
+    }
+
+    generateFnCallArgument(arg asmSymbol) {
+        args = <[]asmSymbol>this.endSym.end.data
+
+        if arg.name in ASM_op_registers[spos(arg.size)] {
+            this.generateStackAlloc(arg.toStr(), arg.size, 0)
+            arg = asmSymbol {
+                parent: this
+                stack: true
+                address: this.stackOffset
+                size: arg.size
+            }
+        }
+
+        args[len(args)] = arg
+    }
+
+    generateFnCall(fnName str) asmSymbol {
+        // this.ensureStackPointer()
+
+        arguments = <[]asmSymbol>this.endSym.pop()
+
+        floatN = 0
+        floatTotal = 0
+        //handle float registers
+        floatRegs = []int{-1,-1,-1,-1,-1,-1,-1,-1}
+        i=0; for i < len(arguments), i++ {
+            if arguments[i].isFloat {
+                if arguments[i].isValue {
+                    regN = strToInt(arguments[i].name[4:])
+                    if floatTotal != regN {
+                        floatRegs[regN] = i
+                    }
+                }
+                floatTotal++
+            }
+        }
+
+        i=0; for i < len(floatRegs), i++ {
+            if floatRegs[i] == -1 {
+                continue
+            }
+            j = floatRegs[i]
+
+            println("# Float found in register: %xmm"+uintToStr(i)+" (size: "+uintToStr(arguments[j].size)+") that will be used for fn call.")
+            arguments[j].isValue = false
+            arguments[j].stack = true
+
+            this.stackOffset += arguments[j].size
+
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_mov_float[spos(arguments[j].size)], ASM_float_registers[i], "-"+uintToStr(this.stackOffset)+"(%rbp)"
+            }
+
+            arguments[j].address = this.stackOffset
+        }
+
+        // this.ensureStackPointer()
+
+        // if oldStackOffset != this.stackOffset {
+        //     this.instructions[len(this.instructions)] = asmInstruction {
+        //         "subq", "$"+uintToStr(this.stackOffset - oldStackOffset), "%rsp"
+        //     }
+        // }
+
+        i=len(arguments)-1; for i != -1, i-- {
+
+            if arguments[i].isFloat {
+                if arguments[i].isValue && strToInt(arguments[i].name[4:]) == (floatTotal - floatN - 1) {
+                    floatN++
+                    continue
+                }
+                
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    ASM_mov_float[spos(arguments[i].size)], arguments[i].toStr(), ASM_float_registers[floatTotal - floatN - 1]
+                }
+
+                floatN++
+                continue
+            }
+
+            if i > 5 {
+                inst = ASM_push[spos(arguments[i].size)]
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    inst, arguments[i].toStr()
+                }
+            } else {
+                valueReg = ASM_arguments_registers[spos(arguments[i].size)][i]
+
+                this.generateMoveValue(arguments[i], valueReg)
+
+                if arguments[i].size == 1 {
+                    this.instructions[len(this.instructions)-1].instruction = "movsbl"
+                } else if arguments[i].size == 2 {
+                    this.instructions[len(this.instructions)-1].instruction = "movswl"
+                }
+
+            }
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "call", fnName
+        }
+
+        r = asmSymbol {
+            parent: this
+            name: "%eax"
+            isValue: true
+            size: 4
+        }
+
+        return r
+    }
+
+    generateSyscall(arguments []asmSymbol, syscall str) asmSymbol {
+        i=len(arguments)-1; for i != -1, i-- {
+            valueReg = ASM_arguments_registers[spos(arguments[i].size)][i]
+
+            this.generateMoveValue(arguments[i], valueReg)
+
+            if arguments[i].size == 1 {
+                this.instructions[len(this.instructions)-1].instruction = "movsbl"
+            } else if arguments[i].size == 2 {
+                this.instructions[len(this.instructions)-1].instruction = "movswl"
+            }
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "int", syscall
+        }
+
+        r = asmSymbol {
+            parent: this
+            name: "%eax"
+            isValue: true
+            size: 4
+        }
+
+        return r
+    }
+}
+
+_asm_append_instruction(ctxPtr ptr, inst asmInstruction) {
+    ctx = <asmContext*>ctxPtr
+    ctx.instructions[len(ctx.instructions)] = inst
+}
+
+gen = asmContext{}

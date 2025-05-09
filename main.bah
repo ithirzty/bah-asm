@@ -1,0 +1,60 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "time.bah"
+#import "json.bah"
+#import "queue.bah"
+#import "exec.bah"
+
+#include "./gen_asm_linux_64.bah"
+#include "./lexer.bah"
+#include "./state.bah"
+#include "./types.bah"
+#include "./error.bah"
+#include "./gen.bah"
+#include "./parser.bah"
+
+main(args []str) int {
+
+    gen.data = rope(".global _start
+_start:
+xorq %rbp, %rbp
+movl (%rsp), %edi
+leaq 8(%rsp), %rsi
+leaq 16(%rsp,%rdi,8), %rdx
+xorl %eax, %eax
+call main
+movl %eax, %edi
+xorl %eax, %eax
+call _exit\n")
+    gen.code = rope("")
+
+    file = args[1]
+    fs = fileStream{}
+    fs.open(file, "r")
+    content = fs.readContent()
+    fs.close()
+
+    tokens = lexer(content)
+
+    parseLines(tokens, 0, len(tokens))
+
+    fileName = file[:len(file)-4]
+
+    fs.open(fileName+".S", "w")
+    fs.writeFile(gen.data.toStr()+gen.code.toStr())
+    fs.close()
+
+    cmd = command("as "+fileName+".S -o "+fileName+".o")
+    cmd.runBytes()
+
+    cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+fileName+".o -lc")
+    err = cmd.runBytes()
+
+    removeFile(fileName+".o")
+
+    // cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/Scrt1.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crti.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o  "+fileName+".o -lc /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crtn.o")
+    // err = cmd.runBytes()
+
+    // removeFile(fileName+".o")
+    return 0
+}
