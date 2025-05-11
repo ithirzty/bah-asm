@@ -5,20 +5,23 @@
 - [x] Operations
 - [x] Functions
 - [x] Type conversions
-- [ ] Rewrite bugged mov optimizer
-- [ ] Write for condition optimizer
+- [x] Rewrite bugged mov optimizer
+- [x] Write for condition optimizer
+- [x] Modulos
+- [x] Increments / decrements
+- [x] Indexables
 - [ ] Structures
 - [ ] Buffer
 - [ ] Proper text
-- [ ] Modulos & bitwise ops
-- [ ] Increments / decrements
+- [ ] bitwise ops
 - [ ] Relection
 - [ ] +=, -=, /=, *=, >>=, <<=, &=, ~=
-- [ ] Arrays and other indexables
+- [ ] Arrays
 - [ ] Tuples
 - [ ] Arrays operations
 - [ ] Methods
 - [ ] Diverse optimizations
+- [ ] Garbage compiler
 - [ ] Dwarf ? Backtrace ? Panic ?
 - [ ] Includes and imports
 - [ ] Better macros (#linux...)
