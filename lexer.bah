@@ -177,14 +177,14 @@ lexer(s str) []bahToken {
             }
             tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
             i--
-        } else if isAlphaNumeric(c) || c == '_' { //token is a var / keyword
+        } else if isAlphaNumeric(c) || c == '_' || c == '$' { //token is a var / keyword
             pos = i
             i++
             //get full token
             for i < len(s), i++ {
                 c = s[i]
                 if isAlphaNumeric(c) == false {
-                    if c != '_' {
+                    if c != '_' && c != '$' {
                         if c == '>' {
                             if s[i-1] == '-' {
                                 i--

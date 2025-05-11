@@ -20,6 +20,7 @@ const BAH_TYPE_ARRAY = 6
 const BAH_TYPE_MAP   = 7
 const BAH_TYPE_CHAN  = 8
 const BAH_TYPE_FUNC  = 9
+const BAH_TYPE_PTR  = 10
 
 struct bahFileLoc {
     file: str
@@ -72,6 +73,8 @@ struct bahType {
             return "map:" + this.child.toStr()
         } else if this.type == BAH_TYPE_CHAN {
             return "chan:" + this.child.toStr()
+        } else if this.type == BAH_TYPE_PTR {
+            return "ptr"
         } else if this.type == BAH_TYPE_FUNC {
             s = "function("
             elem = this.next
@@ -131,6 +134,9 @@ struct bahValue {
     isSelfOp: bool
     isPointer: bool
     isUnary: bool
+    isCast: bool
+    isIndexed: bool
+    isReg: bool
 
     tok: bahToken
 

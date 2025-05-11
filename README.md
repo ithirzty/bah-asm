@@ -4,9 +4,16 @@
 - [x] Pointers
 - [x] Operations
 - [x] Functions
-- [ ] Type conversions
+- [x] Type conversions
+- [ ] Rewrite bugged mov optimizer
+- [ ] Write for condition optimizer
 - [ ] Structures
+- [ ] Buffer
 - [ ] Proper text
+- [ ] Modulos & bitwise ops
+- [ ] Increments / decrements
+- [ ] Relection
+- [ ] +=, -=, /=, *=, >>=, <<=, &=, ~=
 - [ ] Arrays and other indexables
 - [ ] Tuples
 - [ ] Arrays operations

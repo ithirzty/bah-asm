@@ -1,8 +1,32 @@
+reversableCompatibleTypes(a bahType*, b bahType*, isRev bool) bool {
+    //handle struct types, fn...
+    if a.type == BAH_TYPE_PTR && (b.isPtr || b.isNativePtr) {
+        return true
+    }
+
+    if a.type == BAH_TYPE_UINT && b.type == BAH_TYPE_INT {
+        return true
+    }
+
+    if isRev == false {
+        return reversableCompatibleTypes(b, a, true)
+    }
+
+    return false
+}
+
 compatibleTypes(a bahType*, b bahType*) bool {
     if a == null || b == null {
         return false
     }
-    //handle struct types, fn...
 
-    return a.type == b.type
+    if a.type == b.type {
+        return true
+    }
+
+    return reversableCompatibleTypes(a, b, false)
+}
+
+isSameType(a bahType*, b bahType*) bool {
+    return a.toStr() == b.toStr()
 }

@@ -14,7 +14,6 @@
 #include "./parser.bah"
 
 main(args []str) int {
-
     gen.data = rope(".global _start
 _start:
 xorq %rbp, %rbp
@@ -45,12 +44,24 @@ call _exit\n")
     fs.close()
 
     cmd = command("as "+fileName+".S -o "+fileName+".o")
-    cmd.runBytes()
+    err = cmd.runBytes()
+
+    if cmd.status != 0 {
+        println("Error assembling program")
+        println(arrToStr(err))
+        return 1
+    }
 
     cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+fileName+".o -lc")
     err = cmd.runBytes()
 
     removeFile(fileName+".o")
+    if cmd.status != 0 {
+        println("Error linking program")
+        println(arrToStr(err))
+        return 1
+    }
+
 
     // cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/Scrt1.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crti.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o  "+fileName+".o -lc /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crtn.o")
     // err = cmd.runBytes()

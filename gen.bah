@@ -1,12 +1,72 @@
+#define generateTypeConversion(val bahValue*, type bahType*) asmSymbol
+
+getStrLen(s str) uint {
+    l = len(s)
+    n = 0
+    i=1; for i+1 < l, i++ {
+        n++
+        if s[i] == <char>92 {
+            if s[i+1] == <char>10 {
+                i++
+            } else if s[i+1] == '0' {
+                i++
+                start = i
+                for i-start < 2, i++ {
+                    if isNumber(s[i]) == false {
+                        break
+                    }
+                }
+                i--
+            }
+            i++
+        }
+    }
+
+    return n
+}
+
 generateBahValueSymbol(val bahValue*) asmSymbol {
     r = asmSymbol {}
 
+    if val.isCast {
+        if val.left.isReg {
+            r.isValue = true
+            r.name = "%"+val.left.tok.cont[1:]
+            r.size = val.type.size
+            return r
+        }
+        return generateTypeConversion(val.left, val.type)
+    }
+
+    if val.isReg {
+        throwError(&val.tok, "Cannot use a register without casting it.")
+    }
+
+    if val.isIndexed {
+        if val.left.type.type == BAH_TYPE_STR {
+            gen.regIndex++
+            rSym = gen.generateOpAdd(generateBahValueSymbol(val.right), gen.staticInt("4"), ASM_NUM_UINT)
+            gen.regIndex--
+            lSym = generateBahValueSymbol(val.left)
+            lSym = gen.generateSymOffset(lSym, rSym.toStr())
+            lSym.size = 1
+            return gen.generateUnary(lSym)
+        }
+    }
+
     if val.isUnary {
-        return gen.generateUnary(generateBahValueSymbol(val.left))
+        sym = generateBahValueSymbol(val.left)
+        sym.size = val.left.type.child.size
+        return gen.generateUnary(sym)
     }
 
     if val.isStaticValue {
         if val.type.type == BAH_TYPE_INT || val.type.type == BAH_TYPE_UINT {
+            if val.tok.type == TOKEN_TYPE_CHAR {
+                //handle escaping
+                c uint = val.tok.cont[1]
+                return gen.staticInt(uintToStr(c))
+            }
             return gen.staticInt(val.tok.cont)
         } else if val.type.type == BAH_TYPE_FLOAT {
             if val.type.size == 4 {
@@ -15,7 +75,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
                 return gen.staticFloat64(val.tok.cont)
             }
         } else if val.type.type == BAH_TYPE_STR {
-            return gen.generateStaticStr(val.tok.cont)
+            return gen.generateStaticStr(val.tok.cont, getStrLen(val.tok.cont))
         }
     }
 
@@ -25,6 +85,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
                 sm = parserCtx.variables[i].sym
                 if val.isPointer {
                     sm.level = -1
+                    sm.size = 8
                 }
                 return sm
             }
@@ -34,14 +95,45 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
     if val.isOperation {
 
         if val.isSelfOp {
-            throwError(&val.tok, "self op not yet implemented")
+            if val.tok.cont == "+" {
+                return gen.generateSelfOp(generateBahValueSymbol(val.left), ASM_SELF_OP_ADD)
+            } else {
+                return gen.generateSelfOp(generateBahValueSymbol(val.left), ASM_SELF_OP_SUB)
+            }
+        }
+
+        if val.left.type.isPtr {
+            throwError(&val.tok, "Cannot perform operation on pointers.")
         }
 
         tp = ASM_NUM_INT
-        if val.left.type.type == BAH_TYPE_UINT || val.type.isNativePtr {
+        if val.left.type.type == BAH_TYPE_UINT {
             tp = ASM_NUM_UINT
         } else if val.left.type.type == BAH_TYPE_FLOAT {
             tp = ASM_NUM_FLOAT
+        } else if val.left.type.type != BAH_TYPE_INT && val.type.type != BAH_TYPE_BOOL {
+
+            if val.tok.cont == "+" && val.left.type.type == BAH_TYPE_STR {
+                gen.generateStrConcatBegin()
+
+                if val.right.tok.cont == "+" {
+                    currAdd = val
+                    for currAdd != null, currAdd = currAdd.right {
+                        if currAdd.tok.cont != "+" {
+                            gen.generateStrConcat(generateBahValueSymbol(currAdd))
+                            return gen.generateStrConcatEnd()
+                        }
+                        gen.generateStrConcat(generateBahValueSymbol(currAdd.left))
+                    }
+                }
+
+                gen.generateStrConcat(generateBahValueSymbol(val.left))
+                gen.generateStrConcat(generateBahValueSymbol(val.right))
+                return gen.generateStrConcatEnd()
+
+            }
+
+            throwError(&val.tok, "Invalid operation.")
         }
         //handle strings concat and struct methods special operations
         //also handle conversions
@@ -50,6 +142,11 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
             return gen.generateOpMult(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
         } else if val.tok.cont == "/" {
             return gen.generateOpDiv(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
+        } else if val.tok.cont == "%" {
+            if tp == ASM_NUM_FLOAT {
+                throwError(&val.left.tok, "Cannot do modulo operation on floats.")
+            }
+            return gen.generateOpMod(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right))
         } else if val.tok.cont == "-" {
             return gen.generateOpSub(generateBahValueSymbol(val.left), generateBahValueSymbol(val.right), tp)
         } else if val.tok.cont == "+" {
@@ -107,10 +204,23 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
         argVal = val.right
 
         for argVal != null, argVal = argVal.right {
-            gen.generateFnCallArgument(generateBahValueSymbol(argVal.left))
+            
+            sym = generateBahValueSymbol(argVal.left)
+
+            //convert str to char* in fn call
+            if argVal.type.isPtr && argVal.type.child.type == BAH_TYPE_UINT && argVal.type.child.size == 1 && argVal.left.type.type == BAH_TYPE_STR {
+                sym = gen.generateSymOffset(sym, "$4")
+            }
+
+            gen.generateFnCallArgument(sym)
+
+        }
+        returnSize = 0
+        if val.type != null {
+            returnSize = val.type.size
         }
 
-        return gen.generateFnCall(val.tok.cont)
+        return gen.generateFnCall(val.tok.cont, returnSize)
     }
 
     throwError(&val.tok, "Internal error generating value asm symbol: "+toJson(val)+".")
@@ -131,5 +241,64 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
 
     throwError(&lval.tok, "Internal error generating left-value asm symbol.")
 
+    return r
+}
+
+generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
+    if (type.isPtr || type.isNativePtr) && val.type.size != 8 {
+        throwError(&val.tok, "Cannot be converted to a pointer type.")
+    }
+
+    if val.type.type == BAH_TYPE_PTR || type.type == BAH_TYPE_PTR {
+        return generateBahValueSymbol(val)
+    }
+
+    //handle structs, array...
+
+    if val.type.type == type.type || val.type.isNativePtr && type.isNativePtr {
+        val.type.size = type.size
+        r = generateBahValueSymbol(val)
+        if r.size != type.size {
+            gen.generateMoveValue(r, ASM_op_registers[spos(r.size)][0])
+            r = asmSymbol {
+                name: ASM_op_registers[spos(type.size)][0]
+                isValue: true
+                size: type.size
+            }
+        }
+        return r
+    }
+
+    // if type.type == BAH_TYPE_UINT && type.size == 1 && val.type == BAH_TYPE_STR {
+    //     r = generateBahValueSymbol(val)
+        
+    // }
+    // else if type.type == BAH_TYPE_UINT && type.size == 1 && val.type == BAH_TYPE_STR {
+
+    // }
+
+    if type.type == BAH_TYPE_INT || type.type == BAH_TYPE_UINT || type.type == BAH_TYPE_BOOL {
+        
+        if val.type.type == BAH_TYPE_FLOAT {
+            return gen.generateConvFloatToInt(generateBahValueSymbol(val), type.size)
+        }
+
+        if val.type.type == BAH_TYPE_UINT || val.type.type == BAH_TYPE_INT || val.type.type == BAH_TYPE_BOOL {
+            r = generateBahValueSymbol(val)
+            r.size = type.size
+            return r
+        }
+
+    } else if type.type == BAH_TYPE_FLOAT {
+
+        if val.type.type == BAH_TYPE_INT {
+            return gen.generateConvIntToFloat(generateBahValueSymbol(val), type.size)
+        }
+
+    }
+
+    throwError(&val.tok, "Internal error generating conversion of asm symbol.")
+
+    r = asmSymbol{}
     return r
 }
