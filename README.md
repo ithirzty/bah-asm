@@ -31,7 +31,7 @@
 - [ ] Different generator (for other backends)
 
 
-# from gcc
+# from gcc (notes or whatever)
 
 ## zeroing a struct in declaration
 ```asm
