@@ -3,6 +3,7 @@
 #import "time.bah"
 #import "json.bah"
 #import "queue.bah"
+#import "path.bah"
 #import "exec.bah"
 
 #include "./gen_asm_linux_64.bah"
@@ -32,6 +33,9 @@ call _exit\n")
     fs.open(file, "r")
     content = fs.readContent()
     fs.close()
+
+    parserCtx.currentFilePath = file
+    parserCtx.currentFile = content
 
     tokens = lexer(content)
 

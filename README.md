@@ -10,7 +10,9 @@
 - [x] Modulos
 - [x] Increments / decrements
 - [x] Indexables
-- [ ] Structures
+- [x] Structures
+- [ ] Global, constanst
+- [ ] Default values
 - [ ] Buffer
 - [ ] Proper text
 - [ ] bitwise ops
@@ -25,6 +27,7 @@
 - [ ] Dwarf ? Backtrace ? Panic ?
 - [ ] Includes and imports
 - [ ] Better macros (#linux...)
+- [ ] Generics
 - [ ] Make sure GC is still compatible
 - [ ] Nice frontend
 - [ ] Static analysis at least as good as the old one

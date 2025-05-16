@@ -106,10 +106,11 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
             }
             i = childCons[1]
             r.child = childCons[0]
-        } else {
-            //tuple type
-
         }
+        //  else {
+        //     //tuple type
+
+        // }
     } else {
         if tokens[i].type == TOKEN_TYPE_VAR {
             if tokens[i].cont == "float" {
@@ -150,6 +151,11 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 r.type = BAH_TYPE_PTR
                 r.size = 8
                 r.isNativePtr = true
+            } else {
+                r = parserCtx.findType(tokens[i].cont)
+                if r == null {
+                    return [<bahType*>null, i]
+                }
             }
 
             i++
@@ -159,6 +165,8 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 }
                 r = r.getPtr()
             }
+        } else {
+            return [<bahType*>null, i]
         }
     }
 
@@ -201,7 +209,7 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
 
         val = new bahLeftValue {
             isUnary: true
-            next: varVal
+            left: varVal
             tok: t
             type: varVal.type.child
         }
@@ -234,13 +242,49 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
 
     i = start+1
     for i < end, i++ {
-        // if tokens[i].cont == "[" {
+        if tokens[i].cont == "." {
+            if (val.type.isPtr == false && val.type.type != BAH_TYPE_STRCT) || (val.type.isPtr == true && val.type.child.type != BAH_TYPE_STRCT) {
+                println(uintToStr(val.type.isPtr == true && val.type.child.type != BAH_TYPE_STRCT))
+                throwError(&tokens[i], "Cannot access member of a non structure value.")
+            }
 
-        // } else if tokens[i].cont == "." {
-            
-        // } else {
-        //     break
-        // }
+            parentVal = val
+            val = new bahLeftValue {
+                left: parentVal
+                isStruct: true
+            }
+            i++
+            if tokens[i].type != TOKEN_TYPE_VAR {
+                throwError(&tokens[i], "Invalid member identifier.")
+            }
+            currTp bahType*
+            if val.left.type.isPtr {
+                currTp = val.left.type.child.child.next
+            } else {
+                currTp = val.left.type.child.next
+            }
+
+            for currTp != null, currTp = currTp.next {
+                if currTp.name == tokens[i].cont {
+                    break
+                }
+            }
+
+            if currTp == null {
+                println(toJson(val.left.type))
+                throwError(&tokens[i], "Unknown structure member.")
+            }
+
+            membVal = new bahLeftValue {
+                tok: tokens[i]
+                type: currTp
+            }
+            val.type = currTp
+
+            val.right = membVal
+        } else {
+            break
+        }
     }
 
     //handle arrays, structs...
@@ -482,130 +526,175 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
             }
         }
 
-        if tokens[start+1].cont == "(" {
-            if val.type.type != BAH_TYPE_FUNC {
-                throwError(&t, "Cannot use symbol as function.")
-            }
-
-            fnSymVal = val
-            val = new bahValue
-            val.isFunctionCall = true
-            val.left = fnSymVal
-            val.tok = fnSymVal.tok
-            val.type = fnSymVal.type.child
-
-            currArg = fnSymVal.type.next
-            currArgVal = val
-
-            i = start + 2
-            nbPar = 1
-            for i < end, i++ {
-                if tokens[i].cont == ")" {
-                    break
+        for start < end {
+            if tokens[start+1].cont == "(" {
+                if val.type.type != BAH_TYPE_FUNC {
+                    throwError(&t, "Cannot use symbol as function.")
                 }
 
-                if currArg == null {
-                    throwError(&tokens[i], "Too many arguments in function call.")
-                }
+                fnSymVal = val
+                val = new bahValue
+                val.isFunctionCall = true
+                val.left = fnSymVal
+                val.tok = fnSymVal.tok
+                val.type = fnSymVal.type.child
 
-                argCons = consumeValue(tokens, i, end, -1, 0)
-                i = argCons[1]
+                currArg = fnSymVal.type.next
+                currArgVal = val
 
-
-                if argCons[0] == null {
-                    throwError(&tokens[i], "Expected value as argument in function call.")
-                }
-
-                if compatibleTypes(argCons[0].type, currArg) == false {
-                    if argCons[0].type.type != BAH_TYPE_STR || currArg.isPtr == false || currArg.child.type != BAH_TYPE_UINT || currArg.child.size != 1 {
-                        tmpArg = argCons[0]
-                        throwError(&tmpArg.tok, "Wrong type in function call.")
-                    }
-                }
-
-                if i == end {
-                    throwError(&t, "Missing end of function call.")
-                }
-
-                if tokens[i].cont != "," && tokens[i].cont != ")" {
-                    throwError(&tokens[i], "Expected separator between arguments in function call.")
-                } else if tokens[i].cont == ")" {
-                    i--
-                }
-
-                currArgVal.right = new bahValue {
-                    isArgumentList: true
-                    left: argCons[0]
-                    type: currArg
-                }
-                currArgVal = currArgVal.right
-                currArg = currArg.next
-            }
-
-            return [val, i+1]
-
-        } else if tokens[start+1].cont == "[" {
-            //TODO: handle splits and others (value1 : value2)
-            if start + 3 >= end {
-                throwError(&tokens[start+1], "Missing index value.")
-            }
-
-            nbEncl = 1
-            brackEnd = end-1
-            i = start+2; for i < end, i++ {
-                t = tokens[i]
-                if t.type != TOKEN_TYPE_ENCL {
-                    continue
-                }
-                
-                if t.cont[0] == '(' || t.cont[0] == '[' || t.cont[0] == '{' {
-                    nbEncl++
-                } else {
-                    if nbEncl == 0 {
-                        throwError(&t, "One too many token.")
-                    }
-                    nbEncl--
-                    if nbEncl == 0 {
-                        brackEnd = i
+                i = start + 2
+                nbPar = 1
+                for i < end, i++ {
+                    if tokens[i].cont == ")" {
                         break
                     }
-                    continue
+
+                    if currArg == null {
+                        throwError(&tokens[i], "Too many arguments in function call.")
+                    }
+
+                    argCons = consumeValue(tokens, i, end, -1, 0)
+                    i = argCons[1]
+
+
+                    if argCons[0] == null {
+                        throwError(&tokens[i], "Expected value as argument in function call.")
+                    }
+
+                    if compatibleTypes(argCons[0].type, currArg) == false {
+                        if argCons[0].type.type != BAH_TYPE_STR || currArg.isPtr == false || currArg.child.type != BAH_TYPE_UINT || currArg.child.size != 1 {
+                            tmpArg = argCons[0]
+                            throwError(&tmpArg.tok, "Wrong type in function call.")
+                        }
+                    }
+
+                    if i == end {
+                        throwError(&t, "Missing end of function call.")
+                    }
+
+                    if tokens[i].cont != "," && tokens[i].cont != ")" {
+                        throwError(&tokens[i], "Expected separator between arguments in function call.")
+                    } else if tokens[i].cont == ")" {
+                        i--
+                    }
+
+                    currArgVal.right = new bahValue {
+                        isArgumentList: true
+                        left: argCons[0]
+                        type: currArg
+                    }
+                    currArgVal = currArgVal.right
+                    currArg = currArg.next
+                }
+
+                start = i
+            } else if tokens[start+1].cont == "[" {
+                //TODO: handle splits and others (value1 : value2)
+                if start + 3 >= end {
+                    throwError(&tokens[start+1], "Missing index value.")
+                }
+
+                nbEncl = 1
+                brackEnd = end-1
+                i = start+2; for i < end, i++ {
+                    t = tokens[i]
+                    if t.type != TOKEN_TYPE_ENCL {
+                        continue
+                    }
+                    
+                    if t.cont[0] == '(' || t.cont[0] == '[' || t.cont[0] == '{' {
+                        nbEncl++
+                    } else {
+                        if nbEncl == 0 {
+                            throwError(&t, "One too many token.")
+                        }
+                        nbEncl--
+                        if nbEncl == 0 {
+                            brackEnd = i
+                            break
+                        }
+                        continue
+                    }
+                    
+                }
+
+                r = consumeValue(tokens, start+2, brackEnd, parentStart, 0)
+                
+                if r[0] == null {
+                    throwError(&tokens[start+2], "Expected value as index.")
+                }
+            
+                nt = val.type
+
+                if val.type.isPtr {
+                    throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
+                }
+
+                if val.type.type == BAH_TYPE_STR {
+                    nt = new bahType {
+                        type: BAH_TYPE_UINT
+                        size: 1
+                    }
+                } else {
+                    throwError(&val.tok, "Cannot use symbol of non indexable type.")
+                }
+
+                varSym = val
+                val = new bahValue {
+                    isIndexed: true
+                    left: varSym
+                    right: r[0]
+                    type: nt
+                }
+
+                start = i
+            } if tokens[start+1].cont == "." {
+                if (val.type.isPtr == false && val.type.type != BAH_TYPE_STRCT) || (val.type.isPtr && val.type.child.type != BAH_TYPE_STRCT) {
+                    throwError(&val.tok, "Cannot access the member of a value that is not a structure.")
+                }
+
+                i = start + 2
+
+                memb = new bahValue {
+                    tok: tokens[i]
                 }
                 
-            }
+                currTp bahType*
 
-            r = consumeValue(tokens, start+2, brackEnd, parentStart, 0)
-            
-            if r[0] == null {
-                throwError(&tokens[start+2], "Expected value as index.")
-            }
-        
-            nt = val.type
-
-            if val.type.isPtr {
-                throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
-            }
-
-            if val.type.type == BAH_TYPE_STR {
-                nt = new bahType {
-                    type: BAH_TYPE_UINT
-                    size: 1
+                if val.type.isPtr {
+                    currTp = val.type.child.child.next
+                } else {
+                    currTp = val.type.child.next
                 }
+
+                for currTp != null, currTp = currTp.next {
+                    if currTp.name == tokens[i].cont {
+                        break
+                    }
+                }
+
+                if currTp == null {
+                    throwError(&tokens[i], "Uknown struct member.")
+                }
+
+                memb.type = currTp
+
+                varSym = val
+                val = new bahValue {
+                    isStruct: true
+                    left: varSym
+                    right: memb
+                    type: memb.type
+                    tok: tokens[start+1]
+                }
+
+                start = i
             } else {
-                throwError(&val.tok, "Cannot use symbol of non indexable type.")
+                break
             }
-
-            varSym = val
-            val = new bahValue {
-                isIndexed: true
-                left: varSym
-                right: r[0]
-                type: nt
-            }
-
-            return [val, i+1]
-            
         }
+
+        return [val, start+1]
 
         //handle arrays, structs..
         //in else statement
@@ -966,6 +1055,100 @@ parseFor(tokens []bahToken, start uint, end uint) {
 }
 
 parseStruct(tokens []bahToken, start uint, end uint) {
+    if end - start < 4 {
+        throwError(&tokens[start], "Invalid structure definition.")
+    }
+
+    if tokens[start+1].type != TOKEN_TYPE_VAR {
+        throwError(&tokens[start+1], "Invalid structure name.")
+    }
+
+    strctType = new bahType {
+        type: BAH_TYPE_STRCT
+        child: {
+            name: tokens[start+1].cont
+        }
+    }
+
+    if parserCtx.findType(strctType.name) != null {
+        throwError(&tokens[start+1], "Cannot redefine a structure.")
+    }
+
+    i = start + 2
+
+    if tokens[start+2].cont == "extend" {
+        if tokens[start+3].type != TOKEN_TYPE_VAR {
+            throwError(&tokens[start+3], "Invalid structure name.")
+        }
+
+        throwError(&tokens[start+2], "Extend not yet implemented.")
+        i = start + 4
+    }
+
+    if tokens[i].cont != "{" {
+        throwError(&tokens[i], "Expected start of fields definition.")
+    }
+    i++
+
+    currParent = strctType.child
+    currOffset = 0
+    for i < end-1, i++ {
+        nameInd = i
+        if tokens[nameInd].type != TOKEN_TYPE_VAR {
+            throwError(&tokens[nameInd], "Invalid filed name.")
+        }
+        i++
+        if tokens[i].cont != ":" {
+            throwError(&tokens[i], "Expected ':' after field name.")
+        }
+        i++
+
+        fieldTypeCons = consumeType(tokens, i, end-1, false)
+        if fieldTypeCons[0] == null {
+            throwError(&tokens[i], "Unknown type.")
+        }
+
+        i = fieldTypeCons[1]
+        fieldType = new bahType
+        *fieldType = *(fieldTypeCons[0])
+        fieldType.name = tokens[nameInd].cont
+
+
+
+        alignment = 1
+
+        if fieldType.size == 4 {
+            alignment = 4
+        } if fieldType.size >= 8 {
+            alignment = 8
+        }
+
+        if currOffset % alignment != 0 {
+            currOffset += alignment - currOffset % alignment
+        }
+
+        fieldType.offset = currOffset
+        currParent.next = fieldType
+        strctType.size += currOffset + fieldType.size
+        currOffset += fieldType.size
+        currParent = currParent.next
+
+        if tokens[i].cont == "=" {
+            throwError(&tokens[i], "Default value not yet implemented")
+        }
+
+        if i == end-1 {
+            break
+        } else {
+            if tokens[i].line == tokens[nameInd].line {
+                throwError(&tokens[i], "Did not expect anything after field type.")
+            }
+            i--
+        }
+    }
+
+    parserCtx.addType(strctType)
+
 
 }
 
@@ -1022,6 +1205,7 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
     genArgs = []asmSymbol
 
     gen.stackOffset = 0
+    stackOff = 16 //stack frame size
     arg = fnType.next
     for arg != null, arg = arg.next {
         v = new bahVariable {
@@ -1029,7 +1213,12 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
             type: arg
         }
         parserCtx.addVar(v)
-        v.sym = gen.generateVarDecl(v.name, v.type.size)
+        if v.type.size > 16 {
+            v.sym = asmSymbolStack(0 - stackOff, v.type.size)
+            stackOff += v.type.size
+        } else {
+            v.sym = gen.generateVarDecl(v.name, v.type.size, false)
+        }
         genArgs[len(genArgs)] = v.sym
     }
 
@@ -1136,7 +1325,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 }
 
                 parserCtx.addVar(lVal.variable)
-                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size)
+                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
             } else {
                 if compatibleTypes(lValCons[0].type, rValCons[0].type) == false {
                     t = rValCons[0].tok
@@ -1160,17 +1349,57 @@ parseLine(tokens []bahToken, start uint, end uint) {
 
             gen.generateVarSet(lValSym, rValSym)
         } else {
-            val = consumeValue(tokens, start, end, -1, 0)
-            if val[0] != null {
-                generateBahValueSymbol(val[0])
+            i=start+1
+            //handle rvalue lines without setting a var
+            if end - start >= 2 && tokens[start].type == TOKEN_TYPE_VAR {
+                for i < end, i++ {
+                    if tokens[i].cont == "(" && tokens[i-1].cont != "function" || tokens[i].type == TOKEN_TYPE_SYNTAX {
+                        val = consumeValue(tokens, start, end, -1, 0)
+                        if val[0] != null {
+                            generateBahValueSymbol(val[0])
+                        }
+                        break
+                    }
+                }
             }
+
+            //handle var declaration with just a type
+            if i == end {
+                lValCons = consumeLeftValue(tokens, start, i)
+                tmpDeclType bahType* = null
+
+                if lValCons[0] == null {
+                    throwError(&tokens[start], "Expected a symbol in variable declaration.")
+                }
+
+                typeCons = consumeType(tokens, lValCons[1], i, false)
+                if typeCons[0] == null {
+                    throwError(&tokens[lValCons[1]], "Expected type.")
+                } else if typeCons[1] != i {
+                    throwError(&tokens[typeCons[1]], "Did not expect anything after the type.")
+                }
+
+                tmpDeclType = typeCons[0]
+                lVal = lValCons[0]
+                
+                if lValCons[2] == false {
+                    throwError(&lVal.tok, "Cannot redeclare variable.")
+                }
+
+                lVal.variable = new bahVariable {
+                    name: lValCons[0].tok.cont
+                    type: tmpDeclType
+                }
+
+                parserCtx.addVar(lVal.variable)
+
+                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, true)
+            }
+
         }
     }
 
     
-    // i=start; for i < end, i++ {
-    //     t = tokens[i]
-    // }
 }
 
 parseLines(tokens []bahToken, start uint, end uint) {

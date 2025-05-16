@@ -48,7 +48,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
             rSym = gen.generateOpAdd(generateBahValueSymbol(val.right), gen.staticInt("4"), ASM_NUM_UINT)
             gen.regIndex--
             lSym = generateBahValueSymbol(val.left)
-            lSym = gen.generateSymOffset(lSym, rSym.toStr())
+            lSym = gen.generateSymOffset(lSym, rSym)
             lSym.size = 1
             return gen.generateUnary(lSym)
         }
@@ -90,6 +90,39 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
                 return sm
             }
         }
+    }
+
+    if val.isStruct {
+        currVal = val
+        //TODO: handle struct ptr
+        addr = 0
+        for currVal.left != null, currVal = currVal.left {
+            addr -= currVal.right.type.offset
+
+            if currVal.left.isStruct == false {
+                sym = generateBahValueSymbol(currVal.left)
+                if currVal.left.type.isPtr == false {
+                    addr += sym.address
+                } else {
+                    nSym = gen.generateSymOffset(sym, gen.staticInt(intToStr(0 - addr)))
+                    addr = gen.generateStackAlloc(nSym)
+                    // nSym = gen.generateDereference(nSym)
+                    r.level = 1
+                    // addr += sym.heapOffset
+                    // throwError(&currVal.left.tok, "Gen of struct not in stack not yet implemented.")
+                }
+                break
+            }
+
+            if currVal.left.type.isPtr {
+                break
+            }
+        }
+
+        r.stack = true
+        r.address = addr
+        r.size = val.type.size
+        return r
     }
 
     if val.isOperation {
@@ -200,6 +233,11 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
     }
 
     if val.isFunctionCall {
+
+        if val.tok.cont == "sizeof" {
+            return gen.staticInt(uintToStr(val.right.left.type.size))
+        }
+
         gen.generateFnCallStart()
         argVal = val.right
 
@@ -209,7 +247,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
 
             //convert str to char* in fn call
             if argVal.type.isPtr && argVal.type.child.type == BAH_TYPE_UINT && argVal.type.child.size == 1 && argVal.left.type.type == BAH_TYPE_STR {
-                sym = gen.generateSymOffset(sym, "$4")
+                sym = gen.generateSymOffset(sym, asmSymbolValue("$4"))
             }
 
             gen.generateFnCallArgument(sym)
@@ -232,7 +270,38 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
     r = asmSymbol{}
 
     if lval.isUnary {
-        return gen.generateDereference(generateBahLeftValueSymbol(lval.next))
+        return gen.generateDereference(generateBahLeftValueSymbol(lval.left))
+    }
+
+    if lval.isStruct {
+        currVal = lval
+        //TODO: handle struct ptr
+        addr = 0
+        for currVal.left != null, currVal = currVal.left {
+            addr -= currVal.right.type.offset
+
+            if currVal.left.isStruct == false {
+                sym = generateBahLeftValueSymbol(currVal.left)
+                if currVal.left.type.isPtr == false {
+                    addr += sym.address
+                } else {
+                    nSym = gen.generateSymOffset(sym, gen.staticInt(intToStr(0 - addr)))
+                    return  gen.generateDereference(nSym)
+                    // addr = gen.generateStackAlloc(nSym)
+                    // throwError(&currVal.left.tok, "Gen of struct not in stack not yet implemented.")
+                }
+                break
+            }
+
+            if currVal.left.type.isPtr {
+                break
+            }
+        }
+
+        r.stack = true
+        r.address = addr
+        r.size = lval.type.size
+        return r
     }
 
     if lval.isVariable {
@@ -259,12 +328,8 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
         val.type.size = type.size
         r = generateBahValueSymbol(val)
         if r.size != type.size {
-            gen.generateMoveValue(r, ASM_op_registers[spos(r.size)][0])
-            r = asmSymbol {
-                name: ASM_op_registers[spos(type.size)][0]
-                isValue: true
-                size: type.size
-            }
+            gen.generateMoveValue(r, asmSymbolReg(ASM_reg_id_op, r.size, 0))
+            r = asmSymbolReg(ASM_reg_id_op, type.size, 0)
         }
         return r
     }
