@@ -1,0 +1,44 @@
+ctos(c char) str {
+    r ptr = memoryAllocSTR(6)
+    
+    lp = <uint32*>r
+    *lp = 1
+
+    cp = <char*>(<uint>r + 4)
+    *cp = c
+
+    return r
+}
+
+intToStr(i int) str {
+    if i == 0 {
+        return "0"
+    }
+
+    s = buffer 66
+
+    s[65] = <char>0
+    
+    subZero = false
+
+    if i < 0 {
+        subZero = true
+        i = 0-i
+    }
+
+    ind = 64
+
+    for i != 0, i /= 10 {
+        conv = i % 10
+        conv += 48
+        s[ind] = <char>conv
+        ind--
+    }
+
+    if subZero == true {
+        s[ind] = '-'
+        ind--
+    }
+
+    return buffToStr(<char*>(<uint>s + ind + 1))
+}

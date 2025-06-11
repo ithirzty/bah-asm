@@ -1,0 +1,285 @@
+#define itoa(i int) str
+
+const GC_min_collect = 2048000
+
+struct BAH_GC_ptr {
+    size: uint
+    next: BAH_GC_ptr*
+    marked: bool
+    notScannable: bool
+}
+
+struct BAH_GC_state_tag {
+    heapSize: uint
+    nextCollect: uint
+    head: BAH_GC_ptr*
+
+    heapMin: uint
+    heapMax: uint
+    stackBase: uint
+}
+
+BAH_GC_state BAH_GC_state_tag
+
+#define GC_scan(from uint, to uint, alignment uint)
+
+GC_setStackBase() {
+    BAH_GC_state.stackBase = <uint>$rbp
+}
+
+#init GC_setStackBase()
+
+GC_findPtr(p uint) BAH_GC_ptr* {
+    p = p - sizeof(BAH_GC_ptr)
+
+    if <uint>p % 16 != 0 {
+        return null
+    }
+
+    currPtr = BAH_GC_state.head
+    for currPtr != null, currPtr = currPtr.next {
+        if <uint>currPtr == p {
+            return currPtr
+        }
+    }
+
+    return currPtr
+}
+
+GC_markPtr(p uint) {
+    if p < BAH_GC_state.heapMin || p > BAH_GC_state.heapMax {
+        return
+    }
+
+    gcPtr = GC_findPtr(p)
+    if gcPtr == null {
+        return
+    }
+
+    if gcPtr.marked == true {
+        // puts("already marked")
+        return
+    }
+    // puts("Found: "+itoa(p - BAH_GC_state.heapMin)+" ("+itoa(gcPtr.size)+")")
+
+    if gcPtr.notScannable == false {
+        GC_scan(p, p + gcPtr.size, sizeof(ptr))
+    }
+    gcPtr.marked = true
+}
+
+GC_scan(from uint, to uint, alignment uint) {
+    // puts("scan: "+itoa(to-from))
+    p = from
+    if from > to {
+        // puts("hell")
+        return
+    }
+    for p < to, p = p + alignment {
+        content = *<uint*>p
+
+        GC_markPtr(content)
+    }
+}
+
+GC_scanReversed(from uint, to uint, alignment uint) {
+    // puts("scan: "+itoa(from - to))
+    p = from
+    if from < to {
+        // puts("hell")
+        return
+    }
+    for p >  to, p = p - alignment {
+        content = *<uint*>p
+
+        GC_markPtr(content)
+    }
+}
+
+GC_collect() {
+    //save registers
+    ordi = <uint>$rdi
+    orax = <uint>$rax
+    orbx = <uint>$rbx
+    ordx = <uint>$rdx
+    currBasePointer = <uint>$rbp + 16
+
+    // puts("[GC] collecting")
+
+
+    if BAH_GC_state.head == null {
+        return
+    }
+
+    //check registers
+    GC_markPtr(ordi)
+    GC_markPtr(orax)
+    GC_markPtr(orbx)
+    GC_markPtr(ordx)
+
+    //check .data and .bss
+    dataStart = <uint>&<char>$data
+    bssStart = <uint>&<char>$bss
+    bssEnd = <uint>&<char>$end
+
+    GC_scan(dataStart, bssStart, 1)
+    GC_scan(bssStart + sizeof(BAH_GC_state_tag), bssEnd, 1)
+
+    //check stack
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 16)
+
+    freed=0
+    alive=0
+
+    total = 0
+    currPtr = BAH_GC_state.head
+    for currPtr != null, currPtr = currPtr.next {
+        total++
+    }
+
+    previous = <BAH_GC_ptr*>null
+    currPtr = BAH_GC_state.head
+
+    for currPtr != null {
+        if currPtr.marked == false {
+            next = currPtr.next
+            if previous == null {
+                BAH_GC_state.head = next
+            } else {
+                previous.next = next
+            }
+            BAH_GC_state.heapSize = BAH_GC_state.heapSize - (currPtr.size + sizeof(BAH_GC_ptr))
+            free(currPtr)
+            currPtr = next
+            freed++
+            continue
+        }
+        alive++
+        currPtr.marked = false
+        previous = currPtr
+        currPtr = currPtr.next
+    }
+
+    // puts("freed: "+itoa(freed)+", still allive: "+itoa(alive)+" total: "+itoa(total))
+    
+}
+
+memoryAlloc(s uint) ptr {
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+
+    allocSize = s + sizeof(BAH_GC_ptr)
+    r = <BAH_GC_ptr*>malloc(allocSize)
+    memset(r, 0, allocSize)
+    r.size = s
+    BAH_GC_state.heapSize = BAH_GC_state.heapSize + allocSize
+
+    r.next = BAH_GC_state.head
+    BAH_GC_state.head = r
+
+    nr = <uint>r + sizeof(BAH_GC_ptr)
+
+    if nr < BAH_GC_state.heapMin {
+        BAH_GC_state.heapMin = nr
+    }
+
+    if nr > BAH_GC_state.heapMax {
+        BAH_GC_state.heapMax = nr
+    }
+
+    return <ptr>nr
+}
+
+memoryRealloc(o ptr, s uint) ptr {
+    if o == null {
+        return memoryAlloc(s)
+    }
+
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+    allocSize = s + sizeof(BAH_GC_ptr)
+    oldGCptr = <BAH_GC_ptr*>(<uint>o - sizeof(BAH_GC_ptr))
+    GCPtrBackup = *oldGCptr
+
+    r = <BAH_GC_ptr*>realloc(oldGCptr, allocSize)
+
+    memset(<ptr>(<uint>r + sizeof(BAH_GC_ptr) + GCPtrBackup.size), 0, s - GCPtrBackup.size)
+    
+    if <uint>r + sizeof(BAH_GC_ptr) != <uint>o {
+        *r = GCPtrBackup
+        currPtr = BAH_GC_state.head
+        for currPtr != null, currPtr = currPtr.next {
+            if currPtr.next == oldGCptr {
+                currPtr.next = r
+                break
+            }
+        }
+    }
+
+    r.size = s
+    
+    BAH_GC_state.heapSize = BAH_GC_state.heapSize + s - GCPtrBackup.size
+
+    nr = <uint>r + sizeof(BAH_GC_ptr)
+
+    if nr < BAH_GC_state.heapMin {
+        BAH_GC_state.heapMin = nr
+    }
+
+    if nr > BAH_GC_state.heapMax {
+        BAH_GC_state.heapMax = nr
+    }
+
+    return <ptr>nr
+}
+
+
+memoryAllocSTR(s uint) str {
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+
+    allocSize = s + sizeof(BAH_GC_ptr)
+    r = <BAH_GC_ptr*>malloc(allocSize)
+    memset(r, 0, allocSize)
+
+    // puts(itoa(<uint><ptr>r))
+
+    r.size = s
+    r.notScannable = true
+    BAH_GC_state.heapSize = BAH_GC_state.heapSize + allocSize
+
+    r.next = BAH_GC_state.head
+    BAH_GC_state.head = r
+
+    nr = <uint>r + sizeof(BAH_GC_ptr)
+
+    if nr < BAH_GC_state.heapMin {
+        BAH_GC_state.heapMin = nr
+    }
+
+    if nr > BAH_GC_state.heapMax {
+        BAH_GC_state.heapMax = nr
+    }
+
+    return <ptr>nr
+}

@@ -1,0 +1,6 @@
+println(s str) {
+    if <ptr>s == null {
+        s = ""
+    }
+    puts(s)
+}

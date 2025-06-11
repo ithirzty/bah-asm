@@ -282,7 +282,7 @@ lexer(s str) []bahToken {
         }
 
     }
-    // totalLines += lineNb - 1
+    totalLines += lineNb - 1
     // totalLexerTime += (getTimeUnix() - lexerStart)
     return tokens
 }

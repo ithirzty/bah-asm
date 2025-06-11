@@ -10,6 +10,39 @@ const BAH_LINE_FLOW_FOR  = 6
 
 #define parseLines(tokens []bahToken, start uint, end uint)
 #define parseLine(tokens []bahToken, start uint, end uint)
+#define consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint) [bahValue*, uint]
+#define parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint)
+
+includeFile(filePath str) {
+    if filePath in parserCtx.parsedFiles {
+        return
+    }
+
+    parserCtx.parsedFiles[len(parserCtx.parsedFiles)] = filePath
+
+    fs = fileStream{}
+    fs.open(filePath, "r")
+    content = fs.readContent()
+    fs.close()
+
+
+    oldFilePath = parserCtx.currentFilePath 
+    oldCurrFile = parserCtx.currentFile 
+    oldFileNb = gen.fileNb
+
+    parserCtx.currentFilePath = filePath
+    parserCtx.currentFile = content
+
+    inclTokens = lexer(content)
+
+    gen.generateFileLocation(parserCtx.currentFilePath)
+    parseLines(inclTokens, 0, len(inclTokens))
+
+
+    gen.fileNb = oldFileNb
+    parserCtx.currentFilePath = oldFilePath 
+    parserCtx.currentFile = oldCurrFile 
+}
 
 consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*, uint] {
     if end - start == 0 {
@@ -48,29 +81,41 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 throwError(&tokens[i], "Expected argument name.")
             }
 
-            name = tokens[i].cont
-            i++
+            name = ""
 
-            if i == end {
-                throwError(&tokens[i-1], "Expected argument type after its name.")
+            if isFuncDecl {
+                name = tokens[i].cont
+
+                i++
+
+                if i == end {
+                    throwError(&tokens[i-1], "Expected argument type after its name.")
+                }
+                
             }
             
             consArgType = consumeType(tokens, i, end, false)
             
             argType = consArgType[0]
-            argType.name = name
-            
-            i = consArgType[1]
 
             if argType == null {
                 throwError(&tokens[i], "Invalid agument type.")
             }
 
+            argType.name = name
+                
+            
+            i = consArgType[1]
+
             if i == end {
                 throwError(&tokens[i-1], "Incomplete function type.")
             }
 
-            lastElem.next = argType
+            if lastElem == r {
+                lastElem.child = argType
+            } else {
+                lastElem.next = argType
+            }
             lastElem = argType
 
             if tokens[i].cont != "," {
@@ -89,7 +134,7 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
 
         retTypeCons = consumeType(tokens, i, end, false)
         if retTypeCons[0] != null {
-            r.child = retTypeCons[0]
+            r.ret = retTypeCons[0]
             i = retTypeCons[1]
         }
 
@@ -165,6 +210,15 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 }
                 r = r.getPtr()
             }
+        } else if tokens[i].type == TOKEN_TYPE_KEYWORD {
+            if tokens[i].cont == "buffer" {
+                r.type = BAH_TYPE_BUFFER
+                if i+2 >= end || tokens[i+1].cont != ":" || tokens[i+2].type != TOKEN_TYPE_INT {
+                    throwError(&tokens[i], "Invalid buffer type. Expected buffer:size")
+                }
+                r.size = strToInt(tokens[i+2].cont)
+                i += 3
+            }
         } else {
             return [<bahType*>null, i]
         }
@@ -233,6 +287,10 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
         return [<bahLeftValue*>null, start+1, false]
     }
 
+    if v.isConst {
+        throwError(&t, "Cannot set the value of a constant.")
+    }
+
     val = new bahLeftValue {
         tok: tokens[start]
         isVariable: true
@@ -244,7 +302,6 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
     for i < end, i++ {
         if tokens[i].cont == "." {
             if (val.type.isPtr == false && val.type.type != BAH_TYPE_STRCT) || (val.type.isPtr == true && val.type.child.type != BAH_TYPE_STRCT) {
-                println(uintToStr(val.type.isPtr == true && val.type.child.type != BAH_TYPE_STRCT))
                 throwError(&tokens[i], "Cannot access member of a non structure value.")
             }
 
@@ -271,7 +328,6 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
             }
 
             if currTp == null {
-                println(toJson(val.left.type))
                 throwError(&tokens[i], "Unknown structure member.")
             }
 
@@ -282,6 +338,73 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
             val.type = currTp
 
             val.right = membVal
+        } else if tokens[i].cont == "[" {
+            if i + 2 >= end {
+                throwError(&tokens[start+1], "Missing index value.")
+            }
+            arrStart = i
+            nbEncl = 1
+            brackEnd = end-1
+            i++
+            for i < end, i++ {
+                t = tokens[i]
+                if t.type != TOKEN_TYPE_ENCL {
+                    continue
+                }
+                
+                if t.cont[0] == '(' || t.cont[0] == '[' || t.cont[0] == '{' {
+                    nbEncl++
+                } else {
+                    if nbEncl == 0 {
+                        throwError(&t, "One too many token.")
+                    }
+                    nbEncl--
+                    if nbEncl == 0 {
+                        brackEnd = i
+                        break
+                    }
+                    continue
+                }
+                
+            }
+
+            r = consumeValue(tokens, arrStart+1, brackEnd+1, arrStart, 0)
+            
+            if r[0] == null {
+                throwError(&tokens[start+2], "Expected value as index.")
+            }
+
+            parentVal = val
+
+            if parentVal.type.type == BAH_TYPE_BUFFER {
+                val = new bahLeftValue {
+                    isBuffer: true
+                    left: parentVal
+                    index: r[0]
+                    type: {
+                        size: 1
+                        type: BAH_TYPE_UINT
+                    }
+                }
+            } else {
+                val = new bahLeftValue {
+                    isArray: true
+                    left: parentVal
+                    index: r[0]
+                    type: parentVal.type.child
+                }
+            }
+
+        
+            if parentVal.type.isPtr {
+                throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
+            }
+
+            if parentVal.type.type == BAH_TYPE_STR {
+                throwError(&val.tok, "Cannot set the value of a str by index.")
+            }
+            
+            //handle buffers and maps
         } else {
             break
         }
@@ -399,6 +522,222 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 return [val, nvCons[1]]
             }
 
+            if t.cont == "new" || (t.type == TOKEN_TYPE_VAR && i+1 < end && tokens[i+1].cont == "{") {
+                st bahType*
+                if t.cont == "new" {
+                    st = parserCtx.findType(tokens[i+1].cont)
+                    i++
+                } else {
+                    st = parserCtx.findType(t.cont)
+                }
+
+                if st == null {
+                    throwError(&tokens[i], "Unknown structure.")
+                }
+                currTp = st.child
+
+                val.isStructDeclare = true
+                val.type = st
+                val.tok = tokens[i]
+                currVal = val
+
+                i += 2
+                nbBraces uint = 1
+                for i < end, i++ {
+                    if tokens[i].cont == "{" {
+                        nbBraces++
+                    } else if tokens[i].cont == "}" {
+                        nbBraces--
+                        if nbBraces == 0 {
+                            break
+                        }
+                    }
+
+
+                    //field: value
+                    if i+2 < end && tokens[i+1].cont == ":" {
+                        if tokens[i].type != TOKEN_TYPE_VAR {
+                            throwError(&tokens[i], "Expected field name.")
+                        }
+                        nameTok = tokens[i]
+                        currTp = st.child.next
+                        for currTp != null, currTp = currTp.next {
+                            if currTp.name == nameTok.cont {
+                                break
+                            }
+                        }
+
+                        if currTp == null {
+                            throwError(&tokens[i], "Unknown field name in structure declaration.")
+                        }
+                        i += 2
+                        currLine = nameTok.line
+                        nbEncls = 0
+                        j=i; for j < end, j++ {
+                            if tokens[j].cont == "(" || tokens[j].cont == "[" || tokens[j].cont == "{" {
+                                nbEncls++
+                            } else if tokens[j].cont == ")" || tokens[j].cont == "]" || tokens[j].cont == "}" {
+                                nbEncls--
+                                break
+                            }
+
+                            if nbEncls > 0 {
+                                currLine = tokens[j].line
+                                continue
+                            }
+
+                            if tokens[j].line != currLine {
+                                if tokens[j].begLine == currLine {
+                                    currLine = tokens[j].line
+                                    continue
+                                }
+
+                                break
+                            }
+                        }
+
+                        
+
+                        valCons = consumeValue(tokens, i, j, i, 0)
+                        if valCons[0] == null {
+                            throwError(&tokens[i], "Expected value.")
+                        }
+
+                        i = valCons[1] - 1
+                        if i < j-1 {
+                            throwError(&tokens[i], "Did not expect anything after field value.")
+                        }
+                        fieldVal = valCons[0]
+                        if compatibleTypes(currTp, fieldVal.type) == false {
+                            throwError(&fieldVal.tok, "Wrong type.")
+                        }
+
+                        currVal.left = new bahValue {
+                            tok: nameTok
+                            type: currTp
+                        }
+                        currVal.left.right = fieldVal
+                        currVal = currVal.left
+                        
+                    } else { //value, value
+                        currTp = currTp.next
+
+                        if currTp == null {
+                            throwError(&tokens[i], "Unknown field position in structure declaration.")
+                        }
+                        valCons = consumeValue(tokens, i, end-1, i, 0)
+                        if valCons[0] == null {
+                            throwError(&tokens[i], "Expected value.")
+                        }
+
+                        i = valCons[1]
+                        fieldVal = valCons[0]
+                        if compatibleTypes(currTp, fieldVal.type) == false {
+                            throwError(&fieldVal.tok, "Wrong type.")
+                        }
+
+                        currVal.left = new bahValue {
+                            tok: fieldVal.tok
+                            type: currTp
+                        }
+                        currVal.left.right = fieldVal
+                        currVal = currVal.left
+
+                        if tokens[i].cont != "," {
+                            if tokens[i].cont == "}" {
+                                break
+                            }
+                            throwError(&tokens[i], "Expected separator between values.")
+                        }
+                    }
+
+                }
+
+                if t.cont == "new" {
+                    val.type = val.type.getPtr()
+                }
+
+                return [val, i+1]
+            }
+
+            if t.cont == "buffer" {
+                if i+1 == end || tokens[i+1].type != TOKEN_TYPE_INT {
+                    throwError(&tokens[i], "Expected buffer length after buffer keyword.")
+                }
+
+                val.isBufferDeclare = true
+                val.type = new bahType {
+                    type: BAH_TYPE_BUFFER
+                    size: strToInt(tokens[i+1].cont)
+                    isNativePtr: true
+                }
+
+                return [val, i+2]
+            }
+
+            if t.cont == "[" && i+2 < end && tokens[i+1].cont == "]" {
+                tp = consumeType(tokens, i+2, end, false)
+
+                if tp[0] == null {
+                    throwError(&tokens[i+2], "Unknown array element type.")
+                }
+
+                i = tp[1]
+
+                val.isArrayDeclare = true
+                val.tok = t
+                val.type = new bahType {
+                    type: BAH_TYPE_ARRAY
+                    size: ARR_TYPE_SIZE
+                    isNativePtr: true
+                    child: tp[0]
+                }
+
+                if i < end && tokens[i].cont == "{" {
+                    nbBraces uint = 1
+                    i++
+                    currVal = val
+                    
+                    for i < end, i++ {
+                        if tokens[i].cont == "{" {
+                            nbBraces++
+                        } else if tokens[i].cont == "}" {
+                            nbBraces--
+                            if nbBraces == 0 {
+                                break
+                            }
+                        }
+
+                        valCons = consumeValue(tokens, i, end-1, i, 0)
+
+                        if valCons[0] == null {
+                            throwError(&tokens[i], "Cannot use as value.")
+                        }
+
+                        if compatibleTypes(valCons[0].type, val.type.child) == false {
+                            tt = valCons[0].tok
+                            throwError(&tt, "Wrong type.")
+                        }
+
+                        i = valCons[1]
+
+                        currVal.right = new bahValue {
+                            left: valCons[0]
+                        }
+                        currVal = currVal.right
+
+                        if i < end && tokens[i].cont != "," && tokens[i].cont != "}" {
+                            throwError(&tokens[i], "Expected coma between values.")
+                        }
+
+                    }
+
+                    
+                }
+
+                return [val, i+1]
+            }
+
             if t.cont == "&" {
                 if start+1 == end {
                     throwError(&t, "Expected a symbol to get pointer from.")
@@ -412,16 +751,15 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 varVal = valCons[0]
 
-                if varVal.isVariable == false {
-                    throwError(&varVal.tok, "Cannot get pointer of anything other than a variable.")
-                }
+                // if varVal.isVariable == false {
+                //     throwError(&varVal.tok, "Cannot get pointer of anything other than a variable.")
+                // }
 
                 nt = valCons[0].type.getPtr()
 
-                val.tok = valCons[0].tok
-                val.isVariable = true
-                val.isPointer = true
+                *val = *varVal
                 val.type = nt
+                val.isPointer = true
 
                 return [val, i]
 
@@ -472,6 +810,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     if v != null {
                         val.isVariable = true
                         val.type = v.type
+                        val.sym = v.sym
                     } else {
                         fn = parserCtx.findFunc(t.cont)
                         if fn != null {
@@ -532,18 +871,50 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     throwError(&t, "Cannot use symbol as function.")
                 }
 
+
+                if tokens[start].cont == "sizeof" {
+                    tp = consumeType(tokens, start+2, end, false)
+                    i = tp[1]
+
+                    if tp[0] == null {
+                        throwError(&tokens[start+2], "Unknown type.")
+                    }
+
+                    val.isStaticValue = true
+                    val.isFunctionSym = false
+                    val.sym = gen.staticInt(uintToStr(tp[0].size))
+                    val.type = new bahType {
+                        type: BAH_TYPE_UINT
+                        size: 8
+                    }
+
+                    if tokens[i].cont != ")" {
+                        throwError(&tokens[start+3], "Sizeof can only take one argument.")
+                    }
+
+                    
+                    start = i
+                    continue
+                }
+
                 fnSymVal = val
                 val = new bahValue
                 val.isFunctionCall = true
                 val.left = fnSymVal
                 val.tok = fnSymVal.tok
-                val.type = fnSymVal.type.child
+                val.type = fnSymVal.type.ret
 
-                currArg = fnSymVal.type.next
+                currArg = fnSymVal.type.child
                 currArgVal = val
+
 
                 i = start + 2
                 nbPar = 1
+
+                if val.left.isStruct && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
+                    currArg = currArg.next
+                }
+
                 for i < end, i++ {
                     if tokens[i].cont == ")" {
                         break
@@ -585,6 +956,10 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     }
                     currArgVal = currArgVal.right
                     currArg = currArg.next
+                }
+
+                if currArg != null {
+                    throwError(&tokens[i], "Missing arguments.")
                 }
 
                 start = i
@@ -630,13 +1005,15 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
                 }
 
-                if val.type.type == BAH_TYPE_STR {
+                if val.type.type == BAH_TYPE_STR || val.type.type == BAH_TYPE_BUFFER {
                     nt = new bahType {
                         type: BAH_TYPE_UINT
                         size: 1
                     }
+                } else if val.type.type == BAH_TYPE_ARRAY {
+                    nt = val.type.child
                 } else {
-                    throwError(&val.tok, "Cannot use symbol of non indexable type.")
+                    throwError(&val.tok, "Cannot use symbol as indexable type.")
                 }
 
                 varSym = val
@@ -674,19 +1051,40 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 }
 
                 if currTp == null {
-                    throwError(&tokens[i], "Uknown struct member.")
+                    strctType = val.type
+                    if val.type.isPtr {
+                        strctType = val.type.child
+                    }
+
+                    method = parserCtx.findFunc(strctType.child.name+"."+tokens[i].cont)
+                    if method == null {
+                        throwError(&tokens[i], "Unknown struct member.")
+                    }
+
+                    memb.isFunctionSym = true
+                    memb.sym = asmSymbolValue(method.name)
+
+                    val = new bahValue {
+                        isStruct: true
+                        left: val
+                        right: memb
+                        type: method.type
+                        tok: tokens[start+1]
+                    }
+
+                } else {
+                    memb.type = currTp
+
+                    varSym = val
+                    val = new bahValue {
+                        isStruct: true
+                        left: varSym
+                        right: memb
+                        type: memb.type
+                        tok: tokens[start+1]
+                    }
                 }
 
-                memb.type = currTp
-
-                varSym = val
-                val = new bahValue {
-                    isStruct: true
-                    left: varSym
-                    right: memb
-                    type: memb.type
-                    tok: tokens[start+1]
-                }
 
                 start = i
             } else {
@@ -810,8 +1208,9 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
                 type: fnType
             }
 
-            if tokens[start+1].cont == "main" && fnType.toStr() != "function(args []str) int" {
-                throwError(&tokens[start], "Invalid main function type, should be: function(args []str) int.")
+
+            if tokens[start+1].cont == "main" && fnType.toStr() != "function([]str) int" {
+                throwError(&tokens[start], "Invalid main function type, should be: function([]str) int.")
             }
 
             parserCtx.addFunc(fn)
@@ -819,7 +1218,127 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
             if i != end {
                 throwError(&tokens[i], "Didn't expected anything after function definition.")
             }
+        } else {
+            if tokens[start+1].type != TOKEN_TYPE_VAR {
+                throwError(&tokens[start+1], "Expected type name.")
+            }
+
+            tp = consumeType(tokens, start+2, end, false)
+
+            if tp[0] == null {
+                throwError(&tokens[start+2], "Invalid type.")
+            }
+
+            if parserCtx.findType(tokens[start+1].cont) != null {
+                throwError(&tokens[start+1], "Type already exists.")
+            }
+
+            nt = new bahType {
+                name: tokens[start+1].cont
+                type: BAH_TYPE_CUSTOM_TYPE
+                size: tp[0].size
+                child: tp[0]
+            }
+
+            parserCtx.addType(nt)
         }
+    } else if tokens[start].cont == "#include" {
+        if end - start != 2 || tokens[start+1].type != TOKEN_TYPE_STR {
+            throwError(&tokens[start], "Invalid use of #include.")
+        }
+
+        inclFileName = tokens[start+1].cont[1:len(tokens[start+1].cont)-1]
+
+        currDirectory = absPath(parserCtx.currentFilePath)
+        i=len(currDirectory)-1; for i != -1, i-- {
+            if currDirectory[i] == '/' {
+                break
+            }
+        }
+        
+        currDirectory = currDirectory[:i+1]
+        filePath = currDirectory + inclFileName
+
+        if fileExists(filePath) == false {
+            filePath = bahDirectory + "/" + inclFileName
+            if fileExists(filePath) == false {
+                throwError(&tokens[start+1], "Cannot find file.")
+            }
+        }
+
+        includeFile(filePath)
+
+    } else if tokens[start].cont == "#import" {
+        if end - start != 2 || tokens[start+1].type != TOKEN_TYPE_STR {
+            throwError(&tokens[start], "Invalid use of #import.")
+        }
+
+        inclFileName = tokens[start+1].cont[1:len(tokens[start+1].cont)-1]
+
+        currDirectory = absPath(parserCtx.currentFilePath)
+        i=len(currDirectory)-1; for i != -1, i-- {
+            if currDirectory[i] == '/' {
+                break
+            }
+        }
+        
+        currDirectory = currDirectory[:i+1]
+        filePath = currDirectory + inclFileName
+
+        if fileExists(filePath) == false {
+            filePath = bahDirectory + "/" + inclFileName
+            if fileExists(filePath) == false {
+                throwError(&tokens[start+1], "Cannot find file.")
+            }
+        }
+
+        if filePath in parserCtx.parsedFiles {
+            return
+        }
+
+        parserCtx.parsedFiles[len(parserCtx.parsedFiles)] = filePath
+
+        fs = fileStream{}
+        fs.open(filePath, "r")
+        content = fs.readContent()
+        fs.close()
+
+
+        oldFilePath = parserCtx.currentFilePath 
+        oldCurrFile = parserCtx.currentFile 
+        oldFileNb = gen.fileNb
+
+        parserCtx.currentFilePath = filePath
+        parserCtx.currentFile = content
+
+        inclTokens = lexer(content)
+
+        gen.generateFileLocation(parserCtx.currentFilePath)
+        parseLines(inclTokens, 0, len(inclTokens))
+
+
+        gen.fileNb = oldFileNb
+        parserCtx.currentFilePath = oldFilePath 
+        parserCtx.currentFile = oldCurrFile 
+
+    } else if tokens[start].cont == "#init" {
+        realGen = gen
+        gen = initFnGen
+        gen.fileNb = realGen.fileNb
+        gen.totalFileNb = realGen.totalFileNb
+
+        parseLine(tokens, start+1, end)
+
+        realGen.data += gen.data
+        realGen.bss += gen.bss
+        gen = realGen
+    } else if tokens[start].cont == "#linux" || tokens[start].cont == "#darwin" || tokens[start].cont == "#windows" {
+        if tokens[start].cont[1:] == BAH_OS {
+            parseLines(tokens, start+2, end-1)
+        }
+
+    } else {
+        throwError(&tokens[start], "Unknown directive.")
     }
 
 }
@@ -832,9 +1351,11 @@ parseReturn(tokens []bahToken, start uint, end uint) {
 
     if start+1 == end {
         //handle only return if no ret type
-        if parserCtx.scopeCtx.currentFunction.type.child != null {
+        if parserCtx.scopeCtx.currentFunction.type.ret != null {
             throwError(&tokens[start], "Expected return value.")
         }
+
+        gen.generateEarlyReturn()
         return
     }
 
@@ -848,11 +1369,11 @@ parseReturn(tokens []bahToken, start uint, end uint) {
         throwError(&tokens[valCons[1]], "Did not expect anything after the return statement.")
     }
 
-    if parserCtx.scopeCtx.currentFunction.type.child == null {
+    if parserCtx.scopeCtx.currentFunction.type.ret == null {
         throwError(&val.tok, "Did not expect a return value.")
     }
     
-    if compatibleTypes(parserCtx.scopeCtx.currentFunction.type.child, val.type) == false {
+    if compatibleTypes(parserCtx.scopeCtx.currentFunction.type.ret, val.type) == false {
         throwError(&val.tok, "Wrong type in return value.")
     }
 
@@ -1085,6 +1606,8 @@ parseStruct(tokens []bahToken, start uint, end uint) {
         i = start + 4
     }
 
+    parserCtx.addType(strctType)
+
     if tokens[i].cont != "{" {
         throwError(&tokens[i], "Expected start of fields definition.")
     }
@@ -1098,44 +1621,91 @@ parseStruct(tokens []bahToken, start uint, end uint) {
             throwError(&tokens[nameInd], "Invalid filed name.")
         }
         i++
-        if tokens[i].cont != ":" {
-            throwError(&tokens[i], "Expected ':' after field name.")
+
+        if tokens[i].cont == "(" { //method definition
+            nbPar = 1
+            j = i
+            fnLineEnd = end
+            for j < end, j++ {
+                if tokens[j].cont == "{" {
+                    fnLineEnd = j
+                    break
+                }
+            }
+
+            methodTypeCons = consumeType(tokens, i, fnLineEnd, true)
+
+            if methodTypeCons[0] == null {
+                throwError(&tokens[i-1], "Invalid method type definition.")
+            }
+
+            method = new bahFunction {
+                name: strctType.child.name+"."+tokens[nameInd].cont
+                type: methodTypeCons[0]
+            }
+
+            tpThisInjct = strctType.getPtr()
+            tpThisInjct.next = method.type.child
+            tpThisInjct.name = "this"
+            method.type.child = tpThisInjct
+
+            nbBraces = 1
+            i = fnLineEnd+1
+            for i < end, i++ {
+                if tokens[i].cont == "{" {
+                    nbBraces++
+                } else if tokens[i].cont == "}" {
+                    nbBraces--
+                    if nbBraces == 0 {
+                        i++
+                        break
+                    }
+                }
+            }
+
+            parseFnBody(method, tokens, fnLineEnd+1, i)
+            
+        } else { //field definition
+            if tokens[i].cont != ":" {
+                throwError(&tokens[i], "Expected ':' after field name.")
+            }
+            i++
+
+            fieldTypeCons = consumeType(tokens, i, end-1, false)
+            if fieldTypeCons[0] == null {
+                throwError(&tokens[i], "Unknown type.")
+            }
+
+            i = fieldTypeCons[1]
+            fieldType = new bahType
+            *fieldType = *(fieldTypeCons[0])
+            fieldType.name = tokens[nameInd].cont
+
+
+
+            alignment = 1
+
+            if fieldType.size == 4 {
+                alignment = 4
+            } if fieldType.size >= 8 {
+                alignment = 8
+            }
+
+            if currOffset % alignment != 0 {
+                currOffset += alignment - currOffset % alignment
+            }
+
+            fieldType.offset = currOffset
+            currParent.next = fieldType
+            strctType.size = currOffset + fieldType.size
+            currOffset += fieldType.size
+            currParent = currParent.next
+
+            if tokens[i].cont == "=" {
+                throwError(&tokens[i], "Default value not yet implemented")
+            }
         }
-        i++
-
-        fieldTypeCons = consumeType(tokens, i, end-1, false)
-        if fieldTypeCons[0] == null {
-            throwError(&tokens[i], "Unknown type.")
-        }
-
-        i = fieldTypeCons[1]
-        fieldType = new bahType
-        *fieldType = *(fieldTypeCons[0])
-        fieldType.name = tokens[nameInd].cont
-
-
-
-        alignment = 1
-
-        if fieldType.size == 4 {
-            alignment = 4
-        } if fieldType.size >= 8 {
-            alignment = 8
-        }
-
-        if currOffset % alignment != 0 {
-            currOffset += alignment - currOffset % alignment
-        }
-
-        fieldType.offset = currOffset
-        currParent.next = fieldType
-        strctType.size += currOffset + fieldType.size
-        currOffset += fieldType.size
-        currParent = currParent.next
-
-        if tokens[i].cont == "=" {
-            throwError(&tokens[i], "Default value not yet implemented")
-        }
+        
 
         if i == end-1 {
             break
@@ -1147,9 +1717,64 @@ parseStruct(tokens []bahToken, start uint, end uint) {
         }
     }
 
-    parserCtx.addType(strctType)
+}
 
+parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
+    hasRetType = fn.type.ret != null
 
+    returnSize = 0
+    if hasRetType {
+        returnSize = fn.type.ret.size
+    }
+
+    funcScope = new parserScope {
+        isConditional: false
+        hasReturned: false
+        needsReturn: hasRetType
+
+        currentFunction: fn
+    }
+
+    parserCtx.addFunc(fn)
+
+    parserCtx.startScope(funcScope)
+
+    genArgs = []asmSymbol
+
+    gen.stackOffset = 0
+    stackOff = 16 //stack frame size
+
+    if returnSize > 16 {
+        stackOff += 16
+    }
+
+    arg = fn.type.child
+    for arg != null, arg = arg.next {
+        v = new bahVariable {
+            name: arg.name
+            type: arg
+        }
+        parserCtx.addVar(v)
+        if v.type.size > 16 {
+            v.sym = asmSymbolStack(0 - stackOff, v.type.size)
+            stackOff += v.type.size
+        } else {
+            v.sym = gen.generateVarDecl(v.name, v.type.size, false)
+        }
+        genArgs[len(genArgs)] = v.sym
+    }
+
+    gen.generateFnStart(fn.name, genArgs, returnSize)
+
+    parseLines(tokens, i, end-1)
+
+    if parserCtx.scopeCtx.currentFunction.type.ret != null && hasScopeReturned(parserCtx.scopeCtx) == false {
+        throwError(&tokens[end-1], "Function with a return type shall be returned.")
+    }
+
+    gen.generateFnEnd()
+
+    parserCtx.endScope()
 }
 
 parseFnDecl(tokens []bahToken, start uint, end uint) {
@@ -1182,64 +1807,101 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
         type: fnType
     }
 
-    if tokens[start].cont == "main" && fnType.toStr() != "function(args []str) int" {
-        throwError(&tokens[start], "Invalid main function type, should be: function(args []str) int.")
+    if tokens[start].cont == "main" && fnType.toStr() != "function([]str) int" {
+        throwError(&tokens[start], "Invalid main function type, should be: function([]str) int.")
     }
 
     i++
 
-    hasRetType = fnType.child != null
-
-    funcScope = new parserScope {
-        isConditional: false
-        hasReturned: false
-        needsReturn: hasRetType
-
-        currentFunction: fn
-    }
-
-    parserCtx.addFunc(fn)
-
-    parserCtx.startScope(funcScope)
-
-    genArgs = []asmSymbol
-
-    gen.stackOffset = 0
-    stackOff = 16 //stack frame size
-    arg = fnType.next
-    for arg != null, arg = arg.next {
-        v = new bahVariable {
-            name: arg.name
-            type: arg
-        }
-        parserCtx.addVar(v)
-        if v.type.size > 16 {
-            v.sym = asmSymbolStack(0 - stackOff, v.type.size)
-            stackOff += v.type.size
-        } else {
-            v.sym = gen.generateVarDecl(v.name, v.type.size, false)
-        }
-        genArgs[len(genArgs)] = v.sym
-    }
-
-    gen.generateFnStart(fn.name, genArgs)
-
-    parseLines(tokens, i, end-1)
-
-    if parserCtx.scopeCtx.currentFunction.type.child != null && hasScopeReturned(parserCtx.scopeCtx) == false {
-        throwError(&tokens[end-1], "Function with a return type shall be returned.")
-    }
-
-    gen.generateFnEnd()
-
-    parserCtx.endScope()
+    parseFnBody(fn, tokens, i, end)
 
 }
 
+parseConst(tokens []bahToken, start uint, end uint) {
+    i=start; for i < end, i++ {
+    if tokens[i].cont == "=" {
+            break
+        }
+    }
+
+    if i == end {
+        throwError(&tokens[i], "Cannot declare a const without a value.")
+    }
+    if i == start {
+        throwError(&tokens[i], "Expected a const name on the left of equal, got nothing.")
+    }
+    if i == end - 1 {
+        throwError(&tokens[i], "Expected a const value on the right of equal, got nothing.")
+    }
+
+    lVal = tokens[start+1]
+
+    if lVal.type != TOKEN_TYPE_VAR {
+        throwError(&lVal, "Expected a constant's name.")
+    }
+
+    rValCons = consumeValue(tokens, i+1, end, -1, 0)
+
+    if rValCons[0] == null {
+        throwError(&tokens[i+1], "Expected a value on the right of equal.")
+    }
+
+    variable = new bahVariable {
+        name: lVal.cont
+        type: rValCons[0].type
+        isConst: true
+    }
+
+    rVal = rValCons[0]
+
+    if rVal.isStaticValue == false {
+        if rVal.isCast == false || (rVal.isCast && rVal.left.isStaticValue == false) {
+            found = false
+            if rVal.isVariable {
+                v = parserCtx.findVar(rVal.tok.cont)
+                if v == null {
+                    panic("That's a good one lol.")
+                }
+                if v.isConst {
+                    found = true
+                }
+            }
+
+            if found == false {
+                throwError(&rVal.tok, "Expected constant value.")
+            }
+        }
+
+
+        rVal = rVal.left
+    }
+
+    parserCtx.addVar(variable)
+
+    variable.sym = generateBahValueSymbol(rValCons[0])
+
+}
+
+parseContinue(tokens []bahToken, start uint, end uint) {
+    if end - start != 1 {
+        throwError(&tokens[start+1], "Did not expect anything.")
+    }
+    gen.generateForContinue()
+}
+
+parseBreak(tokens []bahToken, start uint, end uint) {
+    if end - start != 1 {
+        throwError(&tokens[start+1], "Did not expect anything.")
+    }
+    gen.generateForBreak()
+}
+
 parseLine(tokens []bahToken, start uint, end uint) {
-    
     //type by first token
     t = tokens[start]
+
+    gen.generateLineLocation(t.line)
+
     if t.type == TOKEN_TYPE_KEYWORD {
         if t.cont[0] == '#' {
             parseHashDirective(tokens, start, end)
@@ -1255,12 +1917,20 @@ parseLine(tokens []bahToken, start uint, end uint) {
             parseFor(tokens, start, end)
         } else if t.cont == "struct" {
             parseStruct(tokens, start, end)
+        } else if t.cont == "const" {
+            parseConst(tokens, start, end)
+        } else if t.cont == "continue" {
+            parseContinue(tokens, start, end)
+        } else if t.cont == "break" {
+            parseBreak(tokens, start, end)
         }
     } else if t.type == TOKEN_TYPE_VAR && end - start > 4 && tokens[start+1].cont == "(" && tokens[end-1].cont == "}" {
         parseFnDecl(tokens, start, end)
     } else {
+        eqlIndex = 0
         i=start; for i < end, i++ {
-            if tokens[i].cont == "=" {
+            if tokens[i].cont == "=" || tokens[i].cont == "+=" || tokens[i].cont == "-=" || tokens[i].cont == "/=" || tokens[i].cont == "*=" {
+                eqlIndex = i
                 break
             }
         }
@@ -1304,50 +1974,102 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 // throwError(&tokens[lValCons[1]], "Didn't expect anything between left value and equal sign.")
             }
 
+            rVal = rValCons[0]
             lVal = lValCons[0]
+
+            if len(tokens[eqlIndex].cont) == 2 {
+                if lValCons[2] {
+                    throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
+                }
+
+                leftRightVal = consumeValue(tokens, start, i, -1, 0)[0]
+
+                rVal = new bahValue {
+                    isOperation: true
+                    tok: tokens[eqlIndex]
+                    left: leftRightVal
+                    right: rVal
+                    type: rVal.type
+                }
+            }
             
             if lValCons[2] {
                 //is declaration
 
-                lVal.variable = new bahVariable {
-                    name: lValCons[0].tok.cont
-                    type: rValCons[0].type
+                if len(tokens[eqlIndex].cont) == 2 {
+                    throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
                 }
 
-                rVal = rValCons[0]
+                lVal.variable = new bahVariable {
+                    name: lValCons[0].tok.cont
+                    type: rVal.type
+                }
+
                 // println(lVal.variable.name+":\n"+toJson(rVal)+"\n")
 
                 if tmpDeclType != null {
                     lVal.variable.type = tmpDeclType
                     lVal.type = tmpDeclType
                 } else {
-                    lVal.type = rValCons[0].type
+                    lVal.type = rVal.type
                 }
 
                 parserCtx.addVar(lVal.variable)
-                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
+
+                if parserCtx.scope == 0 {
+                    if rVal == null {
+                        lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                    }
+                } else {
+                    if rVal.isStructDeclare == false && rVal.isBufferDeclare == false && rVal.isArrayDeclare == false && (rVal.isFunctionCall == false || rVal.type.size <= 8) {
+                        lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
+                    }
+                }
             } else {
-                if compatibleTypes(lValCons[0].type, rValCons[0].type) == false {
-                    t = rValCons[0].tok
+                if parserCtx.scope == 0 {
+                    throwError(&lVal.tok, "Cannot redeclare a global variable.")
+                }
+                if compatibleTypes(lVal.type, rVal.type) == false {
+                    t = rVal.tok
                     throwError(&t, "Wrong type.")
                 }
             }
 
             rValSym = asmSymbol{}
 
-            if rValCons[0].isStaticValue {
-                rValCons[0].type.size = lVal.type.size
+            if rVal.isStaticValue {
+                rVal.type.size = lVal.type.size
             }
 
-            //Generate var setting
-            if lValCons[2] == true && isSameType(lVal.type, rValCons[0].type) == false {
-                rValSym = generateTypeConversion(rValCons[0], lVal.type)
+            if parserCtx.scope == 0 {
+                syms = []asmSymbol
+                generateImmediateValues(rVal, syms)
+                typeSize = lVal.variable.type.size
+                if lVal.variable.type.isNativePtr {
+                    typeSize = 8
+                }
+                lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
             } else {
-                rValSym = generateBahValueSymbol(rValCons[0])
-            }
-            lValSym = generateBahLeftValueSymbol(lVal)
+                //Generate var setting
+                if lValCons[2] == true && isSameType(lVal.type, rVal.type) == false {
+                    rValSym = generateTypeConversion(rVal, lVal.type)
+                } else {
+                    rValSym = generateBahValueSymbol(rVal)
+                }
 
-            gen.generateVarSet(lValSym, rValSym)
+                if lVal.isArray {
+                    rValSym = gen.generateTmpSym(rValSym, rValSym.size)
+                }
+
+                lValSym = generateBahLeftValueSymbol(lVal)
+                if rVal.isStructDeclare || rVal.isBufferDeclare || rVal.isArrayDeclare || (rVal.isFunctionCall == true && rVal.type.size > 8) {
+                    lVal.variable.sym = rValSym
+                } else {
+                    gen.generateVarSet(lValSym, rValSym)
+                }
+            }
+
+
         } else {
             i=start+1
             //handle rvalue lines without setting a var
@@ -1393,7 +2115,11 @@ parseLine(tokens []bahToken, start uint, end uint) {
 
                 parserCtx.addVar(lVal.variable)
 
-                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, true)
+                if parserCtx.scope == 0 {
+                    lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                } else {
+                    lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, true)
+                }
             }
 
         }

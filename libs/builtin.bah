@@ -1,0 +1,83 @@
+#include "cBinds.bah"
+
+#define len(a ptr) uint
+
+const null = <ptr>0
+const true = <bool>1
+const false = <bool>0
+
+
+struct Bah_Array_Type {
+	data: ptr
+	length: uint
+	realLength: uint
+	elemSize: uint
+}
+
+__bah_strlenSTR(s str) uint32 {
+    if <ptr>s == null {
+        return 0
+    }
+    return *(<uint32*>s)
+}
+
+__bah_arrayLength(a Bah_Array_Type*) uint {
+    if a == null {
+        return 0
+    }
+
+    return a.length
+}
+
+__bah_compareStr(a str, b str) bool {
+    if len(a) != len(b) {
+        return false
+    }
+
+    i=0; for i < len(a), i++ {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+
+    return true
+}
+
+#include "gc.bah"
+
+__Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
+    arr.length = index + 1
+
+    if index < arr.realLength {
+        return
+    }
+
+    if index != arr.realLength {
+        puts("nope!")
+    }
+
+    if arr.realLength == 0 {
+        arr.realLength = 64
+    } else {
+        arr.realLength = arr.realLength * 2
+    }
+    arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
+}
+
+buffToStr(b char*) str {
+    l = strlen(b)
+    r uint* = memoryAllocSTR(l + 6)
+    *r = l
+    memcpy(<ptr>(<uint>r+4), b, l)
+    return <str>r
+}
+
+__bah_argsToArr(argc uint, argv char**) []str {
+    arr = []str
+
+    i=0; for i < argc, i++ {
+        arr[i] = buffToStr(*<char**>(<uint>argv + i * sizeof(ptr)))
+    }
+
+    return arr
+}

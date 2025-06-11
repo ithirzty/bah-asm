@@ -15,6 +15,12 @@ const BAH_TYPE_CHAN  = 8
 const BAH_TYPE_FUNC  = 9
 const BAH_TYPE_PTR  = 10
 const BAH_TYPE_CUSTOM_TYPE  = 11
+const BAH_TYPE_BUFFER  = 12
+
+const ARR_TYPE_SIZE = 32
+const ARR_LENGTH_OFFSET = 8
+const ARR_REALENGTH_OFFSET = 16
+const ARR_ELEMSIZE_OFFSET = 24
 
 struct bahFileLoc {
     file: str
@@ -34,10 +40,17 @@ struct bahType {
 
     child: bahType*
     next:  bahType*
+    ret:   bahType*
 
     loc: bahFileLoc
 
     toStr() str {
+        if this.isPtr {
+            return this.child.toStr()+"*"
+        }
+        if this.type == BAH_TYPE_CUSTOM_TYPE {
+            return this.name
+        }
         if this.type == BAH_TYPE_BOOL {
             return "bool"
         } else if this.type == BAH_TYPE_INT {
@@ -69,18 +82,20 @@ struct bahType {
             return "chan:" + this.child.toStr()
         } else if this.type == BAH_TYPE_PTR {
             return "ptr"
+        } else if this.type == BAH_TYPE_BUFFER {
+            return "buffer:"+uintToStr(this.size)
         } else if this.type == BAH_TYPE_FUNC {
             s = "function("
-            elem = this.next
+            elem = this.child
             for elem != null, elem = elem.next {
-                s += elem.name + " " + elem.toStr()
+                s += elem.toStr()
                 if elem.next != null {
                     s += ", "
                 }
             }
             s += ")"
-            if this.child != null {
-                s += " "+this.child.toStr()
+            if this.ret != null {
+                s += " "+this.ret.toStr()
             }
             return s
         }
@@ -109,6 +124,7 @@ struct bahVariable {
 
     loc: bahFileLoc
     sym: asmSymbol
+    isConst: bool
 }
 
 struct bahFunction {
@@ -132,6 +148,11 @@ struct bahValue {
     isIndexed: bool
     isReg: bool
     isStruct: bool
+    isStructDeclare: bool
+    isArrayDeclare: bool
+    isBufferDeclare: bool
+    isMapDeclare: bool
+    isChanDeclare: bool
 
     tok: bahToken
 
@@ -145,9 +166,11 @@ struct bahValue {
 
 struct bahLeftValue {
     isVariable: bool //final symbol in the left-val tree
-    isArray: bool //is only the array in which is the left-val
-    isStruct: bool //same for struct
-    isUnary: bool
+    isArray:    bool //is only the array in which is the left-val
+    isStruct:   bool //same for struct
+    isBuffer:   bool
+    isMap:      bool
+    isUnary:    bool
     type: bahType*
 
     tok: bahToken
@@ -182,6 +205,11 @@ struct parserContext {
     scope: uint
 
     _scopeCtx: []parserScope*
+
+    parsedFiles: []str
+    compiledFiles: []str
+
+    parseOnly: bool = false
 
     currentFile: str
     currentFilePath: str
@@ -251,7 +279,11 @@ struct parserContext {
     findType(s str) bahType* {
         i=len(this.types) - 1; for i != -1, i-- {
             tp = this.types[i]
-            if tp.child != null && tp.child.name == s {
+            if tp.type == BAH_TYPE_STRCT && tp.child != null && tp.child.name == s {
+                return tp
+            }
+
+            if tp.type == BAH_TYPE_CUSTOM_TYPE && tp.name == s {
                 return tp
             }
         }

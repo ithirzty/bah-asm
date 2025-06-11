@@ -11,28 +11,36 @@
 - [x] Increments / decrements
 - [x] Indexables
 - [x] Structures
-- [ ] Global, constanst
+- [x] Global, constanst
+- [x] main() arguments
 - [ ] Default values
-- [ ] Buffer
-- [ ] Proper text
+- [x] Buffer
+- [x] Proper text
 - [ ] bitwise ops
 - [ ] Relection
-- [ ] +=, -=, /=, *=, >>=, <<=, &=, ~=
-- [ ] Arrays
+- [~] +=, -=, /=, *=, >>=, <<=, &=, ~=
+- [x] Arrays
 - [ ] Tuples
 - [ ] Arrays operations
-- [ ] Methods
+- [x] Methods
+- [ ] Init and end methods
+- [x] Struct operations
 - [ ] Diverse optimizations
-- [ ] Garbage compiler
+- [x] Garbage compiler
 - [ ] Dwarf ? Backtrace ? Panic ?
-- [ ] Includes and imports
+- [x] Includes
+- [ ] Imports
 - [ ] Better macros (#linux...)
 - [ ] Generics
+- [ ] Async
 - [ ] Make sure GC is still compatible
 - [ ] Nice frontend
 - [ ] Static analysis at least as good as the old one
 - [ ] Different generator (for other backends)
 
+TODO:
+- optimize %rax -> %rdx -> dest
+- reuse static strings
 
 # from gcc (notes or whatever)
 

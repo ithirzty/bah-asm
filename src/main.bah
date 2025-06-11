@@ -1,0 +1,234 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "time.bah"
+#import "json.bah"
+#import "queue.bah"
+#import "path.bah"
+#import "exec.bah"
+#import "flags.bah"
+
+totalLines = 0
+memoryAllocFunction = "memoryAlloc"
+memoryAllocFunctionSTR = "memoryAllocSTR"
+strCompareFunction = "__bah_compareStr"
+argumentsToArrFunction = "__bah_argsToArr"
+
+#linux {
+    BAH_OS = "linux"
+}
+
+#darwin {
+    BAH_OS = "darwin"
+}
+
+#windows {
+    BAH_OS = "windows"
+}
+
+isObjectFile = false
+isSilent = false
+
+const bahDirectory = "/opt/bah-asm"
+
+#include "./gen_asm_linux_64.bah"
+
+gen = asmContext{}
+initFnGen = asmContext{
+    code: rope("")
+    data: rope("")
+    bss: rope("")
+}
+initFnName = ".__Bah_init"
+
+#include "./lexer.bah"
+#include "./state.bah"
+#include "./types.bah"
+#include "./error.bah"
+#include "./gen.bah"
+#include "./parser.bah"
+
+main(args []str) int {
+    startTime = getTimeUnix() //for timming compilation time
+
+    flags = flags{}
+    flags.addString("o", "Name of the output file.")
+    flags.addBool("object", "Compile to object file.")
+    flags.addBool("silent", "Should not output anything.")
+    flags.addBool("asm", "Compile to assembly file.")
+    flags.addBool("disableOptimizations", "Disables generation optimizations.")
+
+    flags.parse(args)
+
+    isObjectFile = flags.isSet("object")
+    isSilent = flags.isSet("silent")
+
+    if flags.isSet("disableOptimizations") {
+        gen.enableOptimizations = false
+        initFnGen.enableOptimizations = false
+    }
+
+    initFnCallRope = rope("")
+
+    gen.data = rope(".global _start
+_start:
+xorq %rbp, %rbp
+call "+initFnName+"
+movl (%rsp), %edi
+leaq 8(%rsp), %rsi
+leaq 16(%rsp,%rdi,8), %rdx
+call "+argumentsToArrFunction+"
+movq %rax, %rdi
+call main
+movl %eax, %edi
+call _exit
+.data
+.global __data_start
+__data_start:\n")
+    gen.bss = rope(".bss
+.global __bss_start
+__bss_start:\n")
+    gen.code = rope(".text\n")
+
+    initFnGen.generateFnStart(initFnName, null, 0)
+
+    file = args[1]
+    fs = fileStream{}
+    fs.open(file, "r")
+    content = fs.readContent()
+    fs.close()
+
+    parserCtx.currentFilePath = file
+    parserCtx.currentFile = content
+
+    tokens = lexer(content)
+
+    gen.generateFileLocation(parserCtx.currentFilePath)
+
+    includeFile(bahDirectory + "/builtin.bah")
+
+    parseLines(tokens, 0, len(tokens))
+
+    fileName = ""
+    fileNameNoExt = ""
+
+    if flags.isSet("o") {
+        fileName = flags.get("o")
+        
+        if fileName[0] != '.' && fileName[0] != '/' {
+            currDirectory = file
+            i=len(currDirectory)-1; for i != -1, i-- {
+                if currDirectory[i] == '/' {
+                    currDirectory = currDirectory[:i+1]
+                    break
+                }
+            }
+            fileName = currDirectory + fileName
+        }
+
+        fileNameNoExt = fileName
+        i=len(fileNameNoExt)-1; for i != -1, i-- {
+            if fileNameNoExt[i] == '/' {
+                break
+            }
+            if fileNameNoExt[i] == '.' {
+                fileNameNoExt = fileNameNoExt[:i]
+                break
+            }
+        }
+
+    } else {
+        fileName = file[:len(file)-4]
+        fileNameNoExt = file[:len(file)-4]
+    }
+
+    i=0; for i < len(parserCtx.functions), i++ {
+        gen.data = rope(".global "+parserCtx.functions[i].name+"\n") + gen.data
+    }
+
+    initFnGen.generateFnEnd()
+    gen.code += initFnGen.code
+
+    gen.bss += rope(".global __bss_end
+__bss_end:\n")
+
+    if isSilent == false {
+        println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\e[0m")
+    }
+
+
+    if flags.isSet("asm") {
+        i=len(fileName)-1; for i != -1, i-- {
+            if fileName[i] == '/' {
+                break
+            }
+            if fileName[i] == '.' {
+                break
+            }
+        }
+        if i != -1 {
+            fileName += ".S"
+        }
+        
+
+        fs.open(fileName, "w")
+        fs.writeFile(gen.data.toStr()+gen.bss.toStr()+gen.code.toStr())
+        fs.close()
+        return 0
+    }
+
+
+    fs.open(fileNameNoExt+".S", "w")
+    fs.writeFile(gen.data.toStr()+gen.bss.toStr()+gen.code.toStr())
+    fs.close()
+
+    if isObjectFile {
+        i=len(fileName)-1; for i != -1, i-- {
+            if fileName[i] == '/' {
+                break
+            }
+            if fileName[i] == '.' {
+                break
+            }
+        }
+        if i != -1 {
+            fileName += ".o"
+        }
+        
+
+        cmd = command("as "+fileNameNoExt+".S -o "+fileName)
+        err = cmd.runBytes()
+        removeFile(fileNameNoExt+".S")
+        return 0
+    }
+
+    cmd = command("as "+fileNameNoExt+".S -o "+fileNameNoExt+".o")
+    err = cmd.runBytes()
+    removeFile(fileNameNoExt+".S")
+
+
+    if cmd.status != 0 {
+        println("Error assembling program")
+        println(arrToStr(err))
+        return 1
+    }
+
+    cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+fileNameNoExt+".o -lc")
+    err = cmd.runBytes()
+
+    removeFile(fileNameNoExt+".o")
+    if cmd.status != 0 {
+        println("Error linking program")
+        println(arrToStr(err))
+        return 1
+    }
+
+    if isSilent == false {
+        println("\e[1;32mDone. (compiled in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms)\e[0m")
+    }
+
+    // cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/Scrt1.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crti.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o  "+fileName+".o -lc /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crtn.o")
+    // err = cmd.runBytes()
+
+    // removeFile(fileName+".o")
+    return 0
+}
