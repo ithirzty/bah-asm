@@ -16,7 +16,8 @@
 - [ ] Default values
 - [x] Buffer
 - [x] Proper text
-- [ ] bitwise ops
+- [ ] bitwise ops and powers
+- [ ] Extend
 - [ ] Relection
 - [~] +=, -=, /=, *=, >>=, <<=, &=, ~=
 - [x] Arrays

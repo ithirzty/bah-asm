@@ -971,9 +971,13 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 nbEncl = 1
                 brackEnd = end-1
+                splitIndex = -1
                 i = start+2; for i < end, i++ {
                     t = tokens[i]
                     if t.type != TOKEN_TYPE_ENCL {
+                        if t.cont == ":" {
+                            splitIndex = i
+                        }
                         continue
                     }
                     
@@ -993,36 +997,73 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     
                 }
 
-                r = consumeValue(tokens, start+2, brackEnd, parentStart, 0)
-                
-                if r[0] == null {
-                    throwError(&tokens[start+2], "Expected value as index.")
-                }
-            
-                nt = val.type
+                if splitIndex != -1 {
+                    left bahValue* = null
+                    right bahValue* = null
 
-                if val.type.isPtr {
-                    throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
-                }
-
-                if val.type.type == BAH_TYPE_STR || val.type.type == BAH_TYPE_BUFFER {
-                    nt = new bahType {
-                        type: BAH_TYPE_UINT
-                        size: 1
+                    if splitIndex > start + 2 {
+                        leftCons = consumeValue(tokens, start+2, splitIndex, parentStart, 0)
+                        left = leftCons[0]
+                        if left == null {
+                            throwError(&tokens[start+2], "Expected value as begining index.")
+                        }
                     }
-                } else if val.type.type == BAH_TYPE_ARRAY {
-                    nt = val.type.child
+
+                    if splitIndex+1 < brackEnd {
+                        rightCons = consumeValue(tokens, splitIndex+1, brackEnd, parentStart, 0)
+                        right = rightCons[0]
+                        if right == null {
+                            throwError(&tokens[start+2], "Expected value as length.")
+                        }
+                    }
+
+                    if val.type.type != BAH_TYPE_ARRAY && val.type.type != BAH_TYPE_STR {
+                        throwError(&val.tok, "Cannot use symbol as indexable type.")
+                    }
+
+                    val = new bahValue {
+                        isSplit: true
+                        left: val
+                        right: {
+                            left: left
+                            right: right
+                        }
+                        type: val.type
+                    }
+
                 } else {
-                    throwError(&val.tok, "Cannot use symbol as indexable type.")
+                    r = consumeValue(tokens, start+2, brackEnd, parentStart, 0)
+                    
+                    if r[0] == null {
+                        throwError(&tokens[start+2], "Expected value as index.")
+                    }
+                
+                    nt = val.type
+
+                    if val.type.isPtr {
+                        throwError(&val.tok, "Cannot use a pointer as indexable symbol.")
+                    }
+
+                    if val.type.type == BAH_TYPE_STR || val.type.type == BAH_TYPE_BUFFER {
+                        nt = new bahType {
+                            type: BAH_TYPE_UINT
+                            size: 1
+                        }
+                    } else if val.type.type == BAH_TYPE_ARRAY {
+                        nt = val.type.child
+                    } else {
+                        throwError(&val.tok, "Cannot use symbol as indexable type.")
+                    }
+
+                    varSym = val
+                    val = new bahValue {
+                        isIndexed: true
+                        left: varSym
+                        right: r[0]
+                        type: nt
+                    }
                 }
 
-                varSym = val
-                val = new bahValue {
-                    isIndexed: true
-                    left: varSym
-                    right: r[0]
-                    type: nt
-                }
 
                 start = i
             } if tokens[start+1].cont == "." {
@@ -1117,6 +1158,36 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
         if tokens[i].cont == "," {
             break
         }
+        
+        if i > start && opLevel == 3 && (tokens[i].type == TOKEN_TYPE_INT || tokens[i].type == TOKEN_TYPE_FLOAT) && tokens[i].cont[0] == '-' && tokens[i-1].type != TOKEN_TYPE_CAST {
+            leftCons = consumeValue(tokens, i-1, i, <int>start, opLevel+1)
+            if leftCons[0] != null {
+                // println("warning: "+parserCtx.currentFilePath+":"+uintToStr(tokens[i].line))
+                val = new bahValue{
+                    tok: {cont:"+"}
+                    isOperation: true
+                    left: leftCons[0]
+                }
+                rightCons = consumeValue(tokens, i, end, -1, opLevel)
+                if rightCons[0] == null {
+                    throwError(&tokens[i+1], "Cannot do operation on non value on the right.")
+                }
+                val.right = rightCons[0]
+                i = rightCons[1]
+
+                if compatibleTypes(val.left.type, val.right.type) == false {
+                    throwError(&val.right.tok, "Wrong type.")
+                }
+
+                if val.right.type.size > val.left.type.size {
+                    val.type = val.right.type
+                } else {
+                    val.type = val.left.type
+                }
+
+                return [val, i]
+            }
+        }
 
         if i > start && i+1 < end {
             if (opLevel == 0 && (tokens[i].cont == "||")) || (opLevel == 1 && (tokens[i].cont == "&&")) || (opLevel == 2 && (tokens[i].cont == "<" || tokens[i].cont == ">" || tokens[i].cont == ">=" || tokens[i].cont == "<=" || tokens[i].cont == "==" || tokens[i].cont == "!=")) || (opLevel == 3 && (tokens[i].cont == "+" || tokens[i].cont == "-")) || (opLevel == 4 && (tokens[i].cont == "*" || tokens[i].cont == "/" || tokens[i].cont == "%"))  {
@@ -1184,6 +1255,12 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
 parseHashDirective(tokens []bahToken, start uint, end uint) {
 
+    if tokens[start].cont == "#linux" || tokens[start].cont == "#darwin" || tokens[start].cont == "#windows" {
+        if tokens[start].cont[1:] == BAH_OS {
+            parseLines(tokens, start+2, end-1)
+        }
+        return
+    }
     
     if parserCtx.scope > 0 {
         throwError(&tokens[start], "Directive should be used at global scope.")
@@ -1332,11 +1409,6 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         realGen.data += gen.data
         realGen.bss += gen.bss
         gen = realGen
-    } else if tokens[start].cont == "#linux" || tokens[start].cont == "#darwin" || tokens[start].cont == "#windows" {
-        if tokens[start].cont[1:] == BAH_OS {
-            parseLines(tokens, start+2, end-1)
-        }
-
     } else {
         throwError(&tokens[start], "Unknown directive.")
     }
@@ -2021,7 +2093,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                         lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
                     }
                 } else {
-                    if rVal.isStructDeclare == false && rVal.isBufferDeclare == false && rVal.isArrayDeclare == false && (rVal.isFunctionCall == false || rVal.type.size <= 8) {
+                    if lVal.isVariable == false || rVal.isStructDeclare == false && rVal.isBufferDeclare == false && rVal.isArrayDeclare == false && (rVal.isFunctionCall == false || rVal.type.size <= 8) {
                         lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
                     }
                 }
@@ -2062,7 +2134,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 }
 
                 lValSym = generateBahLeftValueSymbol(lVal)
-                if rVal.isStructDeclare || rVal.isBufferDeclare || rVal.isArrayDeclare || (rVal.isFunctionCall == true && rVal.type.size > 8) {
+                if lVal.isVariable && (rVal.isStructDeclare || rVal.isBufferDeclare || rVal.isArrayDeclare || (rVal.isFunctionCall == true && rVal.type.size > 8)) {
                     lVal.variable.sym = rValSym
                 } else {
                     gen.generateVarSet(lValSym, rValSym)

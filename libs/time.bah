@@ -1,0 +1,115 @@
+#import "string.bah"
+
+struct tm {
+    tm_sec: int32
+    tm_min: int32
+    tm_hour: int32
+    tm_mday: int32
+    tm_mon: int32
+    tm_year: int32
+    tm_wday: int32
+    tm_yday: int32
+    tm_isdst: int32
+    tm_gmtoff: int
+    tm_zone: char*
+}
+
+#define time(timer int) int
+#define localtime(timer int*) tm*
+#define strftime(buff char*, len uint, format char*, tp tm*) uint
+
+const TIME_UTC = 1
+
+#linux {
+    #define timespec_get(ts Ctimespec*, base int32) int32
+}
+#darwin {
+    //TODO: remove ulgy .h files...
+    #include "<sys/time.h>"
+    #include "<mach/clock.h>"
+
+    #define! clock_serv_t ptr
+    #define! mach_timespec_t ptr
+    #define! mach_host_self() ptr
+    #define! mach_task_self() ptr
+    #define! host_get_clock_service(mach ptr, type int, clock clock_serv_t*)
+    #define! clock_get_time(clock clock_serv_t, mts mach_timespec_t*)
+    #define! mach_port_deallocate(mach ptr, clock clock_serv_t)
+}
+
+#windows {
+    #define! clock_gettime(w int, t Ctimespec*) int
+}
+
+//A milisecond in nanoseconds.
+const TIME_MS  = 1000000
+//A second in nanoseconds.
+const TIME_S   = 1000000000
+//A minute in nanoseconds.
+const TIME_MIN = 60000000000
+
+//This is a wrapper that makes time manipulations easier.
+//By default, its .timestamp field is set to the current time.
+struct time {
+    timestamp: int
+
+    //To set the timestamp to the current time.
+    now() {
+        this.timestamp = time(0)
+    }
+    
+    //To format the timestamp using the specified format.
+    //The format options can be found [here](https://koor.fr/C/ctime/strftime.wp).
+    format(a str) str {
+        
+        lt = localtime(&this.timestamp)
+
+        buff = buffer 1024
+        
+        l = strftime(<ptr>buff, 1024, a, lt)
+        buff[l] = <char>0
+        return buffToStr(<char*>buff)
+    } 
+
+    //To get the number of seconds since the timestamp.
+    since() int {
+        nt = time(0)
+        r = nt - this.timestamp
+        return r
+    }
+}
+
+
+//Returns the current timestamp in nanoseconds.
+//One nano second looks like this: 0000000000000000001.
+getTimeUnix() int {
+    ts = Ctimespec{}
+    #linux {
+        timespec_get(&ts, TIME_UTC)
+    }
+    #darwin {
+        cclock clock_serv_t
+        mts mach_timespec_t
+        host_get_clock_service(mach_host_self(), noCheck(CALENDAR_CLOCK), &cclock)
+        clock_get_time(cclock, &mts)
+        mach_port_deallocate(mach_task_self(), cclock)
+        mtsp = &mts
+        ts.tv_sec = noCheck(mtsp->tv_sec)
+        ts.tv_nsec = noCheck(mtsp->tv_nsec)
+    }
+    #windows {
+        s = clock_gettime(null, &ts)
+    }
+    s = ts.tv_sec * 1000000000 + ts.tv_nsec
+    return s
+}
+
+//Example
+// #include "iostream.bah"
+// #include "time.bah"
+// main() {
+// ts = time{}
+// ts.now()
+// formattedTime = ts.format("hou:min:sec")
+// println(formattedTime)
+// }

@@ -146,6 +146,7 @@ struct bahValue {
     isUnary: bool
     isCast: bool
     isIndexed: bool
+    isSplit: bool
     isReg: bool
     isStruct: bool
     isStructDeclare: bool

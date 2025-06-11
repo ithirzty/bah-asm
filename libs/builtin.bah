@@ -1,11 +1,13 @@
 #include "cBinds.bah"
 
 #define len(a ptr) uint
+#define panic(s str)
 
 const null = <ptr>0
 const true = <bool>1
 const false = <bool>0
 
+const strLenSize = 4
 
 struct Bah_Array_Type {
 	data: ptr
@@ -43,9 +45,36 @@ __bah_compareStr(a str, b str) bool {
     return true
 }
 
+cStr(s str) char* {
+	if <ptr>s == null {
+		return null
+	}
+	return <char*>(<uint><ptr>s + strLenSize)
+}
+
+cArr(arr Bah_Array_Type*) ptr {
+    return arr.data
+}
+
 #include "gc.bah"
 
+println(s str) {
+    if <ptr>s == null {
+        s = ""
+    }
+    puts(s)
+}
+
+__Bah_panic(e str, loc str) {
+    println("panic("+loc+"): "+e)
+    exit(1)
+}
+
 __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
+    if arr == null {
+        return
+    }
+
     arr.length = index + 1
 
     if index < arr.realLength {
@@ -64,7 +93,23 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
 }
 
+//Used for pre-allocating a number of element to an array.
+//The content of the array is not initialized, it may contain garbage.
+allocateArray(arr Bah_Array_Type*, nbElems uint) {
+    arr.length = nbElems
+    arr.realLength = nbElems
+    arr.data = memoryAlloc(nbElems * arr.elemSize)
+}
+
 buffToStr(b char*) str {
+    l = strlen(b)
+    r uint* = memoryAllocSTR(l + 6)
+    *r = l
+    memcpy(<ptr>(<uint>r+4), b, l)
+    return <str>r
+}
+
+cStrToBah(b char*) str {
     l = strlen(b)
     r uint* = memoryAllocSTR(l + 6)
     *r = l
@@ -80,4 +125,99 @@ __bah_argsToArr(argc uint, argv char**) []str {
     }
 
     return arr
+}
+
+//Used by the compiler for operations like str[start:end].
+strSubstitute(s str, i uint, l uint) str {
+	size = l - i
+	if i < 0 || size < 0 || size > len(s) {
+		panic("builtin: str substitution out of bounds violation.")
+	}
+	ns uint32* = memoryAllocSTR(size+6)
+    *ns = size
+	memcpy(<ptr>(<uint><ptr>ns + strLenSize), <ptr>(<uint><ptr>s + i + strLenSize), size)
+	return <str>ns
+}
+
+//Used by the compiler for operations like array[start:end].
+arraySubstitute(arr Bah_Array_Type*, i int, l int) Bah_Array_Type* {
+	length = l - i
+	if i < 0 || length < 0 || length > arr.length {
+		panic("builtin: array substitution out of bounds violation.")
+	}
+	offset int = i * arr.elemSize
+
+	na = new Bah_Array_Type {
+        elemSize: arr.elemSize
+        length: length
+    }
+
+	size = length * arr.elemSize
+	realSize = length * arr.elemSize
+	data = memoryAlloc(size)
+	oData = arr.data
+	memcpy(data, <ptr>(<uint>oData + offset), realSize)
+	na.data = data
+	return na
+}
+
+//Used to convert an array of characters to a str.
+arrToStr(arr []char) str {
+    strLen = len(arr)
+    if len(arr) > 0 && arr[len(arr)-1] == <char>0 {
+        strLen--
+    }
+    a Bah_Array_Type* = arr
+    str str = memoryAllocSTR(strLen+1)
+    memcpy(<ptr>(<uint><ptr>str + strLenSize), a.data, strLen)
+    ln uint* = str
+    *ln = strLen
+    return str
+}
+
+//Used to convert a str into an array of characters.
+strToArr(str str) []char {
+    strLen = len(str)
+    arr = []char
+    a Bah_Array_Type* = arr
+    a.data = memoryAlloc(strLen+1)
+    memcpy(a.data, <ptr>(<uint><ptr>str + strLenSize), strLen)
+    a.length = strLen
+    
+    return arr
+}
+
+//This is used to efficiently construct strs character by character.
+//Note that if you want to create a substring of a string efficiently, you can use str[from:to] instead.
+struct strBuilder {
+    buff: str
+    length: uint32
+
+	//Internal function
+    _init() {
+        this.buff = memoryAllocSTR(65 + strLenSize)
+        this.length = 64
+    }
+
+	//Used for appending a character to the end of the str.
+    append(c char) {
+        ln uint32* = this.buff
+        l = *ln
+        if l >= this.length {
+            this.length *= 2
+            b = memoryRealloc(this.buff, strLenSize + this.length + 1)
+            this.buff = b
+			ln = <uint32*>this.buff
+        }
+        pc = <char*>(<uint><ptr>this.buff + strLenSize + l)
+        *pc = c
+
+        *ln = l + 1
+    }
+
+	//Used for getting the resulting str.
+    str() str {
+        return this.buff
+    }
+
 }

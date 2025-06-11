@@ -62,6 +62,47 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
         return sym
     }
 
+    if val.isSplit {
+        fnSym asmSymbol
+        if val.left.type.type == BAH_TYPE_STR {
+            fnSym = asmSymbolValue(strSplitFunction)
+        } else if val.left.type.type == BAH_TYPE_ARRAY {
+            fnSym = asmSymbolValue(arraySplitFunction)
+        }
+        sym = generateBahValueSymbol(val.left)
+        lenSym asmSymbol
+
+        if val.right.right == null {
+            if val.left.type.type == BAH_TYPE_STR {
+                sym.size = 4
+                lenSym = gen.generateDereference(sym)
+            } else if val.left.type.type == BAH_TYPE_ARRAY {
+                lenSym = gen.generateSymOffset(sym, gen.staticInt(uintToStr(ARR_LENGTH_OFFSET)))
+                lenSym = gen.generateDereference(lenSym)
+            }
+        }
+
+        gen.generateFnCallStart()
+
+        gen.generateFnCallArgument(sym)
+
+        if val.right.left == null {
+            sym = gen.staticInt("0")
+        } else {
+            sym = generateBahValueSymbol(val.right.left)
+        }
+        gen.generateFnCallArgument(sym)
+
+        if val.right.right != null {
+            lenSym = generateBahValueSymbol(val.right.right)
+        }
+        gen.generateFnCallArgument(lenSym)
+        
+        sym = gen.generateFnCall(fnSym, 8)
+        
+        return sym
+    }
+
     if val.isIndexed {
         if val.left.type.type == BAH_TYPE_STR {
             gen.regIndex++
@@ -205,6 +246,13 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
 
     if val.isStructDeclare {
         sym asmSymbol
+
+        structType = val.type
+        if val.type.isPtr {
+            structType = val.type.child
+        }
+        initFn = parserCtx.findFunc(structType.child.name+"._init")
+
         if val.type.isPtr == false {
             sym = gen.generateVarDecl("strct_declare", val.type.size, true)
             currVal = val.left
@@ -213,6 +261,16 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
                 fieldSym = asmSymbolStack(sym.address - currVal.type.offset, currVal.type.size)
                 gen.generateVarSet(fieldSym, fieldVal)
             }
+
+            if initFn != null {
+                gen.generateFnCallStart()
+                pSym = sym
+                pSym.level = -1
+                pSym.size = 8
+                gen.generateFnCallArgument(pSym)
+                gen.generateFnCall(asmSymbolValue(initFn.name), 0)
+            }
+
             return sym
         }
 
@@ -229,6 +287,13 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
 
         }
         sym.size = 8
+
+
+        if initFn != null {
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(sym)
+            gen.generateFnCall(asmSymbolValue(initFn.name), 0)
+        }
 
         return sym
     }
@@ -253,6 +318,10 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
         nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_LENGTH_OFFSET)))
         lengthSym = gen.generateDestDereference(nSym)
         gen.generateVarSet(lengthSym, gen.staticInt(uintToStr(arrLen)))
+
+        if arrLen < 64 {
+            arrLen = 64
+        }
 
         nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_REALENGTH_OFFSET)))
         lengthSym = gen.generateDestDereference(nSym)
@@ -315,7 +384,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
                 if val.right.tok.cont == "+" {
                     currAdd = val
                     for currAdd != null, currAdd = currAdd.right {
-                        if currAdd.tok.cont != "+" {
+                        if currAdd.isOperation == false || currAdd.tok.cont[0] != '+' {
                             gen.generateStrConcat(generateBahValueSymbol(currAdd))
                             return gen.generateStrConcatEnd()
                         }
@@ -516,6 +585,22 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
             }
         }
 
+        if fnName == "panic" {
+            fnNameSym = asmSymbolValue("__Bah_panic")
+            gen.generateFnCallStart()
+
+            sym = generateBahValueSymbol(val.right.left)
+            gen.generateFnCallArgument(sym)
+
+            locLine = "\""+absPath(parserCtx.currentFilePath)+":"+uintToStr(val.tok.line)+"\""
+
+            sym = gen.generateStaticStr(locLine, getStrLen(locLine))
+            gen.generateFnCallArgument(sym)
+
+
+            return gen.generateFnCall(fnNameSym, 0)
+        }
+
         gen.generateFnCallStart()
 
         if isMethodCall {
@@ -536,6 +621,7 @@ generateBahValueSymbol(val bahValue*) asmSymbol {
             //convert str to char* in fn call
             if argVal.type.isPtr && argVal.type.child.type == BAH_TYPE_UINT && argVal.type.child.size == 1 && argVal.left.type.type == BAH_TYPE_STR {
                 sym = gen.generateSymOffset(sym, asmSymbolValue("$4"))
+                sym = gen.generateTmpSym(sym, sym.size)
             }
 
             gen.generateFnCallArgument(sym)

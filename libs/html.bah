@@ -1,0 +1,418 @@
+#import "iostream.bah"
+#import "string.bah"
+
+//Represents a html element.
+struct htmlElement {
+    name: str
+    attrs: []str
+    html: str = ""
+    text: str = ""
+    children: []htmlElement*
+    parent: htmlElement*
+
+
+    //Used for getting the content of the specified attribute.
+    attr(name str) str {
+        i=0; for i < len(this.attrs) {
+            attr = string(this.attrs[i])
+            attrName str
+            if attr.count("=") > 0 {
+                attrName = splitStringBefore(attr, "=")
+                if attrName == name {
+                    attr.trimLeft(strlen(attrName) + 1)
+                    return attr.str()
+                }
+            } else if attr.compare(name) == 1 {
+                return "true"
+            }
+            i++
+        }
+        return ""
+    }
+
+    //Used for finding a children of the element corresponding to the specified query.
+    find(q str) []htmlElement* {
+        elems = []htmlElement*
+        tag str
+        qs = string(q)
+        oqs = qs
+        if qs.count(" ") > 0 {
+            tag = splitStringBefore(qs, " ")
+        } else {
+            tag = q
+        }
+        fc = tag[0]
+        if fc == '.' {
+            qs.trimLeft(1)
+        }
+        i=0; for i < len(this.children) {
+            c = this.children[i]
+            if fc == '#' {
+
+            } else if fc == '.' {
+                cl = c.attr("class")
+                if strlen(cl) == 0 {
+                    i++
+                    continue
+                }
+                classes = splitString(string(cl), " ")
+                j=0; for j < len(classes) {
+                    class = classes[j]
+                    if class.str() == qs.str() {
+                        elems[len(elems)] = c
+                    }
+                    j++
+                }
+            } else {
+                if c.name == tag {
+                    qs.trimLeft(strlen(tag))
+                    qs.trim()
+                    if qs.length > 0 {
+                        elems = c.find(qs.str())
+                    } else {
+                        elems[len(elems)] = c
+                    }
+                    qs = oqs
+                }
+            }
+            i++
+        }
+        
+        i=0; for i < len(this.children) {
+            c = this.children[i]
+            es = c.find(q)
+            j=0; for j < len(es) {
+                elems[len(elems)] = es[j]
+                j++
+            }
+            i++
+        }
+
+        return elems
+    }
+
+}
+
+//Returns true if the char is either a letter, '-' or '_'
+//*Note: this is an internal function.*
+isValidHTMLStringChar(c char) bool {
+    return isLetter(c) == 1 || c == '-' || c == '_' || c == '!' || isNumber(c)
+}
+
+//Used for skipping white spaces inside the current char array.
+//*Note: this is an internal function.*
+skipHTMLspace(s str, i int) int {
+    for i < len(s) {
+        if isSpace(s[i]) == 0 {
+            break
+        }
+        i++
+    }
+    return i
+}
+
+//Used for parsing a string. Will return an array of elements.
+//*Note: this is an internal function, if you are trying to parse a document, use parseHTML().*
+parseHTMLElements(s str, parent htmlElement*) []htmlElement* {
+
+    elems = []htmlElement*
+
+    nonClosingTags = []str{
+        "meta", 
+        "img",
+        "!doctype",
+        "link",
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "input",
+        "param",
+        "source",
+        "track",
+        "wbr"
+    }
+    nonParsingTags = []str{
+        "script",
+        "style",
+        "svg"
+        }
+
+    i=0; for i < len(s) {
+        c = s[i]
+        
+        //parsing element
+        if c == '<' {
+            elem = new htmlElement
+            name = []char
+            i++
+            
+            //parsing name
+            for i < len(s) {
+                c = s[i]
+                if isValidHTMLStringChar(c) == false {
+                    break
+                }
+                name[len(name)] = c
+                i++
+            }
+            nameS = string(arrToStr(name))
+            nameS = toLower(nameS)
+            elem.name = nameS.str()
+            //parsing attributes
+            i = skipHTMLspace(s, i)
+            if s[i] != '>' {
+                currentAttr = []char
+                for i < len(s) {
+                    c = s[i]
+                    
+                    //current attribute is a string
+                    if len(currentAttr) > 0 && c == <char>34 {
+                        i++
+                        for i < len(s) {
+                            c = s[i]
+                            if c == <char>34 && s[i-1] != <char>92 {
+                                i++
+                                break
+                            }
+                            currentAttr[len(currentAttr)] = c
+                            i++
+                        }
+                    }
+
+                    //char is no longer part of an attribute
+                    if isValidHTMLStringChar(c) == false {
+                        i = skipHTMLspace(s, i)
+                        if i < len(s) {
+                            c = s[i]
+                            if c != '=' {
+                                elem.attrs[len(elem.attrs)] = arrToStr(currentAttr)
+                                clear(currentAttr)
+                            }
+                            i = skipHTMLspace(s, i)
+                        }
+                    }
+
+                    //end of opening tag
+                    if c == '>' {
+                        break
+                    }
+
+                    currentAttr[len(currentAttr)] = c
+                    i++
+                }
+            }
+            hasContent = true
+            j=0; for j < len(nonClosingTags) {
+                if nonClosingTags[j] == nameS.str() {
+                    hasContent = false
+                    break
+                }
+                j++
+            }
+
+            if hasContent == false {
+                elems[len(elems)] = elem
+                i++
+                continue
+            }
+
+            //parsing inner element (html content of the current element)
+            needsParsing = true
+            j=0; for j < len(nonParsingTags) {
+                if nonParsingTags[j] == nameS.str() {
+                    needsParsing = false
+                    break
+                }
+                j++
+            }
+
+            content = strBuilder{}
+            text = strBuilder{}
+            nbTags = 1
+            foundTag = false
+            i++
+            if needsParsing == false {
+                
+                for i < len(s) {
+                    c = s[i]
+
+                    if c == '<' {
+                        buff = []char{c}
+                        found = false
+                        i = skipHTMLspace(s, i + 1)
+                        buff[1] = s[i]
+                        if s[i] == '/' {
+                            i = skipHTMLspace(s, i + 1)
+                            needleIndex = 0
+                            for i < len(s) {
+                                buff[len(buff)] = s[i]
+                                if s[i] == name[needleIndex] {
+                                    needleIndex++
+                                    if needleIndex == len(name) {
+                                        found = true
+                                        break
+                                    }
+                                } else {
+                                    break
+                                }
+                                i++
+                            }
+                        }
+                        if found == true {
+                            break
+                        } else {
+                            j=0; for j < len(buff) {
+                                content.append(buff[j])
+                                j++
+                            }
+                        }
+                    } else {
+                        content.append(c)
+                    }
+                    i++
+                }
+
+
+            } else {
+                for i < len(s) {
+                    c = s[i]
+
+                    //handling tag
+                    if c == '<' {
+                        foundTag = true
+                        i = skipHTMLspace(s, i+1)
+                        c = s[i]
+                        if i+2 < len(s) {
+                            if s[i] == '!' && s[i+1] == '-' && s[i+2] == '-' {
+                                i += 3
+                                stage = 0
+                                comm = []char
+                                for i < len(s) {
+                                    comm[len(comm)] = s[i]
+                                    if stage == 0 && s[i] == '-' {
+                                        stage = 1
+                                    } else if stage == 1 && s[i] == '-' {
+                                        stage = 2
+                                    } else if stage == 2 && s[i] == '>' {
+                                        break
+                                    } else {
+                                        stage = 0
+                                    }
+
+                                    i++
+                                }
+                                i++
+                                continue
+                            }
+                        }
+                        if c == '/' {
+                            text.append(' ')
+                            nbTags--
+                        } else {
+                            j = skipHTMLspace(s, i)
+                            name = []char
+                            for j < len(s) {
+                                nc = s[j]
+                                if isValidHTMLStringChar(nc) == false {
+                                    break
+                                }
+                                name[len(name)] = nc
+                                j++
+                            }
+                            nameS = string(arrToStr(name))
+                            nameS = toLower(nameS)
+                            
+                            
+                            j=0; for j < len(nonClosingTags) {
+                                if nonClosingTags[j] == nameS.str() {
+                                    nbTags--
+                                    break
+                                }
+                                j++
+                            }
+                            nbTags++
+                        }
+                        if nbTags > 0 {
+                            content.append('<')
+                        }
+                        for i < len(s) {
+                            c = s[i]
+                            //escaping strings
+                            if c == <char>34 {
+                                for i < len(s) {
+                                    c = s[i]
+                                    if nbTags > 0 {
+                                        content.append(c)
+                                    }
+                                    if c == <char>34 && s[i-1] != <char>92 {
+                                        break
+                                    }
+                                    i++
+                                }
+                                i++
+                                continue
+                            }
+                            if c == '>' { //closing tag
+                                break
+                            }
+                            if nbTags > 0 {
+                                content.append(c)
+                            }
+                            i++
+                        }
+                        if nbTags != 0 {
+                            content.append(s[i])
+                            i++
+                            continue
+                        }
+                    }
+
+                    if nbTags == 0 {
+                        break
+                    }
+
+                    content.append(c)
+                    ti = len(text.str())
+                    if ti > 0 {
+                        if isSpace(text.str()[ti-1]) == 1 && isSpace(c) == 0 {
+                                text.append(c)
+                        } else if isSpace(text.str()[ti-1]) == 0 || isSpace(c) == 0 {
+                                text.append(c)
+                        }
+                    } else {
+                        text.append(c)
+                    }
+                    i++
+                }
+            }
+
+            elem.text = text.str()
+            elem.html = content.str()
+            elem.parent = parent
+            if foundTag == true {
+                elem.children = parseHTMLElements(content.str(), elem)
+            }
+
+
+            elems[len(elems)] = elem
+        }
+
+
+        i++
+    }
+
+    return elems
+
+}
+
+//Used for parsing a HTML document.
+//Will return a pointer to the document.
+parseHTML(doc str) htmlElement* {
+    root = new htmlElement
+    root.name = "document"
+    root.children = parseHTMLElements(doc, root)
+    return root
+}

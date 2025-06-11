@@ -1,0 +1,112 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "rope.bah"
+
+//A wrapper for executting command.
+//This is will return the output of the command.
+//If you dont want stderr, set `.error = false`.
+//The exit status code of the executed command is stored in `.status`.
+struct command {
+    command: str
+    //Weither stderr should be outputted to the terminal.
+    error: bool = true
+    //The status code of the program.
+    status: int = 0
+    //Input to feed to the program.
+    input: str = null
+
+    handle: ptr
+
+    //To run the command.
+    //This returns a str containning the output of the command.
+    run() str {
+        cm = this.command
+        if this.error == false {
+            cm += " 2>/dev/null"
+        } else {
+            cm += " 2>&1"
+        }
+        this.handle = popen(cm, "w")
+        if this.handle == null {
+            return ""
+        }
+        if this.input != null {
+            fputs(this.input, this.handle)
+        }
+        
+        buff = memoryAllocSTR(1024)
+        response str = memoryAllocSTR(1)
+        res = <ptr>response
+        i=0; for res != null, i++ {
+            memset(buff, 0, 1024)
+            res = fgets(<ptr>buff, 1023, this.handle)
+            if res == null || res == <ptr>-1 {
+                break
+            }
+            response = memoryRealloc(response, (i+1)*1023)
+            ln int* = response
+            *ln = (i+1)*1023
+            memcpy(<ptr>(<int>response + strLenSize + i*1023), <ptr>(<uint>buff + strLenSize), 1024)
+        }
+
+
+        this.status = pclose(this.handle)
+        return res
+    }
+
+    //This runs the program and returns the output as an array of char.
+    //This cannot take the .input field.
+    runBytes() []char {
+        arr = []char
+        cm = this.command
+        if this.error == false {
+            cm += " 2>/dev/null"
+        } else {
+            cm += " 2>&1"
+        }
+        this.handle = popen(cm, "r")
+        if this.handle == null {
+            return arr
+        }
+        
+        total = 0
+
+        buff char* = memoryAlloc(1024)
+
+        res ptr = fgets(<ptr>buff, 1023, this.handle)
+        for res != null && res != <ptr>-1 {
+            i=0; for <char>noCheck(buff[i]) != null, i++ {
+                arr[len(arr)] = <char>noCheck(buff[i])
+            }
+            res = fgets(<ptr>buff, 1023, this.handle)
+        }
+
+        this.status = pclose(this.handle)
+        
+        return arr
+    }
+
+}
+
+//To initiate a command.
+//You must specify the command as a str.
+command(s str) command {
+    cmd = command{}
+    cmd.command = s
+    return cmd
+}
+
+//Exec will execute a binary/command with the specified arguments passed to it.
+//Note that this will take the current proccess.
+exec(s str, args []str) int {
+    r int
+    nArgs = []char*
+    nArgs[0] = cStr(s)
+    i=0;for i < len(args) {
+        nArgs[i+1] = cStr(args[i])
+        i++
+    }
+    nArgs[len(nArgs)] = null
+    r = execvp(s, cArr(nArgs))
+    return r
+}

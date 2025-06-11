@@ -1,0 +1,65 @@
+#import "iostream.bah"
+#import "string.bah"
+
+#windows {
+    #define _fullpath(buff char*, rel char*, l uint) char*
+}
+
+//Used for getting the absolute path of a file/directory.
+//An absolute path is a path that goes all the way to the root.
+//Will return null if path does not exist.
+absPath(path str) str {
+    #linux {
+        rpb = buffer 4096
+        rp = realpath(path, <char*>rpb)
+        p = cStrToBah(rp)
+    }
+    #darwin {
+        rpb = buffer 4096
+        rp = realpath(path, <char*>rpb)
+        p = cStrToBah(rp)
+    }
+    #windows {
+        buff str = memoryAlloc(4096)
+        p = cStrToBah(_fullpath(buff, path, 4095))
+        s = string(p)
+        s.replace("\\", "/")
+        p = s.str()
+        if fileExists(p) == false {
+            return null
+        }
+    }
+    return p
+}
+
+//To get the working path.
+//The working path is the path to the directory that is defined as **./**.
+getCurrentPath() str {
+    cwd = buffer 4096
+    getcwd(<ptr>cwd, 4096)
+    return cStrToBah(<ptr>cwd)
+}
+
+//Returns true if the subPath is inside the basePath.
+//Usefull for securing connection (such as HTTP server) to make sure you do not give
+//access to your complete file system.
+isInside(basePath str, subPath str) bool {
+    abs1 = absPath(basePath)
+    abs2 = absPath(subPath)
+    return strHasPrefix(subPath, basePath) == true
+}
+
+//To change the current working directory.
+setCurrentPath(s str) {
+    chdir(s)
+}
+
+//Example
+// #include "iostream.bah"
+// #include "path.bah"
+// main() {
+// currentPath = getCurrentPath()
+// println(currentPath)
+// filePath = absPath("./file.txt")
+// println(filePath)
+// }

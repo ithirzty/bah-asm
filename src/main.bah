@@ -12,6 +12,10 @@ memoryAllocFunction = "memoryAlloc"
 memoryAllocFunctionSTR = "memoryAllocSTR"
 strCompareFunction = "__bah_compareStr"
 argumentsToArrFunction = "__bah_argsToArr"
+strSplitFunction = "strSubstitute"
+arraySplitFunction = "arraySubstitute"
+
+BAH_VERSION = "v0.01 (build 5)"
 
 #linux {
     BAH_OS = "linux"
@@ -52,12 +56,19 @@ main(args []str) int {
 
     flags = flags{}
     flags.addString("o", "Name of the output file.")
+    flags.addBool("v", "Get compiler version.")
     flags.addBool("object", "Compile to object file.")
     flags.addBool("silent", "Should not output anything.")
     flags.addBool("asm", "Compile to assembly file.")
     flags.addBool("disableOptimizations", "Disables generation optimizations.")
 
     flags.parse(args)
+
+    if flags.isSet("v") {
+        println("Bah compiler version: "+BAH_VERSION+".")
+        println("Alois Laurent Boe.")
+        return 0
+    }
 
     isObjectFile = flags.isSet("object")
     isSilent = flags.isSet("silent")

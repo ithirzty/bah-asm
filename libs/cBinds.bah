@@ -170,7 +170,8 @@ struct dirent {
 
 struct _IO_FILE {
 	pad: buffer:216
-} //defined by the compiler
+}
+
 #define FILE _IO_FILE
 #define popen(cmd char*, type char*) FILE*
 #define pclose(hndl FILE*) int

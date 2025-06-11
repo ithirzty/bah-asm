@@ -60,12 +60,13 @@ ASM_mul = []str{"mulb", "mulw", "mull", "mulq"}
 ASM_idiv = []str{"idivb", "idivw", "idivl", "idivq"}
 ASM_div = []str{"divb", "divw", "divl", "divq"}
 ASM_cmp = []str{"cmpb", "cmpw", "cmpl", "cmpq"}
+ASM_cmp_float = []str{"", "", "comiss", "comisd"}
 ASM_mov_float  = []str{"", "", "movss", "movsd"}
 ASM_add_float  = []str{"", "", "addss", "addsd"}
 ASM_mul_float  = []str{"", "", "mulss", "mulsd"}
 ASM_sub_float  = []str{"", "", "subss", "subsd"}
 ASM_div_float  = []str{"", "", "divss", "divsd"}
-ASM_convert_oct = []str{"", "", "clto", "cqto"}
+ASM_convert_oct = "cqto"
 
 ASM_NUM_INT   = 0
 ASM_NUM_UINT  = 1
@@ -823,17 +824,23 @@ struct asmContext {
 
 
                 } else if strHasPrefix(istrct.instruction, ".FOR_LOOP_START_") {
+                    hasSet = false
                     j=i+1; for j < len(this.instructions), j++ {
                         if this.instructions[j].instruction[0] == 'j' && this.instructions[j].arg1.isValue && this.instructions[j].arg1.name == ".FOR_NOT_"+istrct.instruction[16:len(istrct.instruction)-1] {
                             break
                         }
-                    }
-                    jumpInd = j
-                    j--; for j >= i+1, j-- {
                         if strHasPrefix(this.instructions[j].instruction, "set") {
-                            break
+                            hasSet = true
                         }
-                        this.instructions[j].instruction = "noop"
+                    }
+                    if hasSet {
+                        jumpInd = j
+                        j--; for j >= i+1, j-- {
+                            if strHasPrefix(this.instructions[j].instruction, "set") {
+                                break
+                            }
+                            this.instructions[j].instruction = "noop"
+                        }
                     }
                 } else if strHasPrefix(istrct.instruction, "cmp") {
                     if i+2 < len(this.instructions) {
@@ -1294,9 +1301,16 @@ struct asmContext {
             a = tmpReg
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_cmp[spos(a.size)], a, b
+        if a.isReg && a.address >= ASM_reg_id_floats || b.isReg && b.address >= ASM_reg_id_floats {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_cmp_float[spos(a.size)], a, b
+            }    
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_cmp[spos(a.size)], a, b
+            }
         }
+
 
         ret = asmSymbolReg(ASM_reg_id_return, 1, 0)
 
@@ -1878,7 +1892,7 @@ struct asmContext {
         }
 
         //need to zero initialize it
-        if size > 8 && zero {
+        if zero {
             this.instructions[len(this.instructions)] = asmInstruction {
                 "pxor", asmSymbolReg(ASM_reg_id_floats, 16, 0), asmSymbolReg(ASM_reg_id_floats, 16, 0)
             }
@@ -2189,7 +2203,7 @@ struct asmContext {
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_convert_oct[spos(a.size)]
+            ASM_convert_oct
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -2220,7 +2234,7 @@ struct asmContext {
         this.generateMoveValue(a, asmSymbolReg(ASM_reg_id_return, a.size, 0))
 
         this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_convert_oct[spos(a.size)]
+            ASM_convert_oct
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -2601,7 +2615,8 @@ struct asmContext {
     generateFnCallArgument(arg asmSymbol) {
         args = <[]asmSymbol>this.endSym.end.data
 
-        if arg.isReg && arg.address >= ASM_reg_id_op && arg.address < ASM_reg_id_floats  {
+
+        if arg.isReg && arg.address >= ASM_reg_id_op && arg.address < ASM_reg_id_floats {
             pos = this.generateStackAlloc(arg)
             arg = asmSymbol {
                 parent: this
