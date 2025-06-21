@@ -372,26 +372,17 @@ uintToStr(i uint) str {
     }
 
     s = buffer 66
-    ind = -1
+    s[65] = <char>0
+    ind = 64
 
     for i != 0, i /= 10 {
         conv = i % 10
         conv += 48
-        s[ind+1] = <char>conv
-        ind++
+        s[ind] = <char>conv
+        ind--
     }
 
-    ls = ind+1
-    i=0; for i < ls/2, i++ {
-        ii = ls-i-1
-        osi = s[i]
-        s[i] = s[ii]
-        s[ii] = osi
-    }
-
-    s[ind+1] = <char>0
-
-    return buffToStr(<char*>s)
+    return buffToStr(<char*>(<uint>s + ind + 1))
 }
 
 //Used to convert an integer into a string.

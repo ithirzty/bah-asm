@@ -1,0 +1,135 @@
+//The cache is used when using '#import' to compile the imported object as an object file.
+//This object file will then not be recompiled unless a file of the object has been edited since last compilation,
+//or a new version of the compiler is used.
+//Note that you can purge the cache by deletint the cache folder's contents inside the Bah directory.
+
+//Represents an entry inside the cache.
+
+struct cacheFileDependency {
+    path: str
+    last: int
+}
+
+struct cacheFile {
+    file: str
+    last: int
+    ver: str
+    date: int
+    opti: int
+    dependencies: []cacheFileDependency
+}
+
+cache = []cacheFile*
+cacheMutex = mutex()
+
+//Reads the cache, who could have guessed?
+//Scans the value of the cache inside the global variable called 'cache'.
+readCache()  {
+    cacheMutex.lock()
+    fs = fileStream{}
+    fs.open(BAH_DIR + "cache/cache.json", "r")
+    if fs.isValid() == 0 || fs.getSize() == 0 {
+        
+        makeDir(BAH_DIR + "cache", S_IRWXU)
+        fs.createFile(BAH_DIR + "cache/cache.json")
+        cacheMutex.unlock()
+        return
+    }
+    if fs.getSize() > 0 {
+        j = parseJson(fs.readContent())
+        fs.close()
+        j.scan(cache)
+    }
+    cacheMutex.unlock()
+}
+
+//Returns a cacheFile instance from an imported file name.
+getCacheFile(s str) cacheFile* {
+    if cache == null {
+        return null
+    }
+    cacheMutex.lock()
+    i=0; for i < len(cache), i++ {
+        c = cache[i]
+        if c.file == s && c.opti == isOptimized {
+            cacheMutex.unlock()
+            return c
+        }
+    }
+    cacheMutex.unlock()
+    return null
+}
+
+//Updates a cacheFile instance to set the new modification date of the newly compiled file.
+updateCacheFile(c cacheFile*, incls []str) {
+    c.last = getLastModified(c.file)
+    c.ver = BAH_VERSION
+    c.date = getTimeUnix()
+
+    if c.dependencies == null {
+        c.dependencies = []cacheFileDependency
+    }
+
+    i=0; for i < len(incls), i++ {
+        c.dependencies[i] = cacheFileDependency {
+            path: incls[i]
+            last: getLastModified(incls[i])
+        }
+    }
+
+}
+
+//Used for registering a new cacheFile instance from an imported file's name.
+makeCacheFile(f str, incls []str) {
+    c = new cacheFile
+    c.file = f
+    c.ver = BAH_VERSION
+    c.opti = isOptimized
+    c.date = getTimeUnix()
+    c.last = getLastModified(f)
+
+    i=0; for i < len(incls), i++ {
+        c.dependencies[i] = cacheFileDependency {
+            path: incls[i]
+            last: getLastModified(incls[i])
+        }
+    }
+
+    cacheMutex.lock()
+    if cache == null {
+        cache = []cacheFile*
+    }
+    cache[len(cache)] = c
+    cacheMutex.unlock()
+
+}
+
+//Used for saving the runtime copy of the cache to the cache file.
+writeCache() {
+    fs = fileStream{}
+    fs.open(BAH_DIR + "cache/cache.json", "w")
+    fs.writeFile(toJson(cache))
+    fs.close()
+}
+
+//Used to decide weither a file should be recompiled or if its cached version is still good.
+isValidCacheFile(cf cacheFile*) bool {
+    if cf.last != getLastModified(cf.file) {
+        return false
+    }
+    if fileExists(BAH_DIR+"cache/"+pathToVarName(cf.file)+intToStr(cf.mem)+intToStr(cf.opti)+".o.o") == 0 {
+        return false
+    }
+
+    if cf.ver != BAH_VERSION {
+        return false
+    }
+
+    i=0; for i < len(cf.dependencies), i++ {
+        if getLastModified(cf.dependencies[i].path) != cf.dependencies[i].last {
+            return false
+        }
+    } 
+
+    return true
+}

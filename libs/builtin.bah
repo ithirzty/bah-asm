@@ -72,6 +72,7 @@ __Bah_panic(e str, loc str) {
 
 __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     if arr == null {
+        panic("Trying to set value of null array.")
         return
     }
 
@@ -221,3 +222,6 @@ struct strBuilder {
     }
 
 }
+
+//need to find wtf is hapening here
+#init putchar(<char>0) //fixes bug where libc not initialized if not called from main thread.

@@ -18,13 +18,14 @@
 - [x] Proper text
 - [ ] bitwise ops and powers
 - [ ] Extend
-- [ ] Relection
+- [x] Relection
 - [~] +=, -=, /=, *=, >>=, <<=, &=, ~=
+- [ ] Special ops (in)
 - [x] Arrays
 - [ ] Tuples
 - [ ] Arrays operations
 - [x] Methods
-- [ ] Init and end methods
+- [x] Init and end methods
 - [x] Struct operations
 - [ ] Diverse optimizations
 - [x] Garbage compiler
@@ -42,6 +43,7 @@
 TODO:
 - optimize %rax -> %rdx -> dest
 - reuse static strings
+- `__libc_init_first (argc, argv, environ)` when `char **environ = &argv[argc + 1]` to initialize STATIC libc
 
 # from gcc (notes or whatever)
 

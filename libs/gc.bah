@@ -126,7 +126,7 @@ GC_collect() {
     GC_scan(bssStart + sizeof(BAH_GC_state_tag), bssEnd, 1)
 
     //check stack
-    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 16)
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
 
     freed=0
     alive=0

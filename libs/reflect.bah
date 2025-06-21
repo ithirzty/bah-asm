@@ -1,0 +1,196 @@
+#import "iostream.bah"
+#import "string.bah"
+
+
+//The reflection of an element (a var).
+//A reflection is a wrapper for informations on the data-type of the element.
+//This is used for getting compile-time informations at runtime.
+//**Usage: **
+//Simply put reflectElement as the type of a function argument.
+//The argument will then be reflected inside the function.
+//Detailed use can be seen inside json.bah.
+
+//Specifications:
+//  .name   The name of the reflected variable / structure member name
+
+//  .size   The size of the data pointed to by .value. If the reflected object is a
+//          pointer, .size if the ammount on memory needed to fit the content of the pointer, not
+//          the size of the pointer itself. .size of struct* == .size of struct.
+
+//  .value  Always a pointer. If the reflected value is already of type pointer (type*, str, array...)
+//          .value will not be a pointer to the pointer but directly the passed pointer. As such,
+//          non pointer primitive types are already converted to pointers even if there types are not:
+//          .value of int == .value of int*
+//          BUT:
+//          .value of str != .value of str*, .value of type* != .value of type**...
+//          Also note that you .value of an array will always be a pointer to Bah_Array_Type and never
+//          nested pointers as you cannot get the pointer of an array in bah. This is because the
+//          trailing '*' at the end of an array type is not a pointer to the array but an array of
+//          pointers: arr = []str, &arr != []str* but &arr[0] == str*.
+
+// .structLayout    An array of reflectElement, templates for the members of a struct. values of the
+//                  members shall be calculated using .calculateOffset(address of the struct).
+
+// .arrayElem   A reflectElement* that is a template of an element of the array. The value of .arrayElem
+//              shall be calculated as <ptr>(<uint>array.data + index * array.elemSize) where array is
+//              the value of the array casted to a Bah_Array_Type*.
+
+// .isArray, .isStruct  Booleans set to true if the reflected value is either an array or a struct. Note that an array
+//                      of struct will have .isArray = true and .isStruct = false because the element is not a struct but
+//                      its .arrayElem is a struct.
+
+struct reflectElement {
+    //Var infos
+    size: int
+    type: str
+    name: str
+
+    //Array infos
+    isArray: bool
+    arrayElem: reflectElement*
+
+    //Struct infos
+    isStruct: bool
+    structLayout: []reflectElement
+    offset: int
+
+    //Actual element
+    value: ptr
+
+    //Calculates the address of a struct member by its offset to the origin address of the struct.
+    calculateOffset(origin ptr) ptr {
+        return <ptr>(<uint>origin + this.offset)
+    }
+}
+
+//Returns true if the type is a pointer type. This means that the reflectElement.value of this type will always
+//be a pointer to a value.
+//Note that for the str type, not passing a pointer to a str is already a pointer. 
+reflectIsPtrType(type str) bool {
+    return type == "str" || type == "ptr" || strHasPrefix(type, "[]") || type[len(type)-1] == '*' || (type[0] == '[' && type[len(type)-1] == ']') || strHasPrefix(type, "map:") || strHasPrefix(type, "buffer:")
+}
+
+//Unwraps nested pointers.
+//If getPtr == false, returned.value will be either a pointer to a value that is not of type pointer
+//or the pointer directlty if it already is a pointer (used for reading values).
+//If getPtr == true, returned.value will be either a pointer to a value that is not of type pointer
+//or a pointer to a pointer if it already is a pointer (used for setting values).
+reflectUnwrapPtr(e reflectElement, getPtr bool) reflectElement {
+    if e.isArray {
+        return e
+    }
+    nb = 0
+
+    if getPtr == false {
+        if e.type[len(e.type)-1] == '*' {
+            if strHasPrefix(e.type, "str*") {
+                e.value = *(<ptr*>e.value)
+            }
+            nb++
+        }
+        i = len(e.type)-1; for i >= 1, i-- {
+            if e.type[i] == '*' && e.type[i-1] == '*' {
+                e.value = *(<ptr*>e.value)
+                nb++
+            } else {
+                break
+            }
+        }
+        e.type = e.type[:len(e.type)-nb]
+    } else {
+        if e.type[len(e.type)-1] == '*' {
+            nb++
+        }
+        i = len(e.type)-1; for i >= 1, i-- {
+            if e.type[i] == '*' && e.type[i-1] == '*' {
+                e.value = *(<ptr*>e.value)
+                nb++
+            } else {
+                break
+            }
+        }
+        e.type = e.type[:len(e.type)-nb]
+    }
+
+    return e
+}
+
+//Internal function used for generating a reflected element.
+__reflect(v ptr, s int, t str, n str, isArr bool, ae reflectElement*, isStruct bool, sl []reflectElement, offset int) reflectElement {
+    re = reflectElement{}
+    re.size = s
+    re.type = t
+    re.name = n
+    re.isArray = isArr
+    re.arrayElem = ae
+    re.isStruct = isStruct
+    re.structLayout = sl
+    re.value = v
+    re.offset = offset
+    return re
+}
+
+#define reflectSymbols ptr
+
+//Internal function called when dumpSymbols() is called.
+//This returns every symbols (variables) available at the scope where its called.
+//The symbols are returned as reflectElement.
+__dumpSymbols(syms []reflectElement) []reflectElement {
+    return syms
+}
+
+//Internal function used for getting a symbol by name from a symbol array.
+__debug_get_sym(syms []reflectElement, a string) reflectElement {
+    if a.count(".") > 0 {
+        parts = splitString(a, ".")
+        p1 = parts[0]
+        p2 = parts[1]
+        j=0; for j < len(syms), j++ {
+            s = syms[j]
+            if s.name == p1.str() {
+                k=0; for k < len(s.structLayout), k++ {
+                    m = s.structLayout[k]
+                    if m.name == p2.str() {
+                        m.value = m.calculateOffset(s.value)
+                        return m
+                    }
+                }
+                break
+            }
+        }
+    } else {
+        j=0; for j < len(syms), j++ {
+            s = syms[j]
+            if s.name == a.str() {
+                return s
+            }
+        }
+    }
+    ns = reflectElement{}
+    return ns
+}
+
+const __bah_reflect = __reflect
+const __bah_dump_symbols = __dumpSymbols
+const __bah_debug_get_sym = __debug_get_sym
+
+
+//Example
+// #include "iostream.bah"
+// #include "reflect.bah"
+// reflectedPrint(e reflectElement) {
+//     if e.type == "int" {
+//         ip int* = e.value
+//         println(intToStr(*ip))
+//     } else if e.type == "str" {
+//         sp str = e.value
+//         println(sp)
+//     }
+// }
+// main(args []str) int {
+//     a = 54
+//     b = "test"
+//     reflectedPrint(a)
+//     reflectedPrint(b)
+//     return 0
+// }

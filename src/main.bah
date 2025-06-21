@@ -7,6 +7,8 @@
 #import "exec.bah"
 #import "flags.bah"
 
+#define printDebugContext()
+
 totalLines = 0
 memoryAllocFunction = "memoryAlloc"
 memoryAllocFunctionSTR = "memoryAllocSTR"
@@ -15,7 +17,7 @@ argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 
-BAH_VERSION = "v0.01 (build 5)"
+BAH_VERSION = "v0.011 (build 6)"
 
 #linux {
     BAH_OS = "linux"
@@ -31,8 +33,9 @@ BAH_VERSION = "v0.01 (build 5)"
 
 isObjectFile = false
 isSilent = false
+compilerPath = ""
 
-const bahDirectory = "/opt/bah-asm"
+const BAH_DIR = "/opt/bah-asm"
 
 #include "./gen_asm_linux_64.bah"
 
@@ -44,6 +47,7 @@ initFnGen = asmContext{
 }
 initFnName = ".__Bah_init"
 
+// #include "./cache.bah"
 #include "./lexer.bah"
 #include "./state.bah"
 #include "./types.bah"
@@ -51,8 +55,13 @@ initFnName = ".__Bah_init"
 #include "./gen.bah"
 #include "./parser.bah"
 
+printDebugContext() {
+    println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
+}
+
 main(args []str) int {
     startTime = getTimeUnix() //for timming compilation time
+    compilerPath = absPath(args[0])
 
     flags = flags{}
     flags.addString("o", "Name of the output file.")
@@ -115,7 +124,7 @@ __bss_start:\n")
 
     gen.generateFileLocation(parserCtx.currentFilePath)
 
-    includeFile(bahDirectory + "/builtin.bah")
+    includeFile(BAH_DIR + "/builtin.bah")
 
     parseLines(tokens, 0, len(tokens))
 
@@ -223,7 +232,12 @@ __bss_end:\n")
         return 1
     }
 
-    cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+fileNameNoExt+".o -lc")
+    libraries = ""
+    i=0; for i < len(parserCtx.libraries), i++ {
+        libraries += "-"+parserCtx.libraries[i]+" "
+    }
+
+    cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
     err = cmd.runBytes()
 
     removeFile(fileNameNoExt+".o")

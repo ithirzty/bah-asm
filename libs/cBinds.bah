@@ -70,9 +70,6 @@ const MAP_ANONYMOUS = 32
 #define realloc(o ptr, s uint) ptr
 #define free(p ptr)
 
-//io
-#define puts(s char*) uint32
-
 #linux {
     #define mmap(addr ptr, ps uint, prot int32, flags int32, fd int32, offset int) ptr
     #define munmap(addr ptr, l uint) int32
@@ -179,6 +176,9 @@ struct _IO_FILE {
 #define rename(from char*, to char*) int32
 #define fopen(path char*, mode char*) FILE*
 #define fputs(s char*, handle FILE*)
+#define puts(s char*) uint32
+#define putchar(c char) int32
+#define fflush(f FILE*) int32
 #define fgets(r char*, l int32, f FILE*) char*
 #define fwrite(w char*, s uint, n uint, hndl FILE*) uint
 #define fread(w char*, s uint, n uint, hndl FILE*) uint

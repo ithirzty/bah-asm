@@ -1,13 +1,8 @@
 const BAH_TYPE_BOOL   = 0
-
 const BAH_TYPE_INT   = 1
-
 const BAH_TYPE_UINT   = 2
-
 const BAH_TYPE_FLOAT   = 3
-
 const BAH_TYPE_STR = 4
-
 const BAH_TYPE_STRCT = 5
 const BAH_TYPE_ARRAY = 6
 const BAH_TYPE_MAP   = 7
@@ -21,6 +16,8 @@ const ARR_TYPE_SIZE = 32
 const ARR_LENGTH_OFFSET = 8
 const ARR_REALENGTH_OFFSET = 16
 const ARR_ELEMSIZE_OFFSET = 24
+
+const REFLECT_TYPE_SIZE = 72
 
 struct bahFileLoc {
     file: str
@@ -154,6 +151,9 @@ struct bahValue {
     isBufferDeclare: bool
     isMapDeclare: bool
     isChanDeclare: bool
+    isReflect: bool
+
+    pemdas: uint
 
     tok: bahToken
 
@@ -209,11 +209,13 @@ struct parserContext {
 
     parsedFiles: []str
     compiledFiles: []str
+    libraries: []str
 
     parseOnly: bool = false
 
     currentFile: str
     currentFilePath: str
+    currentLine: uint
     
     scopeCtx: parserScope*
 
@@ -302,14 +304,11 @@ hasScopeReturned(scope parserScope*) bool {
 
         i=0; for i < len(parserCtx._scopeCtx), i++ {
             if parserCtx._scopeCtx[i].parent == scope && parserCtx._scopeCtx[i].child != null && hasScopeReturned(parserCtx._scopeCtx[i]) {
-                println("found returning inner scope")
                 return true
             }
         }
         return false
     } else {
-        println("testing scope")
-
         currScope = scope.child
         for currScope != null, currScope = currScope.child {
             if hasScopeReturned(currScope) == false {
