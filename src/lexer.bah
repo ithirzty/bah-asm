@@ -19,9 +19,9 @@ const TOKEN_TYPE_CAST =    <tokenType>12
 struct bahToken {
     cont: str = ""
     type: tokenType = TOKEN_NO_TYPE
-    pos: uint32 = 0
-    line: uint32 = 1
-    begLine: uint32 = 1
+    pos: uint = 0
+    line: uint = 1
+    begLine: uint = 1
     isValue: bool
 }
 
@@ -62,7 +62,7 @@ isMinus(c char, nc char) bool {
 lexerErr(line int, pos int, msg str) {
     lineStr = intToStr(line)
     posStr = intToStr(pos)
-    // println("\e[1;31m[LEXER-ERROR]\e[0m "+compilerState.currentFile+":"+lineStr+":"+posStr+"\n\e[0m\n"+msg)
+
     exit(1)
 }
 
@@ -71,10 +71,12 @@ lexer(s str) []bahToken {
     lexerStart = getTimeUnix()
     tokens = []bahToken
 
+
     // totalSize += len(s)
 
 
     lineNb = 1 //current line number (in source file)
+
 
     i=0; for i < len(s), i++ {
         c = s[i]
@@ -234,7 +236,7 @@ lexer(s str) []bahToken {
                         break
                     }
                     if isAlphaNumeric(c) == false && c != '*' && c != ':' && c != '_' && c != '[' && c != ']' {
-                        isFnType = (c == '(' || c == ')') && string(s[pos:i+1]).hasPrefix("<function")
+                        isFnType = (c == '(' || c == ')') && strHasPrefix(s[pos:i+1], "<function")
                         if isFnType == false {
                             break
                         }
@@ -282,6 +284,7 @@ lexer(s str) []bahToken {
         }
 
     }
+
     totalLines += lineNb - 1
     // totalLexerTime += (getTimeUnix() - lexerStart)
     return tokens

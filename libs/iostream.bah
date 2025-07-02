@@ -162,9 +162,10 @@ struct fileStream {
         }
 
         sz = this.getSize()
-        r str = memoryAllocSTR(sz + 6)
-        fread(r, 1, sz, this.handle)
-        return r
+        r uint32* = memoryAllocSTR(sz + 6)
+        fread(<ptr>(<uint>r + 4), 1, sz, this.handle)
+        *r = sz
+        return <str>r
     }
 
     //Returns the file's content as an array of bytes (char).
@@ -187,4 +188,75 @@ struct fileStream {
         }
     }
 
+}
+
+//Returns a list of all files found inside the specified directory.
+listFiles(dir str) []str {
+    d = opendir(dir)
+    if d == null {
+        return null
+    }
+    files = []str
+    file = readdir(d)
+    for file != null {
+        lf = len(files)
+        name = cStrToBah(<char*>file.d_name)
+        if name != "." && name != ".." {
+            files[lf] = name
+        }
+        file = readdir(d)
+    }
+    closedir(d)
+    return files
+}
+
+
+//Checks if a file exists.
+fileExists(path str) bool {
+    buf stat
+    return stat(path, &buf) == 0
+}
+
+isFolder(path str) bool {
+    s stat
+    if stat(path, &s) != 0 {
+        return false
+    }
+    if s.st_mode & S_IFDIR {
+        return true
+    }
+    return false
+}
+
+//Removes a file. 'name' should be the file name, returns true if the file was deleted.
+removeFile(name str) bool {
+    if remove(name) == 0 {
+        return true
+    }
+    return false
+}
+
+//Get the timestamp of the last modification of a file.
+getLastModified(name str) int {
+    attr stat
+    stat(name, &attr)
+    return attr.st_ctim.tv_sec
+}
+
+
+#linux {
+    makeDir(path str, m uint32) bool {
+        return mkdir(path, m) != -1
+    }
+}
+#darwin {
+    makeDir(path str, m uint32) bool {
+        return mkdir(path, m) != -1
+    }
+}
+#windows {
+    __windows_mkdir(s str, m int) bool {
+        return mkdir(s) != -1
+    }
+    const makeDir = __windows_mkdir
 }

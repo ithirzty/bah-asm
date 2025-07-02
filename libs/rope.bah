@@ -79,7 +79,7 @@ struct rope {
     //Used to get the rope as a str.
     toStr() str {
         tl = this.getLen()
-        s = <uint32*>memoryAllocSTR(tl + 6)
+        s = <uint32*>memoryAllocSTR(tl + 5)
         *s = tl
         off = 0
         this.addStr(<str>s, &off)

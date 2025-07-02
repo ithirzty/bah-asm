@@ -5,7 +5,7 @@ const ASCII_BLUE = "\033[36m"
 const ASCII_GREEN = "\033[32m"
 const ASCII_MAGENTA = "\033[35m"
 const ASCII_GREY = "\033[2m"
-const ASCII_RED = "\e[1;31m"
+const ASCII_RED = "\033[1;31m"
 
 throwError(t bahToken*, s str) {
     codeLine = ""
@@ -15,7 +15,6 @@ throwError(t bahToken*, s str) {
     lineStart uint
     lineEnd uint
     filePath = absPath(parserCtx.currentFilePath)
-    
     lineStart=t.pos; for lineStart != -1, lineStart-- {
         if parserCtx.currentFile[lineStart] == <char>10 {
             lineStart++
@@ -37,7 +36,7 @@ throwError(t bahToken*, s str) {
     lineInfo = filePath+":"+uintToStr(t.line)+":"+uintToStr(relPos)
 
     println(ASCII_RED+"[ERROR]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
-    println(codeLine+"\e[1;37m")
+    println(codeLine+"\033[1;37m")
     println(s+ASCII_RESET)
 
     // println(toJson(t))
@@ -83,7 +82,7 @@ throwTypeError(val bahValue*, type bahType*) {
 //     lineInfo = filePath+":"+uintToStr(t.line)+":"+uintToStr(relPos)
 
 //     println(ASCII_RED+"[WARNING]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
-//     println(codeLine+"\e[1;37m")
+//     println(codeLine+"\033[1;37m")
 //     println(s+ASCII_RESET)
 
 // }

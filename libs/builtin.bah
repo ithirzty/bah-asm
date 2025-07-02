@@ -56,7 +56,61 @@ cArr(arr Bah_Array_Type*) ptr {
     return arr.data
 }
 
+clear(arr Bah_Array_Type*) {
+    arr.length = 0
+}
+
+//Used for deleting an element from an array by its index.
+//This will keep the order of the elements.
+delete(arr Bah_Array_Type*, i uint) {
+    if i >= arr.length || i < 0 {
+        return
+    }
+	if i == arr.length - 1 {
+		arr.length--
+		return
+	}
+    elemSize int = arr.elemSize
+    data char* = arr.data
+    destOffset = elemSize * i
+    i++
+    offset = elemSize * i
+    src char* = <int>data + <int>offset
+    dest char* = <int>data + <int>destOffset
+    rightNB = arr.length - i
+
+    memmove(dest, src, rightNB * elemSize)
+    arr.length--
+}
+
+//Like delete() but for a range.
+//deleteRange(arr, 1, 3) will delete elements at indexes [1, 2, 3]
+deleteRange(arr Bah_Array_Type*, from uint, to uint) {
+    if from == to {
+        delete(arr, from)
+        return
+    }
+
+
+    length = arr.length
+    
+    elemSize int = arr.elemSize
+    data char* = arr.data
+    size = elemSize * (to - from)
+    dest ptr = <int>data + elemSize * from
+    src ptr = <int>dest + size + elemSize
+    rightNB = length - to - 1
+
+    memmove(dest, src, rightNB * elemSize)
+    arr.length -= (to - from + 1)
+}
+
 #include "gc.bah"
+
+
+print(s str) {
+    write(1, s, len(s))
+}
 
 println(s str) {
     if <ptr>s == null {
@@ -70,21 +124,28 @@ __Bah_panic(e str, loc str) {
     exit(1)
 }
 
+#define uintToStr(u uint) str
+
 __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     if arr == null {
         panic("Trying to set value of null array.")
         return
     }
 
-    arr.length = index + 1
+    if index >= arr.length {
+        arr.length = index + 1
+    }
 
     if index < arr.realLength {
         return
     }
 
-    if index != arr.realLength {
-        puts("nope!")
-    }
+
+    // if index != arr.realLength {
+    //     puts("nope!")
+    // }
+
+    orl = arr.realLength
 
     if arr.realLength == 0 {
         arr.realLength = 64
@@ -104,7 +165,7 @@ allocateArray(arr Bah_Array_Type*, nbElems uint) {
 
 buffToStr(b char*) str {
     l = strlen(b)
-    r uint* = memoryAllocSTR(l + 6)
+    r uint32* = memoryAllocSTR(l + 5)
     *r = l
     memcpy(<ptr>(<uint>r+4), b, l)
     return <str>r
@@ -112,7 +173,7 @@ buffToStr(b char*) str {
 
 cStrToBah(b char*) str {
     l = strlen(b)
-    r uint* = memoryAllocSTR(l + 6)
+    r uint32* = memoryAllocSTR(l + 5)
     *r = l
     memcpy(<ptr>(<uint>r+4), b, l)
     return <str>r
@@ -134,7 +195,7 @@ strSubstitute(s str, i uint, l uint) str {
 	if i < 0 || size < 0 || size > len(s) {
 		panic("builtin: str substitution out of bounds violation.")
 	}
-	ns uint32* = memoryAllocSTR(size+6)
+	ns uint32* = memoryAllocSTR(size+5)
     *ns = size
 	memcpy(<ptr>(<uint><ptr>ns + strLenSize), <ptr>(<uint><ptr>s + i + strLenSize), size)
 	return <str>ns
@@ -169,9 +230,9 @@ arrToStr(arr []char) str {
         strLen--
     }
     a Bah_Array_Type* = arr
-    str str = memoryAllocSTR(strLen+1)
+    str str = memoryAllocSTR(strLen+5)
     memcpy(<ptr>(<uint><ptr>str + strLenSize), a.data, strLen)
-    ln uint* = str
+    ln uint32* = str
     *ln = strLen
     return str
 }

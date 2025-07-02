@@ -1,80 +1,361 @@
-#define itoa(i int) str
+#define memoryAlloc(s uint) ptr
+#define memoryRealloc(o ptr, s uint) ptr
+#define memoryAllocSTR(s uint) str
 
-const GC_min_collect = 2048000
+#import "thread.bah"
+
+const GC_min_collect = 256000000
+
+#define qsort(arr ptr, elementCount uint, elementSize uint, fn ptr)
+#define itoa(i int) str
+#define syscall(nb int) int
+
+
+#define intToStr(i int) str
+#define println(s str)
+
+printInt(i int) {
+    s = buffer 66
+
+    s[65] = <char>0
+    
+    subZero = false
+
+    if i == 0 {
+        println("0")
+        return
+    }
+
+    if i < 0 {
+        subZero = true
+        i = 0-i
+    }
+
+    ind = 64
+
+    for i != 0, i /= 10 {
+        conv = i % 10
+        conv += 48
+        s[ind] = <char>conv
+        ind--
+    }
+
+    if subZero {
+        putchar('-')
+    }
+
+    i=ind+1; for i < 65, i++ {
+        putchar(s[i])
+    }
+
+    putchar(<char>10)
+}
+
 
 struct BAH_GC_ptr {
     size: uint
-    next: BAH_GC_ptr*
+    p: uint
     marked: bool
     notScannable: bool
 }
 
+// struct BAH_GC_thread {
+//     t: pthread_t
+//     sysid: uint
+    
+//     // rdi: uint
+//     // rax: uint
+//     // rbx: uint
+//     // rdx: uint
+
+//     next: BAH_GC_thread*
+
+//     clean() {
+//         free(this)
+//     }
+
+// }
+
+struct BAH_GC_page {
+    page: uint
+
+    next: BAH_GC_page*
+}
+
 struct BAH_GC_state_tag {
     heapSize: uint
-    nextCollect: uint
-    head: BAH_GC_ptr*
+    nextCollect: uint = GC_min_collect
 
-    heapMin: uint
-    heapMax: uint
+    list: BAH_GC_ptr*
+    listLength: uint
+    listRealLength: uint
+
+    pages: BAH_GC_page*
+
     stackBase: uint
+    // threads: BAH_GC_thread*
+    mainThread: int
+
+    mut: pthread_mutex_t*
+    cond: pthread_cond_t*
+
+    isPointerInBounds(p uint) bool {
+        pageNb = *(<uint32*>(<uint>&p + 3))
+        
+        currPage = this.pages
+        for currPage != null, currPage = currPage.next {
+            if pageNb == currPage.page {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    updatePagesBounds(p uint) {
+        pageNb = *(<uint32*>(<uint>&p + 3))
+        
+        currPage = this.pages
+        for currPage != null, currPage = currPage.next {
+            if pageNb == currPage.page {
+                break
+            }
+        }
+
+        if currPage == null {
+            currPage = malloc(sizeof(BAH_GC_page))
+            currPage.page = pageNb
+            currPage.next = this.pages
+            this.pages = currPage
+            // puts("NEW PAGE")
+            // printInt(p)
+            // printInt(pageNb)
+        }
+    }
+
+    allocate(s uint, notScannable bool) uint {
+        p = <uint>malloc(s)
+        this.heapSize += s
+
+        if this.listLength == this.listRealLength {
+            this.listRealLength *= 2
+            this.list = realloc(this.list, sizeof(BAH_GC_ptr) * this.listRealLength)
+            sizeDiff = (this.listRealLength / 2) * sizeof(BAH_GC_ptr)
+            memset(<ptr>(<uint>this.list + sizeDiff), 0, sizeDiff)
+        }
+
+        index BAH_GC_ptr*
+
+        i = this.listLength
+        for i < this.listRealLength, i++ {
+            index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
+            if index.p == 0 {
+                break
+            }
+        }
+
+        if i == this.listRealLength {
+            i = this.listLength-1
+            for i != -1, i-- {
+                index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
+                if index.p == 0 {
+                    break
+                }
+            }
+        }
+
+        if i == -1 {
+            puts("GC: fatal error")
+        }
+
+        this.listLength++
+
+        index.size = s
+        index.p = p
+        index.notScannable = notScannable
+
+        this.updatePagesBounds(p)
+
+        return p
+    }
+
+    find(p uint) BAH_GC_ptr* {
+        min = 0
+        l = this.listLength
+        i = min + l / 2
+        curr = l / 4
+
+        lastAdd = true
+        atomic = false
+
+        for i >= min && i < l, curr /= 2 {
+            index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
+
+            if curr == 0 {
+                curr = 1
+                atomic = true
+            }
+
+            if index.p > p {
+                if atomic && lastAdd == false {
+                    break
+                }
+                i += curr
+                lastAdd = true
+            } else if index.p < p {
+                if atomic && lastAdd {
+                    break
+                }
+                i -= curr
+                lastAdd = false
+            } else {
+                return index
+            }
+        }
+
+        return null
+    }
+}
+
+GC_sort_pointers(a BAH_GC_ptr*, b BAH_GC_ptr*) int {
+    if a.p < b.p {
+        return 1
+    }
+
+    return -1
 }
 
 BAH_GC_state BAH_GC_state_tag
 
 #define GC_scan(from uint, to uint, alignment uint)
 
+GC_thread_wrapper(args ptr*) {
+
+    // t = <BAH_GC_thread*>*args
+
+    // pthread_mutex_lock(BAH_GC_state.mut)
+    // t.sysid = syscall(__NR_gettid)
+    // pthread_mutex_unlock(BAH_GC_state.mut)
+
+    fn function(ptr) = *(<ptr*>(<uint>args + 16))
+
+    fn(*(<ptr*>(<uint>args + sizeof(ptr))))
+
+    free(args)
+
+    //remove the thread from the linked list
+    // pthread_mutex_lock(BAH_GC_state.mut)
+    // if t == BAH_GC_state.threads {
+    //     BAH_GC_state.threads = t.next
+    //     t.clean()
+    // } else {
+    //     ct = BAH_GC_state.threads; for ct != null, ct = ct.next {
+    //         if ct.next == t {
+    //             ct.next = t.next
+    //             t.clean()
+    //             break
+    //         }
+    //     }
+    // }
+    // pthread_mutex_unlock(BAH_GC_state.mut)
+
+}
+
+// GC_thread_sig_handler(sig int) {
+//     pthread_mutex_lock(BAH_GC_state.mut)
+//     pthread_mutex_unlock(BAH_GC_state.mut)
+// }
+
+GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
+    // t = <BAH_GC_thread*>malloc(sizeof(BAH_GC_thread))
+    // if id == null {
+    //     id = &t.t
+    // }
+
+    // pthread_mutex_lock(BAH_GC_state.mut)
+    // t.next = BAH_GC_state.threads
+    // BAH_GC_state.threads = t
+    // pthread_mutex_unlock(BAH_GC_state.mut)
+
+    agrsWrapper = <ptr*>malloc(sizeof(ptr) * 3)
+    
+    argsW = <ptr*>(<uint>agrsWrapper + sizeof(ptr))
+    fnW = <ptr*>(<uint>agrsWrapper + 2 * sizeof(ptr))
+
+    // *agrsWrapper = t
+    *argsW = args
+    *fnW = func
+
+    errNo = pthread_create(id, attr, GC_thread_wrapper, agrsWrapper)
+
+    // t.t = *id
+
+    return errNo
+}
+
+GC_thread_join(id pthread_t, ret ptr) int32 {
+    return pthread_join(id, ret)
+}
+
 GC_setStackBase() {
-    BAH_GC_state.stackBase = <uint>$rbp
+    BAH_GC_state.stackBase = <uint>$rsp
+}
+
+GC_init() {
+    BAH_GC_state.mainThread = syscall(__NR_gettid)
+
+    action sigaction
+    action.sa_flags = 268435460
+
+    // memset(&action.sa_mask, 0, sizeof(sigset_t))
+    // action.sa_handler = GC_thread_sig_handler
+    // sigaction(SIGUSR1, &action, null)
+
+    BAH_GC_state.mut = malloc(sizeof(pthread_mutex_t))
+    BAH_GC_state.cond = malloc(sizeof(pthread_cond_t))
+
+    pthread_mutex_init(BAH_GC_state.mut, 0)
+    pthread_cond_init(BAH_GC_state.cond, null)
+
+    BAH_GC_state.listLength = 0
+    BAH_GC_state.listRealLength = 4096
+    s = BAH_GC_state.listRealLength * sizeof(BAH_GC_ptr)
+    BAH_GC_state.list = malloc(s)
+    memset(BAH_GC_state.list, 0, s)
 }
 
 #init GC_setStackBase()
+#init GC_init()
 
-GC_findPtr(p uint) BAH_GC_ptr* {
-    p = p - sizeof(BAH_GC_ptr)
-
-    if <uint>p % 16 != 0 {
-        return null
-    }
-
-    currPtr = BAH_GC_state.head
-    for currPtr != null, currPtr = currPtr.next {
-        if <uint>currPtr == p {
-            return currPtr
-        }
-    }
-
-    return currPtr
-}
 
 GC_markPtr(p uint) {
-    if p < BAH_GC_state.heapMin || p > BAH_GC_state.heapMax {
+    if p == 0 {
         return
     }
 
-    gcPtr = GC_findPtr(p)
-    if gcPtr == null {
+    if BAH_GC_state.isPointerInBounds(p) == false || p == <uint>BAH_GC_state.list {
         return
     }
 
-    if gcPtr.marked == true {
-        // puts("already marked")
+    gcPtr = BAH_GC_state.find(p)
+
+    if gcPtr == null || gcPtr.marked {
         return
     }
-    // puts("Found: "+itoa(p - BAH_GC_state.heapMin)+" ("+itoa(gcPtr.size)+")")
 
-    if gcPtr.notScannable == false {
-        GC_scan(p, p + gcPtr.size, sizeof(ptr))
-    }
     gcPtr.marked = true
+    if gcPtr.notScannable == false {
+        GC_scan(p, p + gcPtr.size - 7, 1)
+    }
 }
 
+
 GC_scan(from uint, to uint, alignment uint) {
-    // puts("scan: "+itoa(to-from))
     p = from
-    if from > to {
-        // puts("hell")
+    if from > to || to - from < alignment {
         return
     }
+    // printInt(to - from)
     for p < to, p = p + alignment {
         content = *<uint*>p
 
@@ -83,88 +364,132 @@ GC_scan(from uint, to uint, alignment uint) {
 }
 
 GC_scanReversed(from uint, to uint, alignment uint) {
-    // puts("scan: "+itoa(from - to))
     p = from
-    if from < to {
-        // puts("hell")
+    if from < to || from - to < alignment {
         return
     }
-    for p >  to, p = p - alignment {
+    for p > to, p = p - alignment {
         content = *<uint*>p
 
         GC_markPtr(content)
     }
 }
 
+// GC_stopWorld() {
+//     t = BAH_GC_state.threads
+//     for t != null, t = t.next {
+//         sigqueue(t.sysid, SIGUSR1, null)
+//     }
+// }
+
+
 GC_collect() {
     //save registers
     ordi = <uint>$rdi
+    orsi = <uint>$rsi
+    ordx = <uint>$rdx
+    orcx = <uint>$rcx
+    or8 = <uint>$r8
+    or9 = <uint>$r9
+    or10 = <uint>$r10
     orax = <uint>$rax
     orbx = <uint>$rbx
-    ordx = <uint>$rdx
+
     currBasePointer = <uint>$rbp + 16
 
-    // puts("[GC] collecting")
+    // if syscall(__NR_gettid) != BAH_GC_state.mainThread {
+    //     //TODO: siqueue main thread and call collect there
+    //     return  //only the main thread can pause the world
+    // }
+
+    // GC_stopWorld()
 
 
-    if BAH_GC_state.head == null {
-        return
-    }
+
+    qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+
+    // puts("stack:")
+
+
 
     //check registers
     GC_markPtr(ordi)
+    GC_markPtr(orsi)
+    GC_markPtr(ordx)
+    GC_markPtr(orcx)
+    GC_markPtr(or8)
+    GC_markPtr(or9)
+    GC_markPtr(or10)
     GC_markPtr(orax)
     GC_markPtr(orbx)
-    GC_markPtr(ordx)
 
     //check .data and .bss
-    dataStart = <uint>&<char>$data
-    bssStart = <uint>&<char>$bss
-    bssEnd = <uint>&<char>$end
+    dataStart = <uint>$data
+    bssStart = <uint>$bss
+    bssEnd = <uint>$end
 
     GC_scan(dataStart, bssStart, 1)
-    GC_scan(bssStart + sizeof(BAH_GC_state_tag), bssEnd, 1)
+    GC_scan(bssStart, bssEnd, 1)
 
     //check stack
     GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
 
+    // puts("(threads)")
+    // //scan threads stacks
+    // ct = BAH_GC_state.threads
+    // for ct != null, ct = ct.next {    
+    //     s uint = 0
+    //     addr uint = 0
+    //     attr pthread_attr_t
+    //     pthread_getattr_np(ct.t, &attr)
+    //     pthread_attr_getstack(&attr, &addr, &s)
+    //     pthread_attr_destroy(&attr)
+    //     GC_scanReversed(<uint>addr + s - 8, addr, 8)
+    // }
+
     freed=0
     alive=0
 
-    total = 0
-    currPtr = BAH_GC_state.head
-    for currPtr != null, currPtr = currPtr.next {
-        total++
-    }
+    // total = 0
+    // currPtr = BAH_GC_state.head
+    // for currPtr != null, currPtr = currPtr.next {
+    //     total++
+    // }
 
-    previous = <BAH_GC_ptr*>null
-    currPtr = BAH_GC_state.head
 
-    for currPtr != null {
-        if currPtr.marked == false {
-            next = currPtr.next
-            if previous == null {
-                BAH_GC_state.head = next
-            } else {
-                previous.next = next
-            }
-            BAH_GC_state.heapSize = BAH_GC_state.heapSize - (currPtr.size + sizeof(BAH_GC_ptr))
-            free(currPtr)
-            currPtr = next
+
+    l = BAH_GC_state.listLength
+    i=0; for i < l, i++ {
+        index = <BAH_GC_ptr*>(<uint>BAH_GC_state.list + i * sizeof(BAH_GC_ptr))
+        if index.p == 0 {
+            continue
+        }
+
+        if index.marked == false {
             freed++
+            free(<ptr>index.p)
+            index.p = 0
+            BAH_GC_state.heapSize -= index.size
+            BAH_GC_state.listLength--
             continue
         }
         alive++
-        currPtr.marked = false
-        previous = currPtr
-        currPtr = currPtr.next
+
+        index.marked = false
     }
 
-    // puts("freed: "+itoa(freed)+", still allive: "+itoa(alive)+" total: "+itoa(total))
-    
+    qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+
+    return
+
+    puts("freed: ")
+    printInt(freed)
+    puts("still allive: ")
+    printInt(alive)
 }
 
 memoryAlloc(s uint) ptr {
+    pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -174,27 +499,11 @@ memoryAlloc(s uint) ptr {
     }
 
 
+    r = BAH_GC_state.allocate(s, false)
+    memset(<ptr>r, 0, s)
 
-    allocSize = s + sizeof(BAH_GC_ptr)
-    r = <BAH_GC_ptr*>malloc(allocSize)
-    memset(r, 0, allocSize)
-    r.size = s
-    BAH_GC_state.heapSize = BAH_GC_state.heapSize + allocSize
-
-    r.next = BAH_GC_state.head
-    BAH_GC_state.head = r
-
-    nr = <uint>r + sizeof(BAH_GC_ptr)
-
-    if nr < BAH_GC_state.heapMin {
-        BAH_GC_state.heapMin = nr
-    }
-
-    if nr > BAH_GC_state.heapMax {
-        BAH_GC_state.heapMax = nr
-    }
-
-    return <ptr>nr
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
 }
 
 memoryRealloc(o ptr, s uint) ptr {
@@ -202,6 +511,7 @@ memoryRealloc(o ptr, s uint) ptr {
         return memoryAlloc(s)
     }
 
+    pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -210,44 +520,46 @@ memoryRealloc(o ptr, s uint) ptr {
         }
     }
 
-    allocSize = s + sizeof(BAH_GC_ptr)
-    oldGCptr = <BAH_GC_ptr*>(<uint>o - sizeof(BAH_GC_ptr))
-    GCPtrBackup = *oldGCptr
-
-    r = <BAH_GC_ptr*>realloc(oldGCptr, allocSize)
-
-    memset(<ptr>(<uint>r + sizeof(BAH_GC_ptr) + GCPtrBackup.size), 0, s - GCPtrBackup.size)
     
-    if <uint>r + sizeof(BAH_GC_ptr) != <uint>o {
-        *r = GCPtrBackup
-        currPtr = BAH_GC_state.head
-        for currPtr != null, currPtr = currPtr.next {
-            if currPtr.next == oldGCptr {
-                currPtr.next = r
+
+    r = <uint>realloc(o, s)
+
+    index BAH_GC_ptr*
+    i = BAH_GC_state.listLength
+    for i < BAH_GC_state.listRealLength, i++ {
+        index = <BAH_GC_ptr*>(<uint>BAH_GC_state.list + i * sizeof(BAH_GC_ptr))
+        if index.p == <uint>o {
+            break
+        }
+    }
+
+    if i == BAH_GC_state.listRealLength {
+        i = BAH_GC_state.listLength-1
+        for i != -1, i-- {
+            index = <BAH_GC_ptr*>(<uint>BAH_GC_state.list + i * sizeof(BAH_GC_ptr))
+            if index.p == <uint>o {
                 break
             }
         }
     }
 
-    r.size = s
-    
-    BAH_GC_state.heapSize = BAH_GC_state.heapSize + s - GCPtrBackup.size
+    memset(<ptr>(<uint>r + index.size), 0, s - index.size)
 
-    nr = <uint>r + sizeof(BAH_GC_ptr)
+    BAH_GC_state.heapSize += s - index.size
+    index.size = s
 
-    if nr < BAH_GC_state.heapMin {
-        BAH_GC_state.heapMin = nr
+    if r != <uint>o {
+        index.p = r
+        BAH_GC_state.updatePagesBounds(r)
     }
 
-    if nr > BAH_GC_state.heapMax {
-        BAH_GC_state.heapMax = nr
-    }
-
-    return <ptr>nr
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
 }
 
 
 memoryAllocSTR(s uint) str {
+    pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -258,28 +570,8 @@ memoryAllocSTR(s uint) str {
 
 
 
-    allocSize = s + sizeof(BAH_GC_ptr)
-    r = <BAH_GC_ptr*>malloc(allocSize)
-    memset(r, 0, allocSize)
-
-    // puts(itoa(<uint><ptr>r))
-
-    r.size = s
-    r.notScannable = true
-    BAH_GC_state.heapSize = BAH_GC_state.heapSize + allocSize
-
-    r.next = BAH_GC_state.head
-    BAH_GC_state.head = r
-
-    nr = <uint>r + sizeof(BAH_GC_ptr)
-
-    if nr < BAH_GC_state.heapMin {
-        BAH_GC_state.heapMin = nr
-    }
-
-    if nr > BAH_GC_state.heapMax {
-        BAH_GC_state.heapMax = nr
-    }
-
-    return <ptr>nr
+    r = BAH_GC_state.allocate(s, true)
+    memset(<ptr>r, 0, s)
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
 }

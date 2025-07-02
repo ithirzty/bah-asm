@@ -11,6 +11,7 @@ const BAH_TYPE_FUNC  = 9
 const BAH_TYPE_PTR  = 10
 const BAH_TYPE_CUSTOM_TYPE  = 11
 const BAH_TYPE_BUFFER  = 12
+const BAH_TYPE_TUPLE = 13
 
 const ARR_TYPE_SIZE = 32
 const ARR_LENGTH_OFFSET = 8
@@ -28,8 +29,8 @@ struct bahFileLoc {
 
 struct bahType {
     name:   str
-    size:   uint32
-    offset: uint32
+    size:   uint
+    offset: uint
     type:   byte
 
     isPtr: bool
@@ -38,6 +39,7 @@ struct bahType {
     child: bahType*
     next:  bahType*
     ret:   bahType*
+    defaultValue: ptr
 
     loc: bahFileLoc
 
@@ -95,6 +97,17 @@ struct bahType {
                 s += " "+this.ret.toStr()
             }
             return s
+        } else if this.type == BAH_TYPE_TUPLE {
+            s = "["
+            elem = this.child
+            for elem != null, elem = elem.next {
+                if elem != this.child {
+                    s += ","
+                }
+                s += elem.toStr()
+            }
+            s += "]"
+            return s
         }
 
         return this.name
@@ -146,11 +159,12 @@ struct bahValue {
     isSplit: bool
     isReg: bool
     isStruct: bool
-    isStructDeclare: bool
+    isStructDeclare: bool //todo: do a single .isDeclare and check type when generating
     isArrayDeclare: bool
     isBufferDeclare: bool
     isMapDeclare: bool
     isChanDeclare: bool
+    isTupleDeclare: bool
     isReflect: bool
 
     pemdas: uint
@@ -172,6 +186,7 @@ struct bahLeftValue {
     isBuffer:   bool
     isMap:      bool
     isUnary:    bool
+    isTuple:    bool
     type: bahType*
 
     tok: bahToken
@@ -181,6 +196,22 @@ struct bahLeftValue {
     left: bahLeftValue*
     right: bahLeftValue*
 
+    isArrayRecursive() bool {
+        if this.isArray {
+            return true
+        }
+
+        if this.left != null && this.left.isArrayRecursive() {
+            return true
+        }
+
+        if this.right != null && this.right.isArrayRecursive() {
+            return true
+        }
+
+        return false
+    }
+
 }
 
 struct parserScope {
@@ -189,6 +220,7 @@ struct parserScope {
     needsReturn:   bool
     isElse: bool
     ifChainLength: uint
+    ifChainLabels: []uint
     scope: uint
 
     
@@ -294,7 +326,7 @@ struct parserContext {
     }
 }
 
-parserCtx = parserContext{}
+parserCtx parserContext
 
 hasScopeReturned(scope parserScope*) bool {
     if scope.isConditional == false {

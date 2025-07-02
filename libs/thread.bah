@@ -23,6 +23,9 @@ struct pthread_attr_t {
     size: buffer:56
 }
 
+#define GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+#define GC_thread_join(id pthread_t, ret ptr) int32
+
 #define pthread_mutex_init(lock pthread_mutex_t*, m uint)
 #define pthread_mutex_lock(lock pthread_mutex_t*)
 #define pthread_mutex_unlock(lock pthread_mutex_t*)
@@ -71,8 +74,8 @@ struct pthread_attr_t {
 // }
 
 // #altMem {
-    const __thread_create = pthread_create
-    const __thread_join = pthread_join
+    const __thread_create = GC_thread_create
+    const __thread_join = GC_thread_join
 // }
 
 // __thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {

@@ -17,7 +17,7 @@ argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 
-BAH_VERSION = "v0.011 (build 6)"
+BAH_VERSION = "v0.1 (build 7)"
 
 #linux {
     BAH_OS = "linux"
@@ -39,12 +39,8 @@ const BAH_DIR = "/opt/bah-asm"
 
 #include "./gen_asm_linux_64.bah"
 
-gen = asmContext{}
-initFnGen = asmContext{
-    code: rope("")
-    data: rope("")
-    bss: rope("")
-}
+gen asmContext
+initFnGen asmContext
 initFnName = ".__Bah_init"
 
 // #include "./cache.bah"
@@ -63,6 +59,18 @@ main(args []str) int {
     startTime = getTimeUnix() //for timming compilation time
     compilerPath = absPath(args[0])
 
+    gen = asmContext{}
+    parserCtx = parserContext{}
+
+
+    initFnGen = asmContext{
+        code: rope("")
+        data: rope("")
+        bss: rope("")
+        
+    }
+
+
     flags = flags{}
     flags.addString("o", "Name of the output file.")
     flags.addBool("v", "Get compiler version.")
@@ -74,7 +82,7 @@ main(args []str) int {
     flags.parse(args)
 
     if flags.isSet("v") {
-        println("Bah compiler version: "+BAH_VERSION+".")
+        println("Bah compiler (asm branch) version: "+BAH_VERSION+".")
         println("Alois Laurent Boe.")
         return 0
     }
@@ -114,6 +122,12 @@ __bss_start:\n")
     file = args[1]
     fs = fileStream{}
     fs.open(file, "r")
+
+    if fs.isValid() == false {
+        println("Could not open '"+file+"'.")
+        return 1
+    }
+
     content = fs.readContent()
     fs.close()
 
@@ -123,6 +137,7 @@ __bss_start:\n")
     tokens = lexer(content)
 
     gen.generateFileLocation(parserCtx.currentFilePath)
+
 
     includeFile(BAH_DIR + "/builtin.bah")
 
@@ -162,8 +177,10 @@ __bss_start:\n")
     }
 
     i=0; for i < len(parserCtx.functions), i++ {
-        gen.data = rope(".global "+parserCtx.functions[i].name+"\n") + gen.data
+        fnName = parserCtx.functions[i].name
+        gen.data = rope(".global "+fnName+"\n.type   "+fnName+", @function\n") + gen.data
     }
+
 
     initFnGen.generateFnEnd()
     gen.code += initFnGen.code
@@ -172,7 +189,7 @@ __bss_start:\n")
 __bss_end:\n")
 
     if isSilent == false {
-        println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\e[0m")
+        println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\033[0m")
     }
 
 
@@ -191,14 +208,14 @@ __bss_end:\n")
         
 
         fs.open(fileName, "w")
-        fs.writeFile(gen.data.toStr()+gen.bss.toStr()+gen.code.toStr())
+        fs.writeFile((gen.data + gen.bss + gen.code).toStr())
         fs.close()
         return 0
     }
 
 
     fs.open(fileNameNoExt+".S", "w")
-    fs.writeFile(gen.data.toStr()+gen.bss.toStr()+gen.code.toStr())
+    fs.writeFile((gen.data + gen.bss + gen.code).toStr())
     fs.close()
 
     if isObjectFile {
@@ -215,7 +232,7 @@ __bss_end:\n")
         }
         
 
-        cmd = command("as "+fileNameNoExt+".S -o "+fileName)
+        cmd = command("as "+fileNameNoExt+".S -g -o "+fileName)
         err = cmd.runBytes()
         removeFile(fileNameNoExt+".S")
         return 0
@@ -248,7 +265,7 @@ __bss_end:\n")
     }
 
     if isSilent == false {
-        println("\e[1;32mDone. (compiled in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms)\e[0m")
+        println("\033[1;32mDone. (compiled in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms)\033[0m")
     }
 
     // cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/Scrt1.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crti.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtbeginS.o  "+fileName+".o -lc /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/crtendS.o /usr/lib/gcc/x86_64-pc-linux-gnu/14.2.1/../../../../lib/crtn.o")
