@@ -112,6 +112,43 @@ print(s str) {
     write(1, s, len(s))
 }
 
+printInt(i int) {
+    s = buffer 66
+
+    s[65] = <char>0
+    
+    subZero = false
+
+    if i == 0 {
+        println("0")
+        return
+    }
+
+    if i < 0 {
+        subZero = true
+        i = 0-i
+    }
+
+    ind = 64
+
+    for i != 0, i /= 10 {
+        conv = i % 10
+        conv += 48
+        s[ind] = <char>conv
+        ind--
+    }
+
+    if subZero {
+        putchar('-')
+    }
+
+    i=ind+1; for i < 65, i++ {
+        putchar(s[i])
+    }
+
+    putchar(<char>10)
+}
+
 println(s str) {
     if <ptr>s == null {
         s = ""
@@ -119,10 +156,247 @@ println(s str) {
     puts(s)
 }
 
+backtrace(levelStart uint) {
+    basePointer = <uint>$rbp
+
+    println("Backtrace:")
+
+    for levelStart > 0, levelStart-- {
+        basePointer = *<uint*>(basePointer)
+        currPtr = *<uint*>(basePointer + 8)
+    }
+
+    for basePointer != 0, basePointer = *<uint*>(basePointer) {
+        currPtr = *<uint*>(basePointer + 8)
+        fnName = ""
+
+        debugInfos = <uint*>$debug
+        for *debugInfos != 0 {
+            fnAddress = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnAddressEnd = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnName = <str>debugInfos
+
+            if currPtr >= fnAddress && currPtr <= fnAddressEnd {
+                break
+            }
+
+
+            debugInfos = <uint*>(<uint>debugInfos + 5 + len(fnName))
+        }
+
+        lineNb = 0
+        fileNb = 0
+        fileName = "?"
+        foundGreater = false
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                addr = *<uint*>(debugLines)
+                debugLines = <byte*>(<uint>debugLines + 8)
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                currLineNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+
+                if foundGreater && currPtr <= addr {
+                    break
+                }
+
+                if currPtr >= addr {
+                    foundGreater = true
+                    lineNb = currLineNb
+                    fileNb = currFileNb
+                }
+
+            }
+        }
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+
+                if currFileNb == fileNb {
+                    break
+                }
+
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                debugLines = <byte*>(<uint>debugLines + 16)
+            }
+        }
+
+        if *debugLines == 0 {
+            lineNb = 0
+        }
+
+        print("\t\033[33m")
+        print(fnName)
+        print("\033[m() \033[32m")
+        print(fileName)
+        if lineNb != 0 {
+            print(":")
+            printInt(lineNb)
+		    print("\033[m")
+        } else {
+            print("\033[m\n")
+        }
+
+    }
+}
+
 __Bah_panic(e str, loc str) {
-    println("panic("+loc+"): "+e)
+    print("panic(")
+    print(loc)
+    print("): ")
+    print(e)
+    print("\n")
+    backtrace(0)
     exit(1)
 }
+
+onMemoryError function()str = null
+
+//Used by the compiler, called when a memory error occurs.
+__Bah_segfault_handle(sig int32, info ptr, ctx ptr) {
+	res = ""
+	if onMemoryError != null {
+		res = onMemoryError()
+	}
+
+    currPtr = *<uint*>(<uint>ctx + 168)
+    rbp = *<uint*>(<uint>ctx + 120)
+
+    fnName = ""
+
+    debugInfos = <uint*>$debug
+    for *debugInfos != 0 {
+        fnAddress = *debugInfos
+        debugInfos = <uint*>(<uint>debugInfos + 8)
+        fnAddressEnd = *debugInfos
+        debugInfos = <uint*>(<uint>debugInfos + 8)
+        fnName = <str>debugInfos
+
+        if currPtr >= fnAddress && currPtr <= fnAddressEnd {
+            break
+        }
+
+
+        debugInfos = <uint*>(<uint>debugInfos + 5 + len(fnName))
+    }
+
+    lineNb = 0
+    fileNb = 0
+    fileName = "?"
+    foundGreater = false
+
+    debugLines = <byte*>$debugLines
+    for *debugLines != <byte>0 {
+        type = *debugLines
+        debugLines = <byte*>(<uint>debugLines + 1)
+
+        if type == 1 {
+            debugLines = <byte*>(<uint>debugLines + 4)
+            fileName = <str>debugLines
+            debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+        }
+
+        if type == 2 {
+            addr = *<uint*>(debugLines)
+            debugLines = <byte*>(<uint>debugLines + 8)
+            currFileNb = *<int32*>debugLines
+            debugLines = <byte*>(<uint>debugLines + 4)
+            currLineNb = *<int32*>debugLines
+            debugLines = <byte*>(<uint>debugLines + 4)
+
+            if foundGreater && currPtr <= addr {
+                break
+            }
+
+            if currPtr >= addr {
+                foundGreater = true
+                lineNb = currLineNb
+                fileNb = currFileNb
+            }
+
+        }
+    }
+
+    debugLines = <byte*>$debugLines
+    for *debugLines != <byte>0 {
+        type = *debugLines
+        debugLines = <byte*>(<uint>debugLines + 1)
+
+        if type == 1 {
+            currFileNb = *<int32*>debugLines
+            debugLines = <byte*>(<uint>debugLines + 4)
+            fileName = <str>debugLines
+
+            if currFileNb == fileNb {
+                break
+            }
+
+            debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+        }
+
+        if type == 2 {
+            debugLines = <byte*>(<uint>debugLines + 16)
+        }
+    }
+
+    if *debugLines == 0 {
+        lineNb = 0
+    }
+
+    print("===Memory Erorr (segfault)===\n")
+    print("\t\033[33m")
+    print(fnName)
+    print("\033[m() \033[32m")
+    print(fileName)
+    if lineNb != 0 {
+        print(":")
+        printInt(lineNb)
+        print("\033[m")
+    } else {
+        print("\033[m\n")
+    }
+
+    backtrace(2)
+    exit(139)
+}
+
+//Used to register __Bah_segfault_handle().
+__Bah_init_segfaultHandle() bool {
+    action = sigaction{
+        sa_handler: __Bah_segfault_handle
+        sa_flags: SA_SIGINFO
+    }
+    sigaction(SIGSEGV, &action, null)
+
+	// signal(SIGSEGV, __Bah_segfault_handle)
+	return true
+}
+
+#init __Bah_init_segfaultHandle()
 
 #define uintToStr(u uint) str
 
@@ -172,6 +446,9 @@ buffToStr(b char*) str {
 }
 
 cStrToBah(b char*) str {
+    if b == null {
+        return null
+    }
     l = strlen(b)
     r uint32* = memoryAllocSTR(l + 5)
     *r = l

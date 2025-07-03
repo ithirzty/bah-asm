@@ -140,6 +140,7 @@ struct bahVariable {
 struct bahFunction {
     name: str
     type: bahType*
+    declared: bool
  
     loc: bahFileLoc
 }

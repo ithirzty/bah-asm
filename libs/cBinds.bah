@@ -14,7 +14,7 @@ struct sigset_t {
 // const	SIGFPE 		= 8
 // const	SIGKILL 	= 9
 // const	SIGBUS 		= 10
-// const	SIGSEGV 	= 11
+const	SIGSEGV 	= 11
 // const	SIGSYS 		= 12
 // const	SIGPIPE 	= 13
 // const	SIGALRM 	= 14
@@ -55,6 +55,7 @@ struct sigaction {
     sa_flags: int32
     sa_restorer: function() 
 }
+
 
 #define sigaction(signum int32, act sigaction*, oldact sigaction*) int32
 #define sigqueue(pid int32, sig int32, val ptr) int

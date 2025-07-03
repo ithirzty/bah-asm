@@ -17,7 +17,7 @@ argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 
-BAH_VERSION = "v0.1 (build 7)"
+BAH_VERSION = "v0.11 (build 8)"
 
 #linux {
     BAH_OS = "linux"
@@ -43,7 +43,7 @@ gen asmContext
 initFnGen asmContext
 initFnName = ".__Bah_init"
 
-// #include "./cache.bah"
+#include "./cache.bah"
 #include "./lexer.bah"
 #include "./state.bah"
 #include "./types.bah"
@@ -67,7 +67,7 @@ main(args []str) int {
         code: rope("")
         data: rope("")
         bss: rope("")
-        
+        debugEnabled: false
     }
 
 
@@ -96,6 +96,8 @@ main(args []str) int {
     }
 
     initFnCallRope = rope("")
+
+    gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
 
     gen.data = rope(".global _start
 _start:
@@ -131,7 +133,9 @@ __bss_start:\n")
     content = fs.readContent()
     fs.close()
 
-    parserCtx.currentFilePath = file
+    readCache()
+
+    parserCtx.currentFilePath = absPath(file)
     parserCtx.currentFile = content
 
     tokens = lexer(content)
@@ -181,6 +185,8 @@ __bss_start:\n")
         gen.data = rope(".global "+fnName+"\n.type   "+fnName+", @function\n") + gen.data
     }
 
+    gen.debugInfo += rope(".byte 0\n")
+    generateRuntimeDebugInfo()
 
     initFnGen.generateFnEnd()
     gen.code += initFnGen.code
@@ -208,15 +214,15 @@ __bss_end:\n")
         
 
         fs.open(fileName, "w")
-        fs.writeFile((gen.data + gen.bss + gen.code).toStr())
+        fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
         fs.close()
         return 0
     }
 
-
     fs.open(fileNameNoExt+".S", "w")
-    fs.writeFile((gen.data + gen.bss + gen.code).toStr())
+    fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
     fs.close()
+    
 
     if isObjectFile {
         i=len(fileName)-1; for i != -1, i-- {

@@ -15,24 +15,36 @@ struct cacheFile {
     last: int
     ver: str
     date: int
-    opti: int
     dependencies: []cacheFileDependency
 }
 
 cache = []cacheFile*
-cacheMutex = mutex()
+cacheMutex mutex
+
+pathToVarName(p str) str {
+    a = strToArr(p)
+    i=0; for i < len(a), i++ {
+        c int = a[i]
+        c -= <int>'a'
+        if c < 0 {
+            c = 0 - c
+        }
+        c = c % (<int>'z' - <int>'a')
+        c += <int>'a'
+        a[i] = <char>c
+    }
+    return arrToStr(a)
+}
 
 //Reads the cache, who could have guessed?
 //Scans the value of the cache inside the global variable called 'cache'.
 readCache()  {
-    cacheMutex.lock()
+    cacheMutex = mutex()
     fs = fileStream{}
     fs.open(BAH_DIR + "cache/cache.json", "r")
-    if fs.isValid() == 0 || fs.getSize() == 0 {
-        
+    if fs.isValid() == false || fs.getSize() == 0 {
         makeDir(BAH_DIR + "cache", S_IRWXU)
         fs.createFile(BAH_DIR + "cache/cache.json")
-        cacheMutex.unlock()
         return
     }
     if fs.getSize() > 0 {
@@ -40,18 +52,18 @@ readCache()  {
         fs.close()
         j.scan(cache)
     }
-    cacheMutex.unlock()
 }
 
 //Returns a cacheFile instance from an imported file name.
 getCacheFile(s str) cacheFile* {
+    cacheMutex.lock()
     if cache == null {
+        cacheMutex.unlock()
         return null
     }
-    cacheMutex.lock()
     i=0; for i < len(cache), i++ {
         c = cache[i]
-        if c.file == s && c.opti == isOptimized {
+        if c.file == s {
             cacheMutex.unlock()
             return c
         }
@@ -84,7 +96,6 @@ makeCacheFile(f str, incls []str) {
     c = new cacheFile
     c.file = f
     c.ver = BAH_VERSION
-    c.opti = isOptimized
     c.date = getTimeUnix()
     c.last = getLastModified(f)
 
@@ -117,7 +128,7 @@ isValidCacheFile(cf cacheFile*) bool {
     if cf.last != getLastModified(cf.file) {
         return false
     }
-    if fileExists(BAH_DIR+"cache/"+pathToVarName(cf.file)+intToStr(cf.mem)+intToStr(cf.opti)+".o.o") == 0 {
+    if fileExists(BAH_DIR+"cache/"+pathToVarName(cf.file)+".o") == false {
         return false
     }
 

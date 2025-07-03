@@ -6,7 +6,8 @@ cp /opt/bah-asm/* ./libs
 echo "Ok"
 
 echo "Compiling binary..."
-src/main src/main.bah -n -o libs/bah
+rm libs/bah
+src/main src/main.bah -o ./libs/bah
 echo "Ok"
 
 git add .
