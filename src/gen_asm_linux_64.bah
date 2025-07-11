@@ -3043,6 +3043,16 @@ struct asmContext {
             } else {
                 valueReg = asmSymbolReg(ASM_reg_id_args, arguments[i].size, i+offset)
                 this.generateMoveValue(arguments[i], valueReg)
+                if arguments[i].size < 4 {
+                    inst = "movsbl"
+                    if arguments[i].size == 2 {
+                        inst = "movswl"
+                    }
+                    this.instructions[len(this.instructions)] = asmInstruction {
+                        inst, valueReg, valueReg    
+                    }
+                    this.instructions[len(this.instructions)-1].arg2.size = 4
+                }
             }
         }
 

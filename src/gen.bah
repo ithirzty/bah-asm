@@ -360,13 +360,19 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
 
 generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
     r = asmSymbol {}
+    
+    if val.type != null {
+        for val.type.type == BAH_TYPE_CUSTOM_TYPE {
+            val.type = val.type.child
+        }
+    }
 
     if val.isPointer {
         actualValue = val
-        for actualValue.isCast {
+        for actualValue.value == BAH_VALUE_CAST {
             actualValue = actualValue.left
         }
-        if actualValue.isVariable == false && actualValue.isReg == false && actualValue.isFunctionSym == false && actualValue.isStruct == false {
+        if actualValue.value != BAH_VALUE_VAR && actualValue.value != BAH_VALUE_REG && actualValue.value != BAH_VALUE_FUNC_SYM && actualValue.value != BAH_VALUE_STRUCT {
             val.isPointer = false
             sym = generateBahValueSymbol(val, null)
             sym.size = 8
@@ -380,8 +386,8 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
     }
 
-    if val.isCast {
-        if val.left.isReg {
+    if val.value == BAH_VALUE_CAST {
+        if val.left.value == BAH_VALUE_REG {
             if val.left.tok.cont[1:] == "data" {
                 sym = asmSymbolStaticName("__data_start")
                 sym.level = -1
@@ -411,18 +417,181 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         return generateTypeConversion(val.left, val.type)
     }
 
-    if val.isReg {
+    if val.value == BAH_VALUE_REG {
         throwError(&val.tok, "Cannot use a register without casting it.")
     }
 
-    if val.isBufferDeclare {
-        sym = gen.generateVarDecl("buffer_declare", val.type.size, false)
-        sym.level = -1
-        sym.size = 8
-        return sym
+    if val.value == BAH_VALUE_DECLARATION {
+
+        if val.type.type == BAH_TYPE_BUFFER {
+            sym = gen.generateVarDecl("buffer_declare", val.type.size, false)
+            sym.level = -1
+            sym.size = 8
+            return sym
+        }
+
+        if val.type.type == BAH_TYPE_STRCT || val.type.isPtr && val.type.child.type == BAH_TYPE_STRCT {
+            sym asmSymbol
+
+            structType = val.type
+            if val.type.isPtr {
+                structType = val.type.child
+            }
+            initFn = parserCtx.findFunc(structType.child.name+"._init")
+
+            if val.type.isPtr == false {
+                sym = gen.generateVarDecl("strct_declare", val.type.size, true)
+                currVal = val.left
+                for currVal != null, currVal = currVal.left {
+                    fieldSym = asmSymbolStack(sym.address - currVal.type.offset, currVal.type.size)
+                    fieldVal = generateBahValueSymbol(currVal.right, &fieldSym)
+                    if isEmptySymbol(fieldVal) == false {
+                        gen.generateVarSet(fieldSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
+                    }
+                }
+
+                if initFn != null {
+                    gen.generateFnCallStart()
+                    pSym = sym
+                    pSym.level = -1
+                    pSym.size = 8
+                    gen.generateFnCallArgument(pSym)
+                    gen.generateFnCall(asmSymbolValue(initFn.name), 0, null, false)
+                }
+
+                return sym
+            }
+
+            sym = gen.generateVarDecl("strct_declare", 8, false)
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.child.size)))
+            gen.generateMoveValue(gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false), sym)
+            currVal = val.left
+            for currVal != null, currVal = currVal.left {
+                if currVal.right.value == BAH_VALUE_FUNC_SYM {
+                    fieldVal = generateBahValueSymbol(currVal.right, null)
+                    fieldVal = gen.generateTmpSym(fieldVal, 8)
+                    nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
+                    nSym.size = currVal.type.size
+                    nSym = gen.generateDestDereference(nSym)
+                    gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
+                } else if currVal.type.size > 16 {
+                    nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
+                    nSym = gen.generateTmpSym(nSym, 8)
+                    nSym.level = 1
+                    fieldVal = generateBahValueSymbol(currVal.right, &nSym)
+                    if isEmptySymbol(fieldVal) == false {
+                        nSym.level = 0
+                        nSym.size = currVal.type.size
+                        nSym = gen.generateDestDereference(nSym)
+                        gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
+                    }
+
+                } else {
+                    fieldVal = generateBahValueSymbol(currVal.right, null)
+                    nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
+                    nSym.size = currVal.type.size
+                    nSym = gen.generateDestDereference(nSym)
+                    gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
+                }
+
+            }
+            sym.size = 8
+
+
+            if initFn != null {
+                gen.generateFnCallStart()
+                gen.generateFnCallArgument(sym)
+                gen.generateFnCall(asmSymbolValue(initFn.name), 0, null, false)
+            }
+
+            return sym
+        }
+
+        if val.type.type == BAH_TYPE_ARRAY {
+            sym = gen.generateVarDecl("array_declare", 8, false)
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.size)))
+            gen.generateMoveValue(gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false), sym)
+
+            nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_ELEMSIZE_OFFSET)))
+            elemSizeSym = gen.generateDestDereference(nSym)
+            gen.generateVarSet(elemSizeSym, gen.staticInt(uintToStr(val.type.child.size)), true)
+
+                    
+            arrLen = 0
+            currVal = val.right
+            for currVal != null, currVal = currVal.right {
+                arrLen++
+            }
+
+            nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_LENGTH_OFFSET)))
+            lengthSym = gen.generateDestDereference(nSym)
+            gen.generateVarSet(lengthSym, gen.staticInt(uintToStr(arrLen)), true)
+
+            if arrLen < 64 {
+                arrLen = 64
+            }
+
+            nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_REALENGTH_OFFSET)))
+            lengthSym = gen.generateDestDereference(nSym)
+            gen.generateVarSet(lengthSym, gen.staticInt(uintToStr(arrLen)), true)
+
+
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.child.size * arrLen)))
+            fnRet = gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false)
+            dataSym = gen.generateDestDereference(sym)
+            gen.generateMoveValue(fnRet, dataSym)
+            dataSym.level = 0
+            gen.generateMoveValue(fnRet, dataSym)
+            
+
+            currVal = val.right
+            index = 0
+            for currVal != null, currVal = currVal.right {
+
+                elemSym = generateBahValueSymbol(currVal.left, null)
+                
+                dataSym = gen.generateDestDereference(sym)
+                dataSym = gen.generateDestSymOffset(dataSym, gen.staticInt(uintToStr(val.type.child.size * index)))                
+
+                dataSym.level = 1
+                dataSym.size = val.type.child.size
+                gen.generateVarSet(dataSym, elemSym, currVal.left.type.type == BAH_TYPE_UINT)
+
+                index++
+            }
+            
+
+            return sym
+        }
+
+        if val.type.type == BAH_TYPE_TUPLE {
+            currVal = val.left
+
+            sym = gen.generateVarDecl("tuple_declare", val.type.size, false)
+
+            offset = 0
+
+            for currVal != null, currVal = currVal.left {
+                setSym = sym
+                setSym.size = currVal.right.type.size
+                setSym.address -= offset
+
+                gen.generateVarSet(setSym, generateBahValueSymbol(currVal.right, null), currVal.right.type.type == BAH_TYPE_UINT)
+
+                offset += currVal.right.type.size
+            }
+
+            return sym
+        }
+
+
     }
 
-    if val.isSplit {
+
+    if val.value == BAH_VALUE_SPLIT {
         fnSym asmSymbol
         if val.left.type.type == BAH_TYPE_STR {
             fnSym = asmSymbolValue(strSplitFunction)
@@ -465,7 +634,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         return sym
     }
 
-    if val.isIndexed {
+    if val.value == BAH_VALUE_INDEXED {
         if val.left.type.type == BAH_TYPE_STR {
             rSym = gen.generateOpAdd(generateBahValueSymbol(val.right, null), gen.staticInt("4"), ASM_NUM_UINT)
             rSym = gen.generateTmpSym(rSym, rSym.size)
@@ -510,7 +679,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
     }
 
-    if val.isUnary {
+    if val.value == BAH_VALUE_UNARY {
         sym = generateBahValueSymbol(val.left, null)
         sym.size = val.left.type.child.size
         return gen.generateUnary(sym)
@@ -545,7 +714,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
     }
 
-    if val.isVariable || val.isFunctionSym {
+    if val.value == BAH_VALUE_VAR || val.value == BAH_VALUE_FUNC_SYM {
         i=0; for i < len(parserCtx.variables), i++ {
             if parserCtx.variables[i].name == val.tok.cont {
                 sm = parserCtx.variables[i].sym
@@ -558,7 +727,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
     }
 
-    if val.isFunctionSym {
+    if val.value == BAH_VALUE_FUNC_SYM {
         if isEmptySymbol(val.sym) == false {
             return val.sym
         }
@@ -568,11 +737,11 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         return sym
     }
 
-    if val.isStruct {
+    if val.value == BAH_VALUE_STRUCT {
         currVal = val
         addr = 0
 
-        if val.right.isFunctionSym {
+        if val.right.value == BAH_VALUE_FUNC_SYM {
             return val.right.sym
         }
 
@@ -629,164 +798,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         return r
     }
 
-    if val.isStructDeclare {
-        sym asmSymbol
-
-        structType = val.type
-        if val.type.isPtr {
-            structType = val.type.child
-        }
-        initFn = parserCtx.findFunc(structType.child.name+"._init")
-
-        if val.type.isPtr == false {
-            sym = gen.generateVarDecl("strct_declare", val.type.size, true)
-            currVal = val.left
-            for currVal != null, currVal = currVal.left {
-                fieldSym = asmSymbolStack(sym.address - currVal.type.offset, currVal.type.size)
-                fieldVal = generateBahValueSymbol(currVal.right, &fieldSym)
-                if isEmptySymbol(fieldVal) == false {
-                    gen.generateVarSet(fieldSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
-                }
-            }
-
-            if initFn != null {
-                gen.generateFnCallStart()
-                pSym = sym
-                pSym.level = -1
-                pSym.size = 8
-                gen.generateFnCallArgument(pSym)
-                gen.generateFnCall(asmSymbolValue(initFn.name), 0, null, false)
-            }
-
-            return sym
-        }
-
-        sym = gen.generateVarDecl("strct_declare", 8, false)
-        gen.generateFnCallStart()
-        gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.child.size)))
-        gen.generateMoveValue(gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false), sym)
-        currVal = val.left
-        for currVal != null, currVal = currVal.left {
-            if currVal.right.isFunctionSym {
-                fieldVal = generateBahValueSymbol(currVal.right, null)
-                fieldVal = gen.generateTmpSym(fieldVal, 8)
-                nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
-                nSym.size = currVal.type.size
-                nSym = gen.generateDestDereference(nSym)
-                gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
-            } else if currVal.type.size > 16 {
-                nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
-                nSym = gen.generateTmpSym(nSym, 8)
-                nSym.level = 1
-                fieldVal = generateBahValueSymbol(currVal.right, &nSym)
-                if isEmptySymbol(fieldVal) == false {
-                    nSym.level = 0
-                    nSym.size = currVal.type.size
-                    nSym = gen.generateDestDereference(nSym)
-                    gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
-                }
-
-            } else {
-                fieldVal = generateBahValueSymbol(currVal.right, null)
-                nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(currVal.type.offset)))
-                nSym.size = currVal.type.size
-                nSym = gen.generateDestDereference(nSym)
-                gen.generateVarSet(nSym, fieldVal, currVal.type.type == BAH_TYPE_UINT)
-            }
-
-        }
-        sym.size = 8
-
-
-        if initFn != null {
-            gen.generateFnCallStart()
-            gen.generateFnCallArgument(sym)
-            gen.generateFnCall(asmSymbolValue(initFn.name), 0, null, false)
-        }
-
-        return sym
-    }
-
-    if val.isArrayDeclare {
-        sym = gen.generateVarDecl("array_declare", 8, false)
-        gen.generateFnCallStart()
-        gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.size)))
-        gen.generateMoveValue(gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false), sym)
-
-        nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_ELEMSIZE_OFFSET)))
-        elemSizeSym = gen.generateDestDereference(nSym)
-        gen.generateVarSet(elemSizeSym, gen.staticInt(uintToStr(val.type.child.size)), true)
-
-                
-        arrLen = 0
-        currVal = val.right
-        for currVal != null, currVal = currVal.right {
-            arrLen++
-        }
-
-        nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_LENGTH_OFFSET)))
-        lengthSym = gen.generateDestDereference(nSym)
-        gen.generateVarSet(lengthSym, gen.staticInt(uintToStr(arrLen)), true)
-
-        if arrLen < 64 {
-            arrLen = 64
-        }
-
-        nSym = gen.generateDestSymOffset(sym, gen.staticInt(intToStr(ARR_REALENGTH_OFFSET)))
-        lengthSym = gen.generateDestDereference(nSym)
-        gen.generateVarSet(lengthSym, gen.staticInt(uintToStr(arrLen)), true)
-
-
-        gen.generateFnCallStart()
-        gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.child.size * arrLen)))
-        fnRet = gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false)
-        dataSym = gen.generateDestDereference(sym)
-        gen.generateMoveValue(fnRet, dataSym)
-        dataSym.level = 0
-        gen.generateMoveValue(fnRet, dataSym)
-        
-
-        currVal = val.right
-        index = 0
-        for currVal != null, currVal = currVal.right {
-
-            elemSym = generateBahValueSymbol(currVal.left, null)
-            
-            dataSym = gen.generateDestDereference(sym)
-            dataSym = gen.generateDestSymOffset(dataSym, gen.staticInt(uintToStr(val.type.child.size * index)))                
-
-            dataSym.level = 1
-            dataSym.size = val.type.child.size
-            gen.generateVarSet(dataSym, elemSym, currVal.left.type.type == BAH_TYPE_UINT)
-
-            index++
-        }
-        
-
-        return sym
-    }
-
-    if val.isTupleDeclare {
-        currVal = val.left
-
-        sym = gen.generateVarDecl("tuple_declare", val.type.size, false)
-
-        offset = 0
-
-        for currVal != null, currVal = currVal.left {
-            setSym = sym
-            setSym.size = currVal.right.type.size
-            setSym.address -= offset
-
-            gen.generateVarSet(setSym, generateBahValueSymbol(currVal.right, null), currVal.right.type.type == BAH_TYPE_UINT)
-
-            offset += currVal.right.type.size
-        }
-
-        return sym
-    }
-
-    if val.isOperation {
+    if val.value == BAH_VALUE_OP {
 
         if val.isSelfOp {
             if val.tok.cont == "+" {
@@ -808,7 +820,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             if val.right.tok.cont == "+" {
                 currAdd = val
                 for currAdd != null, currAdd = currAdd.right {
-                    if currAdd.isOperation == false || currAdd.tok.cont[0] != '+' {
+                    if currAdd.value != BAH_VALUE_OP || currAdd.tok.cont[0] != '+' {
                         gen.generateStrConcat(generateBahValueSymbol(currAdd, null))
                         return gen.generateStrConcatEnd()
                     }
@@ -856,7 +868,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
 
         //rearrange tree for position dependent operations
-        if (opStr[0] == '-' || opStr[0] == '/') && val.right.isOperation && val.right.pemdas == val.pemdas {
+        if (opStr[0] == '-' || opStr[0] == '/') && val.right.value == BAH_VALUE_OP && val.right.pemdas == val.pemdas {
             currVal = val.right
             prevVal = val
             currSym = generateBahValueSymbol(val.left, null)
@@ -865,7 +877,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 currSym = gen.generateTmpSym(currSym, currSym.size)
                 currSym = generateValueOperation(&prevVal.tok, currSym, generateBahValueSymbol(currVal.left, null), currVal.left.type)
 
-                if currVal.right.isOperation == false {
+                if currVal.right.value != BAH_VALUE_OP {
                     currSym = gen.generateTmpSym(currSym, currSym.size)
                     currSym = generateValueOperation(&currVal.tok, currSym, generateBahValueSymbol(currVal.right, null), currVal.right.type)
                     break
@@ -873,7 +885,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 prevVal = currVal
             }
 
-            if currVal.isOperation && currVal.pemdas != val.pemdas {
+            if currVal.value == BAH_VALUE_OP && currVal.pemdas != val.pemdas {
                 currSym = gen.generateTmpSym(currSym, currSym.size)
                 currSym = generateValueOperation(&prevVal.tok, currSym, generateBahValueSymbol(currVal, null), currVal.type)
             }
@@ -895,17 +907,17 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
     }
 
-    if val.isFunctionCall {
+    if val.value == BAH_VALUE_FUNC_CALL {
 
         fnName = val.tok.cont
         isMethodCall = false
 
         //need to pass the structure pointer to the method function
-        if val.left.isStruct && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
+        if val.left.value == BAH_VALUE_STRUCT && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
             isMethodCall = true
             //we need to pre generate the parent value
             parent = generateBahValueSymbol(val.left.left, null)
-            val.left.left.isVariable = true
+            val.left.left.value = BAH_VALUE_VAR
             val.left.left.sym = parent
         }
 
@@ -958,7 +970,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             for argVal != null, argVal = argVal.right {
                 sym = asmSymbol{}
 
-                if argVal.isReflect {
+                if argVal.value == BAH_VALUE_REFLECT {
                     sym = generateReflection(argVal.left)
                 } else if argVal.left.type.size != argVal.type.size && (argVal.type.size > 8 || argVal.type.size < argVal.left.type.size) {
                     sym = generateTypeConversion(argVal.left, argVal.type)
@@ -1039,7 +1051,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         for argVal != null, argVal = argVal.right {
             sym = asmSymbol{}
 
-            if argVal.isReflect {
+            if argVal.value == BAH_VALUE_REFLECT {
                 sym = generateReflection(argVal.left)
             } else if argVal.left.type.size != argVal.type.size && (argVal.type.size > 8 || argVal.type.size < argVal.left.type.size) {
                 sym = generateTypeConversion(argVal.left, argVal.type)
@@ -1461,99 +1473,100 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
             size: 8
             name: sym.name
         }
-    } else if val.isArrayDeclare {
-        arrLen = 0
-        currVal = val.right
-        for currVal != null, currVal = currVal.right {
-            arrLen++
-        }
+    } else if val.value == BAH_VALUE_DECLARATION {
+        if val.type.type == BAH_TYPE_ARRAY {
 
-        nSyms = []asmSymbol
-        //data
-        nSyms[len(nSyms)] = asmSymbol {
-            size: 8
-            name: "0"
-        }
-        //length
-        nSyms[len(nSyms)] = asmSymbol {
-            size: 8
-            name: uintToStr(arrLen)
-        }
-        //realLength
-        nSyms[len(nSyms)] = asmSymbol {
-            size: 8
-            name: uintToStr(arrLen)
-        }
-        //elemSize
-        nSyms[len(nSyms)] = asmSymbol {
-            size: 8
-            name: uintToStr(val.type.child.size)
-        }
+            arrLen = 0
+            currVal = val.right
+            for currVal != null, currVal = currVal.right {
+                arrLen++
+            }
 
-        //to get ptr to value
-        privArrName = ".VAR_ARRAY_"+uintToStr(asmRandId)
-        privArrSym = asmSymbolStaticName(privArrName)
-        privArrSym.size = 8
-        privArrSym.level = -1
-        sym = gen.generatePrivateVarWithValue(privArrName, val.type.size, nSyms)
-        asmRandId++
+            nSyms = []asmSymbol
+            //data
+            nSyms[len(nSyms)] = asmSymbol {
+                size: 8
+                name: "0"
+            }
+            //length
+            nSyms[len(nSyms)] = asmSymbol {
+                size: 8
+                name: uintToStr(arrLen)
+            }
+            //realLength
+            nSyms[len(nSyms)] = asmSymbol {
+                size: 8
+                name: uintToStr(arrLen)
+            }
+            //elemSize
+            nSyms[len(nSyms)] = asmSymbol {
+                size: 8
+                name: uintToStr(val.type.child.size)
+            }
 
-        syms[len(syms)] = asmSymbol {
-            size: 8
-            name: sym.name
-        }
+            //to get ptr to value
+            privArrName = ".VAR_ARRAY_"+uintToStr(asmRandId)
+            privArrSym = asmSymbolStaticName(privArrName)
+            privArrSym.size = 8
+            privArrSym.level = -1
+            sym = gen.generatePrivateVarWithValue(privArrName, val.type.size, nSyms)
+            asmRandId++
 
-        realGen = gen
-        gen = initFnGen
-        gen.fileNb = realGen.fileNb
-        gen.totalFileNb = realGen.totalFileNb
+            syms[len(syms)] = asmSymbol {
+                size: 8
+                name: sym.name
+            }
 
-        arrSym = generateBahValueSymbol(val, null)
-        arrSym = gen.generateDereference(arrSym)
-        arrSym.size = 8
-        
+            realGen = gen
+            gen = initFnGen
+            gen.fileNb = realGen.fileNb
+            gen.totalFileNb = realGen.totalFileNb
 
-        privArrSymData = asmSymbolReg(ASM_reg_id_dest_addr, 8, 0)
-        gen.generateMoveValue(privArrSym, privArrSymData)
-        privArrSymData.level = 1
-
-        gen.generateVarSet(privArrSymData, arrSym, false)
-
-        realGen.data += gen.data
-        realGen.bss += gen.bss
-        gen = realGen
-
-        
-    } else if val.isStructDeclare {
-
-        currTp = val.type.child
-        for currTp != null, currTp = currTp.next {
+            arrSym = generateBahValueSymbol(val, null)
+            arrSym = gen.generateDereference(arrSym)
+            arrSym.size = 8
             
-            currVal = val.left
-            for currVal != null, currVal = currVal.left {
-                if currVal.type.name == currTp.name {
-                    break
-                }
-            }
 
-            if currVal != null {
-                generateImmediateValues(currVal.right, syms)
-            } else {
-                //zero field
-                size = currTp.size
-                incr = 8
-                for size > 0, size -= incr {    
-                    for incr > size {
-                        incr = incr / 2
+            privArrSymData = asmSymbolReg(ASM_reg_id_dest_addr, 8, 0)
+            gen.generateMoveValue(privArrSym, privArrSymData)
+            privArrSymData.level = 1
+
+            gen.generateVarSet(privArrSymData, arrSym, false)
+
+            realGen.data += gen.data
+            realGen.bss += gen.bss
+            gen = realGen
+        } else if val.type.type == BAH_TYPE_STRCT || val.type.isPtr && val.type.child.type == BAH_TYPE_STRCT {
+            currTp = val.type.child
+            for currTp != null, currTp = currTp.next {
+                
+                currVal = val.left
+                for currVal != null, currVal = currVal.left {
+                    if currVal.type.name == currTp.name {
+                        break
                     }
-                    syms[len(syms)] = asmSymbol {
-                        name: "0"
-                        size: incr
+                }
+
+                if currVal != null {
+                    generateImmediateValues(currVal.right, syms)
+                } else {
+                    //zero field
+                    size = currTp.size
+                    incr = 8
+                    for size > 0, size -= incr {    
+                        for incr > size {
+                            incr = incr / 2
+                        }
+                        syms[len(syms)] = asmSymbol {
+                            name: "0"
+                            size: incr
+                        }
                     }
                 }
             }
         }
 
+        
     } else if val.sym.isValue {
         name = val.sym.name
         if name[0] == '$' {

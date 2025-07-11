@@ -535,7 +535,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
             r[1]++
         }
 
-        if r[0].isOperation {
+        if r[0].value == BAH_VALUE_OP {
             r[0].pemdas = 5
         }
 
@@ -587,7 +587,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
         if moreThanThis == false {
             r = consumeValue(tokens, start+1, parEnd, parentStart, 0)
             
-            if r[0].isOperation {
+            if r[0].value == BAH_VALUE_OP {
                 r[0].pemdas = 5
             }
 
@@ -625,7 +625,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 }
 
                 tp = typeCons[0]
-                val.isCast = true
+                val.value = BAH_VALUE_CAST
                 val.tok = t
 
                 val.type = typeCons[0]
@@ -648,7 +648,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 }
                 currTp = st.child
 
-                val.isStructDeclare = true
+                val.value = BAH_VALUE_DECLARATION
                 val.type = st
                 val.tok = tokens[i]
                 currVal = val
@@ -690,12 +690,6 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                                 nbEncls++
                             } else if tokens[j].cont == ")" || tokens[j].cont == "]" || tokens[j].cont == "}" {
                                 nbEncls--
-                                // if nbEncls == 0 {
-                                //     printDebugContext()
-
-                                //     j++
-                                //     break
-                                // }
                             }
 
                             if nbEncls > 0 {
@@ -711,6 +705,10 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                                 break
                             }
+                        }
+
+                        if j == end {
+                            j--
                         }
 
                         valCons = consumeValue(tokens, i, j, i, 0)
@@ -775,7 +773,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     if defVal == null {
                         if currTp.type == BAH_TYPE_ARRAY {
                             defVal = new bahValue {
-                                isArrayDeclare: true
+                                value: BAH_VALUE_DECLARATION
                             }
                             defVal.type = new bahType {
                                 type: BAH_TYPE_ARRAY
@@ -818,7 +816,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     throwError(&tokens[i], "Expected buffer length after buffer keyword.")
                 }
 
-                val.isBufferDeclare = true
+                val.value = BAH_VALUE_DECLARATION
                 val.type = new bahType {
                     type: BAH_TYPE_BUFFER
                     size: strToInt(tokens[i+1].cont)
@@ -837,7 +835,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 i = tp[1]
 
-                val.isArrayDeclare = true
+                val.value = BAH_VALUE_DECLARATION
                 val.tok = t
                 val.type = new bahType {
                     type: BAH_TYPE_ARRAY
@@ -895,7 +893,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     type: BAH_TYPE_TUPLE
                 }
 
-                val.isTupleDeclare = true
+                val.value = BAH_VALUE_DECLARATION
                 val.tok = t
 
                 currVal = val
@@ -987,7 +985,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 nt = valCons[0].type.child
 
                 val.type = nt
-                val.isUnary = true
+                val.value = BAH_VALUE_UNARY
                 val.left = varVal
 
                 return [val, i]
@@ -1001,7 +999,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
             if t.type == TOKEN_TYPE_VAR {
                 if t.cont[0] == '$' {
-                    val.isReg = true
+                    val.value = BAH_VALUE_REG
                     val.type = new bahType {
                         size: 8
                         type: BAH_TYPE_UINT
@@ -1010,13 +1008,13 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     v = parserCtx.findVar(t.cont)
 
                     if v != null {
-                        val.isVariable = true
+                        val.value = BAH_VALUE_VAR
                         val.type = v.type
                         val.sym = v.sym
                     } else {
                         fn = parserCtx.findFunc(t.cont)
                         if fn != null {
-                            val.isFunctionSym = true
+                            val.value = BAH_VALUE_FUNC_SYM
                             val.type = fn.type
                             val.isStaticValue = true
                         } else {
@@ -1084,7 +1082,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     }
 
                     val.isStaticValue = true
-                    val.isFunctionSym = false
+                    val.value = 0
                     val.sym = gen.staticInt(uintToStr(tp[0].size))
                     val.type = new bahType {
                         type: BAH_TYPE_UINT
@@ -1102,7 +1100,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 fnSymVal = val
                 val = new bahValue
-                val.isFunctionCall = true
+                val.value = BAH_VALUE_FUNC_CALL
                 val.left = fnSymVal
                 val.tok = fnSymVal.tok
                 val.type = fnSymVal.type.ret
@@ -1114,7 +1112,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 i = start + 2
                 nbPar = 1
 
-                if val.left.isStruct && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
+                if val.left.value == BAH_VALUE_STRUCT && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
                     currArg = currArg.next
                 }
 
@@ -1137,8 +1135,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     if currArg.type == BAH_TYPE_STRCT && currArg.child.name == "reflectElement" && (argCons[0].type.type != BAH_TYPE_STRCT || argCons[0].type.child.name != "reflectElement") {
                         currArgVal.right = new bahValue {
-                            isArgumentList: true
-                            isReflect: true
+                            value: BAH_VALUE_REFLECT
                             left: argCons[0]
                             type: currArg
                         }
@@ -1152,7 +1149,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         }
 
                         currArgVal.right = new bahValue {
-                            isArgumentList: true
+                            value: BAH_VALUE_ARGS
                             left: argCons[0]
                             type: currArg
                         }
@@ -1238,7 +1235,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     val = new bahValue {
                         tok: val.tok
-                        isSplit: true
+                        value: BAH_VALUE_SPLIT
                         left: val
                         type: val.type
                     }
@@ -1290,7 +1287,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                         val = new bahValue {
                             tok: val.tok
-                            isIndexed: true
+                            value: BAH_VALUE_INDEXED
                             left: val
                             right: r[0]
                             type: currTp
@@ -1311,7 +1308,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         varSym = val
                         val = new bahValue {
                             tok: varSym.tok
-                            isIndexed: true
+                            value: BAH_VALUE_INDEXED
                             left: varSym
                             right: r[0]
                             type: nt
@@ -1356,11 +1353,11 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         throwError(&tokens[i], "Unknown struct member.")
                     }
 
-                    memb.isFunctionSym = true
+                    memb.value = BAH_VALUE_FUNC_SYM
                     memb.sym = asmSymbolValue(method.name)
 
                     val = new bahValue {
-                        isStruct: true
+                        value: BAH_VALUE_STRUCT
                         left: val
                         right: memb
                         type: method.type
@@ -1372,7 +1369,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     varSym = val
                     val = new bahValue {
-                        isStruct: true
+                        value: BAH_VALUE_STRUCT
                         left: varSym
                         right: memb
                         type: memb.type
@@ -1424,7 +1421,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 val = new bahValue{
                     pemdas: opLevel
-                    isOperation: true
+                    value: BAH_VALUE_OP
                     left: leftCons[0]
                 }
                 val.tok = bahToken {
@@ -1460,7 +1457,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 val = new bahValue{
                     tok: tokens[i]
                     pemdas: opLevel
-                    isOperation: true
+                    value: BAH_VALUE_OP
                 }
                 leftCons = consumeValue(tokens, i-1, i, <int>start, opLevel+1)
                 val.left = leftCons[0]
@@ -1471,7 +1468,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         continue
                     }
                     throwError(&tokens[i-1], "Cannot do operation on non value on the left.")
-                } else if val.left.isCast && (tokens[i].cont == "*" || tokens[i].cont == "&") {
+                } else if val.left.value == BAH_VALUE_CAST && (tokens[i].cont == "*" || tokens[i].cont == "&") {
                     val = val.left
                     continue
                 }
@@ -1480,6 +1477,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     if val.left.type.type != BAH_TYPE_INT && val.left.type.type != BAH_TYPE_UINT {
                         throwError(&val.left.tok, "Cannot increment/decrement a symbol that is not an integer.")
                     }
+                    val.type = val.left.type
                     val.isSelfOp = true
                     i++
                 } else {
@@ -2048,13 +2046,31 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 
     i = start + 2
 
+    currParent = strctType.child
+    currOffset = 0
+
     if tokens[start+2].cont == "extend" {
         if tokens[start+3].type != TOKEN_TYPE_VAR {
             throwError(&tokens[start+3], "Invalid structure name.")
         }
 
-        throwError(&tokens[start+2], "Extend not yet implemented.")
-        i = start + 4
+        extdTp = parserCtx.findType(tokens[start+3].cont)
+        if extdTp == null || extdTp.type != BAH_TYPE_STRCT {
+            throwError(&tokens[start+3], "No structure named that way.")
+        }
+
+        extdTp = extdTp.child.next
+
+        for extdTp != null, extdTp = extdTp.next {
+            memberCopy = new bahType
+            *memberCopy = *extdTp
+            currParent.next = memberCopy
+            currParent = memberCopy
+        }
+        currOffset = currParent.offset + currParent.size
+
+        
+        i += 2
     }
 
     parserCtx.addType(strctType)
@@ -2065,9 +2081,6 @@ parseStruct(tokens []bahToken, start uint, end uint) {
     i++
 
 
-
-    currParent = strctType.child
-    currOffset = 0
     for i < end-1, i++ {
         nameInd = i
         if tokens[nameInd].type != TOKEN_TYPE_VAR {
@@ -2373,9 +2386,9 @@ parseConst(tokens []bahToken, start uint, end uint) {
     rVal = rValCons[0]
 
     if rVal.isStaticValue == false {
-        if rVal.isCast == false || (rVal.isCast && rVal.left.isStaticValue == false) {
+        if rVal.value != BAH_VALUE_CAST || (rVal.value == BAH_VALUE_CAST && rVal.left.isStaticValue == false) {
             found = false
-            if rVal.isVariable {
+            if rVal.value == BAH_VALUE_VAR {
                 v = parserCtx.findVar(rVal.tok.cont)
                 if v == null {
                     panic("That's a good one lol.")
@@ -2429,7 +2442,7 @@ parseAsync(tokens []bahToken, start uint, end uint) {
 
     valCons = consumeValue(tokens, start+1, end, -1, 0)
 
-    if valCons[0] == null || valCons[0].isFunctionCall == false {
+    if valCons[0] == null || valCons[0].value != BAH_VALUE_FUNC_CALL {
         throwError(&tokens[start+1], "Expected function call after async keyword.")
     }
 
@@ -2443,7 +2456,9 @@ parseLine(tokens []bahToken, start uint, end uint) {
     t = tokens[start]
 
     parserCtx.currentLine = t.line
-    gen.generateLineLocation(t.line)
+    if parserCtx.declareMode == false {
+        gen.generateLineLocation(t.line)
+    }
 
     if t.type == TOKEN_TYPE_KEYWORD {
         if t.cont[0] == '#' {
@@ -2528,9 +2543,8 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 }
 
                 leftRightVal = consumeValue(tokens, start, i, -1, 0)[0]
-
                 rVal = new bahValue {
-                    isOperation: true
+                    value: BAH_VALUE_OP
                     tok: tokens[eqlIndex]
                     left: leftRightVal
                     right: rVal
@@ -2570,7 +2584,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                         }
                     }
                 } else {
-                    if lVal.isVariable == false || rVal.isTupleDeclare == false && rVal.isStructDeclare == false && rVal.isBufferDeclare == false && rVal.isArrayDeclare == false && (rVal.isFunctionCall == false || rVal.type.size <= 8) {
+                    if lVal.isVariable == false || rVal.value != BAH_VALUE_DECLARATION && (rVal.value != BAH_VALUE_FUNC_CALL || rVal.type.size <= 8) {
                         lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
                     }
                 }
@@ -2605,7 +2619,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
             } else {
                 //Generate var setting
 
-                if lVal.isVariable == false && rVal.isFunctionCall == true && rVal.type.size > 16 {
+                if lVal.isVariable == false && rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 16 {
                     lValSym = generateBahLeftValueSymbol(lVal)
                     tmpLvalSym = lValSym
                     if tmpLvalSym.level != 0 {
@@ -2630,7 +2644,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                     }
 
                     lValSym = generateBahLeftValueSymbol(lVal)
-                    if lVal.isVariable && lVal.variable.scope == parserCtx.scope && (rVal.isTupleDeclare || rVal.isStructDeclare || rVal.isBufferDeclare || rVal.isArrayDeclare || (rVal.isFunctionCall == true && rVal.type.size > 8)) {
+                    if lVal.isVariable && lVal.variable.scope == parserCtx.scope && (rVal.value == BAH_VALUE_DECLARATION || (rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 8)) {
                         lVal.variable.sym = rValSym
                     } else {
                         gen.generateVarSet(lValSym, rValSym, lVal.type.type == BAH_TYPE_UINT)

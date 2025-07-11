@@ -455,6 +455,22 @@ strToInt(s str) int {
     return r
 } 
 
+//Used for converting a string to an uint.
+strToUint(s str) uint {
+    l int = len(s)-1
+    offset = 1
+    r = <uint>0
+    for l >= 0, l-- {
+        if s[l] < '0' || s[l] > '9' {
+            continue
+        }
+        r += (<int>s[l] - 48) * offset
+        offset *= 10
+    }
+    return r
+} 
+
+
 //Used for converting a string to a float
 strToFloat(s str) float {
     return strtod(s, null)

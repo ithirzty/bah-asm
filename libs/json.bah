@@ -214,19 +214,25 @@ json_scan_inner(thisp ptr, e reflectElement) {
 
     if type == "uint" {
         v = <uint*>value
-        *v = strToInt(this.str())
+        *v = strToUint(this.str())
         return
     }
 
     if type == "uint32" {
         v = <uint32*>value
-        *v = strToInt(this.str())
+        *v = strToUint(this.str())
         return
     }
 
     if type == "uint16" {
         v = <uint16*>value
-        *v = strToInt(this.str())
+        *v = strToUint(this.str())
+        return
+    }
+
+    if type == "byte" || type == "char" {
+        v = <byte*>value
+        *v = strToUint(this.str())
         return
     }
 
@@ -634,6 +640,10 @@ toJsonRope(e reflectElement) rope* {
         return rope(intToStr(*(<int16*>value)))
     }
 
+    if type == "char" {
+        return rope(intToStr(*(<char*>value)))
+    }
+
     if type == "uint" {
         return rope(uintToStr(*(<uint*>value)))
     }
@@ -644,6 +654,10 @@ toJsonRope(e reflectElement) rope* {
 
     if type == "uint16" {
         return rope(uintToStr(*(<uint16*>value)))
+    }
+
+    if type == "byte" {
+        return rope(uintToStr(*(<byte*>value)))
     }
 
     if type == "float" {

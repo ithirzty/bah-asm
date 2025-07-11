@@ -1,22 +1,22 @@
-const BAH_TYPE_BOOL   = 0
-const BAH_TYPE_INT   = 1
-const BAH_TYPE_UINT   = 2
-const BAH_TYPE_FLOAT   = 3
-const BAH_TYPE_STR = 4
-const BAH_TYPE_STRCT = 5
-const BAH_TYPE_ARRAY = 6
-const BAH_TYPE_MAP   = 7
-const BAH_TYPE_CHAN  = 8
-const BAH_TYPE_FUNC  = 9
-const BAH_TYPE_PTR  = 10
+const BAH_TYPE_BOOL         = 0
+const BAH_TYPE_INT          = 1
+const BAH_TYPE_UINT         = 2
+const BAH_TYPE_FLOAT        = 3
+const BAH_TYPE_STR          = 4
+const BAH_TYPE_STRCT        = 5
+const BAH_TYPE_ARRAY        = 6
+const BAH_TYPE_MAP          = 7
+const BAH_TYPE_CHAN         = 8
+const BAH_TYPE_FUNC         = 9
+const BAH_TYPE_PTR          = 10
 const BAH_TYPE_CUSTOM_TYPE  = 11
-const BAH_TYPE_BUFFER  = 12
-const BAH_TYPE_TUPLE = 13
+const BAH_TYPE_BUFFER       = 12
+const BAH_TYPE_TUPLE        = 13
 
-const ARR_TYPE_SIZE = 32
-const ARR_LENGTH_OFFSET = 8
+const ARR_TYPE_SIZE        = 32
+const ARR_LENGTH_OFFSET    = 8
 const ARR_REALENGTH_OFFSET = 16
-const ARR_ELEMSIZE_OFFSET = 24
+const ARR_ELEMSIZE_OFFSET  = 24
 
 const REFLECT_TYPE_SIZE = 72
 
@@ -145,29 +145,50 @@ struct bahFunction {
     loc: bahFileLoc
 }
 
+const BAH_VALUE_OP          = 1
+// const BAH_VALUE_STATIC      = 2
+const BAH_VALUE_FUNC_SYM    = 3
+const BAH_VALUE_FUNC_CALL   = 4
+const BAH_VALUE_VAR         = 5
+const BAH_VALUE_ARGS        = 6
+// const BAH_VALUE_SELF_OP     = 7
+const BAH_VALUE_UNARY       = 8
+const BAH_VALUE_CAST        = 9
+const BAH_VALUE_INDEXED     = 10
+const BAH_VALUE_SPLIT       = 11
+const BAH_VALUE_REG         = 12
+const BAH_VALUE_STRUCT      = 13
+const BAH_VALUE_DECLARATION = 14
+const BAH_VALUE_REFLECT     = 15
+// const BAH_VALUE_ASYNC       = 16
+
 struct bahValue {
-    isOperation: bool
-    isStaticValue: bool
-    isFunctionSym: bool
-    isFunctionCall: bool
-    isVariable: bool
-    isArgumentList: bool
-    isSelfOp: bool
     isPointer: bool
-    isUnary: bool
-    isCast: bool
-    isIndexed: bool
-    isSplit: bool
-    isReg: bool
-    isStruct: bool
-    isStructDeclare: bool //todo: do a single .isDeclare and check type when generating
-    isArrayDeclare: bool
-    isBufferDeclare: bool
-    isMapDeclare: bool
-    isChanDeclare: bool
-    isTupleDeclare: bool
-    isReflect: bool
+    isStaticValue: bool
+    isSelfOp: bool
     isAsync: bool
+    value: byte
+    // isOperation: bool
+    // isStaticValue: bool
+    // isFunctionSym: bool
+    // isFunctionCall: bool
+    // isVariable: bool
+    // isArgumentList: bool
+    // isSelfOp: bool
+    // isUnary: bool
+    // isCast: bool
+    // isIndexed: bool
+    // isSplit: bool
+    // isReg: bool
+    // isStruct: bool
+    // isStructDeclare: bool //todo: do a single .isDeclare and check type when generating
+    // isArrayDeclare: bool
+    // isBufferDeclare: bool
+    // isMapDeclare: bool
+    // isChanDeclare: bool
+    // isTupleDeclare: bool
+    // isReflect: bool
+    // isAsync: bool
 
     pemdas: uint
 

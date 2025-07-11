@@ -18,7 +18,7 @@ strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 threadCreateFunction = "GC_thread_create"
 
-BAH_VERSION = "v0.13 (build 10)"
+BAH_VERSION = "v0.131 (build 11)"
 
 #linux {
     BAH_OS = "linux"
