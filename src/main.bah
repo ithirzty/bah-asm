@@ -96,7 +96,7 @@ main(args []str) int {
 
     if flags.isSet("v") {
         println("Bah compiler (asm branch) version: "+BAH_VERSION+".")
-        println("Alois Laurent Boe.")
+        println("Author: Alois Laurent Boe.")
         return 0
     }
 
