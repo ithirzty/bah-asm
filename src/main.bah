@@ -16,8 +16,9 @@ strCompareFunction = "__bah_compareStr"
 argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
+threadCreateFunction = "GC_thread_create"
 
-BAH_VERSION = "v0.11 (build 8)"
+BAH_VERSION = "v0.13 (build 10)"
 
 #linux {
     BAH_OS = "linux"
@@ -35,13 +36,15 @@ isObjectFile = false
 isSilent = false
 compilerPath = ""
 
-const BAH_DIR = "/opt/bah-asm"
+const BAH_DIR = "/opt/bah-asm/"
 
 #include "./gen_asm_linux_64.bah"
 
 gen asmContext
 initFnGen asmContext
+globalFuncsGen asmContext
 initFnName = ".__Bah_init"
+compileWaitChannel channel*
 
 #include "./cache.bah"
 #include "./lexer.bah"
@@ -58,12 +61,20 @@ printDebugContext() {
 main(args []str) int {
     startTime = getTimeUnix() //for timming compilation time
     compilerPath = absPath(args[0])
+    compileWaitChannel = channel()
 
     gen = asmContext{}
     parserCtx = parserContext{}
 
 
     initFnGen = asmContext{
+        code: rope("")
+        data: rope("")
+        bss: rope("")
+        debugEnabled: false
+    }
+
+    globalFuncsGen = asmContext{
         code: rope("")
         data: rope("")
         bss: rope("")
@@ -78,6 +89,8 @@ main(args []str) int {
     flags.addBool("silent", "Should not output anything.")
     flags.addBool("asm", "Compile to assembly file.")
     flags.addBool("disableOptimizations", "Disables generation optimizations.")
+    flags.addBool("noImports", "Redirects #import directive to #include.")
+    flags.addBool("debug", "Includes in depth debug informations, useful for debugging. This also redirects imports to includes.")
 
     flags.parse(args)
 
@@ -86,6 +99,8 @@ main(args []str) int {
         println("Alois Laurent Boe.")
         return 0
     }
+
+    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug")
 
     isObjectFile = flags.isSet("object")
     isSilent = flags.isSet("silent")
@@ -97,9 +112,9 @@ main(args []str) int {
 
     initFnCallRope = rope("")
 
-    gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
-
-    gen.data = rope(".global _start
+    if isObjectFile == false {
+        gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
+        gen.data = rope(".global _start
 _start:
 xorq %rbp, %rbp
 call "+initFnName+"
@@ -114,12 +129,20 @@ call _exit
 .data
 .global __data_start
 __data_start:\n")
-    gen.bss = rope(".bss
+        gen.bss = rope(".bss
 .global __bss_start
 __bss_start:\n")
-    gen.code = rope(".text\n")
-
-    initFnGen.generateFnStart(initFnName, null, 0)
+        gen.code = rope(".text
+.global __bss_end
+__bss_end:\n")
+        initFnGen.generateFnStart(initFnName, null, 0)
+    } else {
+        gen.debugEnabled = false
+        gen.debugInfo = rope("")
+        gen.data = rope(".data\n")
+        gen.bss = rope(".bss\n")
+        gen.code = rope(".text\n")
+    }
 
     file = args[1]
     fs = fileStream{}
@@ -143,7 +166,13 @@ __bss_start:\n")
     gen.generateFileLocation(parserCtx.currentFilePath)
 
 
-    includeFile(BAH_DIR + "/builtin.bah")
+    if isObjectFile {
+        parserCtx.declareMode = true
+    }
+
+    includeFile(BAH_DIR + "builtin.bah")
+
+    parserCtx.declareMode = false
 
     parseLines(tokens, 0, len(tokens))
 
@@ -180,19 +209,15 @@ __bss_start:\n")
         fileNameNoExt = file[:len(file)-4]
     }
 
-    i=0; for i < len(parserCtx.functions), i++ {
-        fnName = parserCtx.functions[i].name
-        gen.data = rope(".global "+fnName+"\n.type   "+fnName+", @function\n") + gen.data
-    }
-
     gen.debugInfo += rope(".byte 0\n")
     generateRuntimeDebugInfo()
 
-    initFnGen.generateFnEnd()
-    gen.code += initFnGen.code
-
-    gen.bss += rope(".global __bss_end
-__bss_end:\n")
+    if isObjectFile == false {
+        initFnGen.generateFnEnd()
+        gen.code += initFnGen.code + globalFuncsGen.code
+    } else {
+        gen.code += globalFuncsGen.code
+    }
 
     if isSilent == false {
         println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\033[0m")
@@ -219,9 +244,9 @@ __bss_end:\n")
         return 0
     }
 
-    fs.open(fileNameNoExt+".S", "w")
-    fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
-    fs.close()
+    // fs.open(fileNameNoExt+".S", "w")
+    // fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
+    // fs.close()
     
 
     if isObjectFile {
@@ -238,35 +263,48 @@ __bss_end:\n")
         }
         
 
-        cmd = command("as "+fileNameNoExt+".S -g -o "+fileName)
-        err = cmd.runBytes()
+        cmd = command("as -g -o "+fileName)
+        cmd.input = (gen.data + gen.debugInfo + gen.bss + gen.code).toStr()
+        cmd.run()
         removeFile(fileNameNoExt+".S")
         return 0
     }
 
-    cmd = command("as "+fileNameNoExt+".S -o "+fileNameNoExt+".o")
-    err = cmd.runBytes()
-    removeFile(fileNameNoExt+".S")
-
+    cmd = command("as -o "+fileNameNoExt+".o")
+    cmd.input = (gen.data + gen.debugInfo + gen.bss + gen.code).toStr()
+    err = cmd.run()
+    // removeFile(fileNameNoExt+".S")
 
     if cmd.status != 0 {
         println("Error assembling program")
-        println(arrToStr(err))
+        println(err)
         return 1
     }
 
     libraries = ""
     i=0; for i < len(parserCtx.libraries), i++ {
-        libraries += "-"+parserCtx.libraries[i]+" "
+        if parserCtx.libraries[i][0] == '/' {
+            libraries += " "+parserCtx.libraries[i]
+            continue
+        }
+        libraries += " -"+parserCtx.libraries[i]
     }
 
+    for parserCtx.currentCompileNb != 0 {
+        compileWaitChannel.receive()
+        parserCtx.currentCompileNb--
+    }
+
+    writeCache()
+
+
     cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
-    err = cmd.runBytes()
+    err = cmd.run()
 
     removeFile(fileNameNoExt+".o")
     if cmd.status != 0 {
         println("Error linking program")
-        println(arrToStr(err))
+        println(err)
         return 1
     }
 

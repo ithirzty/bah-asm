@@ -460,6 +460,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         gen.generateFnCallArgument(lenSym)
         
         sym = gen.generateFnCall(fnSym, 8, null, false)
+        sym.size = val.type.size
         
         return sym
     }
@@ -936,9 +937,92 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             return gen.generateFnCall(fnNameSym, 0, null, false)
         }
 
-        // if fnName == "syscall" {
-        //     return gen.generateSyscall(null, generateBahValueSymbol(), 8, null)
-        // }
+        if val.isAsync {
+            //store arguments in heap
+
+            //calculate size
+            allocSize = 0
+            argVal = val.right
+            for argVal != null, argVal = argVal.right {
+                allocSize += argVal.type.size
+
+            }
+
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(gen.staticInt(uintToStr(allocSize)))
+            argsSym = gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false)
+            argsSym = gen.generateTmpSym(argsSym, 8)
+            offset = 0
+
+            argVal = val.right
+            for argVal != null, argVal = argVal.right {
+                sym = asmSymbol{}
+
+                if argVal.isReflect {
+                    sym = generateReflection(argVal.left)
+                } else if argVal.left.type.size != argVal.type.size && (argVal.type.size > 8 || argVal.type.size < argVal.left.type.size) {
+                    sym = generateTypeConversion(argVal.left, argVal.type)
+                } else {
+                    sym = generateBahValueSymbol(argVal.left, null)
+                }
+
+                //convert str to char* in fn call
+                if argVal.type.isPtr && argVal.type.child.type == BAH_TYPE_UINT && argVal.type.child.size == 1 && argVal.left.type.type == BAH_TYPE_STR {
+                    sym = gen.generateSymOffset(sym, asmSymbolValue("$4"))
+                    // sym = gen.generateTmpSym(sym, sym.size)
+                }
+
+                setSym = gen.generateDestSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
+                setSym = gen.generateDestDereference(setSym)
+                gen.generateVarSet(setSym, sym, argVal.type.type == BAH_TYPE_UINT)
+                offset += argVal.type.size
+            }
+
+            asyncFnName = ".Bah_async_"+uintToStr(gen.fileNb)+"_"+uintToStr(gen.currentLine)
+
+            //ptherad fn call
+            gen.generateFnCallStart()
+            gen.generateFnCallArgument(gen.staticInt("0"))
+            gen.generateFnCallArgument(gen.staticInt("0"))
+            asyncFnSym = asmSymbolValue(asyncFnName)
+            asyncFnSym.size = 8
+            asyncFnSym.level = -1
+            gen.generateFnCallArgument(asyncFnSym)
+            gen.generateFnCallArgument(argsSym)
+            // gen.generateFnCall(asmSymbolValue(".Bah_async_"+uintToStr(realGen.fileNb)+"_"+uintToStr(realGen.currentLine)), 0, null, false)
+
+            gen.generateFnCall(asmSymbolValue(threadCreateFunction), 4, null, false)
+
+            //create function call wrapper
+            realGen = gen
+            gen = globalFuncsGen
+            gen.fileNb = realGen.fileNb
+            gen.totalFileNb = realGen.totalFileNb
+
+            args = []asmSymbol {gen.generateVarDecl("args", 8, false)}
+
+            gen.generateFnStart(asyncFnName, args, 0)
+
+
+            gen.generateFnCallStart()
+            argsSym = asmSymbolStack(16, 8)
+            offset = 0
+            argVal = val.right
+            for argVal != null, argVal = argVal.right {
+                setSym = gen.generateSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
+                setSym = gen.generateDereference(setSym)
+                gen.generateFnCallArgument(setSym)
+                offset += argVal.type.size
+            }
+            gen.generateFnCall(fnNameSym, 0, null, false)
+
+            gen.generateFnEnd()
+            globalFuncsGen.code = gen.code
+
+            gen = realGen
+
+            return r
+        }
 
         gen.generateFnCallStart()
 
@@ -952,9 +1036,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
 
         argVal = val.right
-
         for argVal != null, argVal = argVal.right {
-            
             sym = asmSymbol{}
 
             if argVal.isReflect {
@@ -965,7 +1047,6 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 sym = generateBahValueSymbol(argVal.left, null)
             }
 
-
             //convert str to char* in fn call
             if argVal.type.isPtr && argVal.type.child.type == BAH_TYPE_UINT && argVal.type.child.size == 1 && argVal.left.type.type == BAH_TYPE_STR {
                 sym = gen.generateSymOffset(sym, asmSymbolValue("$4"))
@@ -973,7 +1054,6 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             }
 
             gen.generateFnCallArgument(sym)
-
         }
         returnSize = 0
         isFloat = false
@@ -1490,6 +1570,10 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
 }
 
 generateRuntimeDebugInfo() {
+    if isObjectFile {
+        return
+    }
+
     gen.debugInfo += rope(".global .bah_debug_info\n.bah_debug_info:\n")
     i=0; for i < len(parserCtx.functions), i++ {
         if parserCtx.functions[i].declared == false {

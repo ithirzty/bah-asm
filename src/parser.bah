@@ -1529,6 +1529,33 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
     return consumeValue(tokens, start, end, -1, opLevel+1)
 }
 
+parallelObjCompile(filePath str, outputName str, deps []str, cf cacheFile*) {
+    println(ASCII_GREY+"[compiling] "+ASCII_RESET+filePath)
+
+    compDirectory = parserCtx.currentFilePath
+    i=len(compDirectory)-1; for i != -1, i-- {
+        if compDirectory[i] == '/' {
+            break
+        }
+    }
+    compDirectory = compDirectory[:i+1]
+
+    cmd = command(compilerPath+" "+filePath+" -object -o "+outputName)
+    err = cmd.runBytes()
+
+    if cmd.status != 0 {
+        println(arrToStr(err))
+        exit(cmd.status)
+    }
+
+    if cf == null {
+        makeCacheFile(filePath, deps)
+    } else {
+        updateCacheFile(cf, deps)
+    }
+    
+    compileWaitChannel.send(null)
+}
 
 
 parseHashDirective(tokens []bahToken, start uint, end uint) {
@@ -1624,10 +1651,14 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         filePath = currDirectory + inclFileName
 
         if fileExists(filePath) == false {
-            filePath = BAH_DIR + "/" + inclFileName
+            filePath = BAH_DIR + inclFileName
             if fileExists(filePath) == false {
                 throwError(&tokens[start+1], "Cannot find file.")
             }
+        }
+
+        if parserCtx.declareMode {
+            parserCtx.importDeps[len(parserCtx.importDeps)] = filePath
         }
 
         includeFile(filePath)
@@ -1650,12 +1681,21 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         filePath = currDirectory + inclFileName
 
         if fileExists(filePath) == false {
-            filePath = BAH_DIR + "/" + inclFileName
+            filePath = BAH_DIR + inclFileName
             if fileExists(filePath) == false {
                 throwError(&tokens[start+1], "Cannot find file.")
             }
         }
         filePath = absPath(filePath)
+
+        if parserCtx.declareMode {
+            parserCtx.importDeps[len(parserCtx.importDeps)] = filePath
+        }
+
+        if parserCtx.noImports {
+            includeFile(filePath)
+            return
+        }
 
         if filePath in parserCtx.parsedFiles {
             return
@@ -1663,48 +1703,48 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
 
         parserCtx.parsedFiles[len(parserCtx.parsedFiles)] = filePath
 
+
+        oldFilePath = parserCtx.currentFilePath 
+        oldCurrFile = parserCtx.currentFile 
+        oldFileNb = gen.fileNb
+        oDeclareMode = parserCtx.declareMode
+        oImportDeps = parserCtx.importDeps
+
         fs = fileStream{}
         fs.open(filePath, "r")
         content = fs.readContent()
         fs.close()
 
-
-        oldFilePath = parserCtx.currentFilePath 
-        oldCurrFile = parserCtx.currentFile 
-        oldFileNb = gen.fileNb
-
         parserCtx.currentFilePath = filePath
         parserCtx.currentFile = content
-
-        // cf = getCacheFile(filePath)
-        // if cf == null || isValidCacheFile(cf) == false {
-        //     println(ASCII_GREY+"[compiling] "+ASCII_RESET+filePath)
-
-        //     compDirectory = parserCtx.currentFilePath
-        //     i=len(compDirectory)-1; for i != -1, i-- {
-        //         if compDirectory[i] == '/' {
-        //             break
-        //         }
-        //     }
-        //     compDirectory = compDirectory[:i+1]
-
-        //     setCurrentPath(compDirectory)
-        //     cmd = command(compilerPath+" "+filePath+" - object -o "+BAH_DIR+"cache/"+pathToVarName(cf.file)+".o")
-        //     cmd.runBytes()
-
-        // }
+        parserCtx.declareMode = true
+        parserCtx.importDeps = []str
 
         inclTokens = lexer(content)
-
         gen.generateFileLocation(parserCtx.currentFilePath)
         parseLines(inclTokens, 0, len(inclTokens))
 
+        cf = getCacheFile(filePath)
+        outputName = BAH_DIR+"cache/"+pathToVarName(filePath)
+
+        if isObjectFile == false && (cf == null || isValidCacheFile(cf) == false) {
+            parserCtx.currentCompileNb++
+            async parallelObjCompile(filePath, outputName, parserCtx.importDeps, cf)
+        }
+
+        parserCtx.libraries[len(parserCtx.libraries)] = outputName+".o"
 
         gen.fileNb = oldFileNb
         parserCtx.currentFilePath = oldFilePath 
         parserCtx.currentFile = oldCurrFile 
+        parserCtx.declareMode = oDeclareMode
+        parserCtx.importDeps = oImportDeps
+
 
     } else if tokens[start].cont == "#init" {
+        if parserCtx.declareMode {
+            return
+        }
         realGen = gen
         gen = initFnGen
         gen.fileNb = realGen.fileNb
@@ -1765,6 +1805,10 @@ parseReturn(tokens []bahToken, start uint, end uint) {
 }
 
 parseIf(tokens []bahToken, start uint, end uint) {
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect if statement outside of a function.")
+    }
+
     nbPar = 1
     i = end-2
     ifLineEnd = end
@@ -1805,11 +1849,9 @@ parseIf(tokens []bahToken, start uint, end uint) {
     gen.generateEndIf()
 
     if end < len(tokens) && tokens[end].cont == "else" {
-
         parserCtx.scopeCtx.ifChainLabels[len(parserCtx.scopeCtx.ifChainLabels)] = len(gen.instructions) - 1
         parserCtx.scopeCtx.ifChainLength++
     } else {
-
         clear(parserCtx.scopeCtx.ifChainLabels)
         parserCtx.scopeCtx.ifChainLength = 0
     }
@@ -1817,6 +1859,10 @@ parseIf(tokens []bahToken, start uint, end uint) {
 }
 
 parseElse(tokens []bahToken, start uint, end uint) {
+
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect if statement outside of a function.")
+    }
 
     if parserCtx.scopeCtx.ifChainLength == 0 {
         throwError(&tokens[start], "Did not expect else block here.")
@@ -1874,11 +1920,9 @@ parseElse(tokens []bahToken, start uint, end uint) {
         gen.generateEndElse()
 
         if isNotChainEnd {
-
             parserCtx.scopeCtx.ifChainLength++
             parserCtx.scopeCtx.ifChainLabels[len(parserCtx.scopeCtx.ifChainLabels)] = len(gen.instructions) - 1
         } else {
-
             parserCtx.scopeCtx.ifChainLength = 0
             clear(parserCtx.scopeCtx.ifChainLabels)
         }
@@ -1916,6 +1960,11 @@ parseElse(tokens []bahToken, start uint, end uint) {
 }
 
 parseFor(tokens []bahToken, start uint, end uint) {
+
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect if statement outside of a function.")
+    }
+
     nbPar = 1
     i = end-2
     forLineEnd = end
@@ -1971,6 +2020,11 @@ parseFor(tokens []bahToken, start uint, end uint) {
 }
 
 parseStruct(tokens []bahToken, start uint, end uint) {
+    
+    if parserCtx.scope != 0 {
+        throwError(&tokens[start], "Did not expect structure definition inside a function.")
+    }
+
     if end - start < 4 {
         throwError(&tokens[start], "Invalid structure definition.")
     }
@@ -2161,6 +2215,13 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 }
 
 parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
+
+    parserCtx.addFunc(fn)
+    
+    if parserCtx.declareMode {
+        return
+    }
+
     hasRetType = fn.type.ret != null
 
     returnSize = 0
@@ -2176,7 +2237,6 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
         currentFunction: fn
     }
 
-    parserCtx.addFunc(fn)
 
     parserCtx.startScope(funcScope)
 
@@ -2214,10 +2274,7 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
         genArgs[len(genArgs)] = v.sym
     }
 
-
-
     gen.generateFnStart(fn.name, genArgs, returnSize)
-
 
     parseLines(tokens, i, end-1)
 
@@ -2225,14 +2282,9 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
         throwError(&tokens[end-1], "Function with a return type shall be returned.")
     }
 
-
-
-
     gen.generateFnEnd()
 
-
     parserCtx.endScope()
-
 }
 
 parseFnDecl(tokens []bahToken, start uint, end uint) {
@@ -2280,6 +2332,9 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
 
 parseConst(tokens []bahToken, start uint, end uint) {
 
+    if parserCtx.scope != 0 {
+        throwError(&tokens[start], "Did not expect const definition inside a function.")
+    }
 
     i=start; for i < end, i++ {
     if tokens[i].cont == "=" {
@@ -2346,17 +2401,41 @@ parseConst(tokens []bahToken, start uint, end uint) {
 }
 
 parseContinue(tokens []bahToken, start uint, end uint) {
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect continue statement outside of a function.")
+    }
+
     if end - start != 1 {
-        throwError(&tokens[start+1], "Did not expect anything.")
+        throwError(&tokens[start+1], "Did not expect anything after keyword.")
     }
     gen.generateForContinue()
 }
 
 parseBreak(tokens []bahToken, start uint, end uint) {
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect break statement outside of a function.")
+    }
+
     if end - start != 1 {
-        throwError(&tokens[start+1], "Did not expect anything.")
+        throwError(&tokens[start+1], "Did not expect anything after keyword.")
     }
     gen.generateForBreak()
+}
+
+parseAsync(tokens []bahToken, start uint, end uint) {
+    if parserCtx.scope == 0 {
+        throwError(&tokens[start], "Did not expect async function call outside of a function.")
+    }
+
+    valCons = consumeValue(tokens, start+1, end, -1, 0)
+
+    if valCons[0] == null || valCons[0].isFunctionCall == false {
+        throwError(&tokens[start+1], "Expected function call after async keyword.")
+    }
+
+    valCons[0].isAsync = true
+
+    generateBahValueSymbol(valCons[0], null)
 }
 
 parseLine(tokens []bahToken, start uint, end uint) {
@@ -2385,6 +2464,10 @@ parseLine(tokens []bahToken, start uint, end uint) {
             parseContinue(tokens, start, end)
         } else if t.cont == "break" {
             parseBreak(tokens, start, end)
+        } else if t.cont == "async" {
+            parseAsync(tokens, start, end)
+        } else {
+            throwError(&tokens[start], "Invalid keyword.")
         }
     } else if t.type == TOKEN_TYPE_VAR && end - start > 4 && tokens[start+1].cont == "(" && tokens[end-1].cont == "}" {
         parseFnDecl(tokens, start, end)
@@ -2479,7 +2562,12 @@ parseLine(tokens []bahToken, start uint, end uint) {
 
                 if parserCtx.scope == 0 {
                     if rVal == null {
-                        lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                        if parserCtx.declareMode {
+                            lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
+                            lVal.variable.sym.size = lVal.variable.type.size
+                        } else {
+                            lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                        }
                     }
                 } else {
                     if lVal.isVariable == false || rVal.isTupleDeclare == false && rVal.isStructDeclare == false && rVal.isBufferDeclare == false && rVal.isArrayDeclare == false && (rVal.isFunctionCall == false || rVal.type.size <= 8) {
@@ -2502,13 +2590,18 @@ parseLine(tokens []bahToken, start uint, end uint) {
             }
 
             if parserCtx.scope == 0 {
-                syms = []asmSymbol
-                generateImmediateValues(rVal, syms)
                 typeSize = lVal.variable.type.size
                 if lVal.variable.type.isNativePtr {
                     typeSize = 8
                 }
-                lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
+                if parserCtx.declareMode {
+                    lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
+                    lVal.variable.sym.size = typeSize
+                } else {
+                    syms = []asmSymbol
+                    generateImmediateValues(rVal, syms)
+                    lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
+                }
             } else {
                 //Generate var setting
 
@@ -2557,6 +2650,10 @@ parseLine(tokens []bahToken, start uint, end uint) {
                         val = consumeValue(tokens, start, end, -1, 0)
                         if val[0] != null {
                             generateBahValueSymbol(val[0], null)
+                        } else {
+                            if val[1] != end {
+                                throwError(&tokens[val[1]], "Not expected.")
+                            }
                         }
                         break
                     }
@@ -2594,7 +2691,12 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 parserCtx.addVar(lVal.variable)
 
                 if parserCtx.scope == 0 {
-                    lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                    if parserCtx.declareMode {
+                        lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
+                        lVal.variable.sym.size = lVal.variable.type.size
+                    } else {
+                        lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                    }
                 } else {
                     lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, true)
                 }

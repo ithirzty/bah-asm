@@ -2,7 +2,7 @@
 #define memoryRealloc(o ptr, s uint) ptr
 #define memoryAllocSTR(s uint) str
 
-#import "thread.bah"
+#include "thread.bah"
 
 const GC_min_collect = 256000000
 
@@ -16,6 +16,7 @@ test = 23
 #define intToStr(i int) str
 #define println(s str)
 #define printInt(i int)
+#define backtrace(l uint)
 
 
 struct BAH_GC_ptr {
@@ -43,6 +44,81 @@ struct BAH_GC_page {
     next: BAH_GC_page*
 }
 
+
+struct BAH_GC_channelNode {
+    data: BAH_GC_ptr*
+    next: BAH_GC_channelNode*
+}
+
+// struct BAH_GC_channel {
+//     m_mut: pthread_mutex_t
+
+//     w_cond: pthread_cond_t
+//     r_cond: pthread_cond_t
+
+//     w_waitting: int = 0
+//     r_waitting: int = 0
+
+//     queue: BAH_GC_channelNode*
+
+//     //To send data to the channel.
+//     send(data BAH_GC_ptr*) {
+//         pthread_mutex_lock(&this.m_mut)
+//         newNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
+//         newNode.next = this.queue
+//         newNode.data = data
+//         this.queue = newNode
+//         if this.r_waitting > 0 {
+//             pthread_cond_signal(&this.r_cond)
+//         }
+//         pthread_mutex_unlock(&this.m_mut)
+//     }
+
+//     //To receive data (a pointer) from the channel.
+//     //Note that this is a blockant operation.
+//     //If no data is available the function will pause the execution of the current thread.
+//     receive() BAH_GC_ptr* {
+//         pthread_mutex_lock(&this.m_mut)
+//         for this.queue == null {
+//             this.r_waitting++
+//             pthread_cond_wait(&this.r_cond, &this.m_mut)
+//             this.r_waitting--
+//         }
+
+//         node = this.queue
+//         this.queue = node.next
+//         data = node.data
+//         free(node)
+//         if this.w_waitting > 0 {
+//             pthread_cond_signal(&this.w_cond)
+//         }
+//         pthread_mutex_unlock(&this.m_mut)
+//         return data
+//     }
+
+//     waitForEmpty() {
+//         pthread_mutex_lock(&this.m_mut)
+//         for this.queue != null {
+//             pthread_cond_wait(&this.r_cond, &this.m_mut)
+//         }
+//         pthread_mutex_unlock(&this.m_mut)
+//     }
+
+//     //To destroy a channel after using it. Not destroying it could result in memory leaks.
+//     destroy() {
+//         pthread_mutex_destroy(&this.m_mut)
+//         pthread_cond_destroy(&this.w_cond)
+//         pthread_cond_destroy(&this.r_cond)
+//     }
+
+//     _init() {
+//         pthread_mutex_init(&this.m_mut, 0)
+//         pthread_cond_init(&this.w_cond, null)
+//         pthread_cond_init(&this.r_cond, null)
+//     }
+
+// }
+
 struct BAH_GC_state_tag {
     heapSize: uint
     nextCollect: uint = GC_min_collect
@@ -55,12 +131,19 @@ struct BAH_GC_state_tag {
 
     stackBase: uint
     threads: BAH_GC_thread*
+    scanThreads: BAH_GC_thread*
     mainThread: int
 
     mut: pthread_mutex_t*
     cond: pthread_cond_t*
+    // scanMut: pthread_mutex_t*
+
+    // scanChannel: BAH_GC_channel
+
+    overflowQueue: BAH_GC_channelNode*
 
     isPointerInBounds(p uint) bool {
+        // return p >= this.heapMin && p <= this.heapMax
         pageNb = *(<uint32*>(<uint>&p + 3))
         
         currPage = this.pages
@@ -74,6 +157,14 @@ struct BAH_GC_state_tag {
     }
 
     updatePagesBounds(p uint) {
+        // if p < this.heapMin || this.heapMin == 0 {
+        //     this.heapMin = p
+        // }
+
+        // if p > this.heapMax {
+        //     this.heapMax = p
+        // }
+        
         pageNb = *(<uint32*>(<uint>&p + 3))
         
         currPage = this.pages
@@ -96,6 +187,12 @@ struct BAH_GC_state_tag {
 
     allocate(s uint, notScannable bool) uint {
         p = <uint>malloc(s)
+
+        if p == 0 {
+            panic("GC: could not allocate memory.")
+        }
+
+
         this.heapSize += s
 
         if this.listLength == this.listRealLength {
@@ -126,7 +223,7 @@ struct BAH_GC_state_tag {
         }
 
         if i == -1 {
-            puts("GC: fatal error")
+            panic("GC: fatal error")
         }
 
         this.listLength++
@@ -141,6 +238,7 @@ struct BAH_GC_state_tag {
     }
 
     find(p uint) BAH_GC_ptr* {
+
         min = 0
         l = this.listLength
         i = min + l / 2
@@ -249,6 +347,7 @@ GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 
 
     errNo = pthread_create(id, attr, GC_thread_wrapper, agrsWrapper)
 
+
     t.t = *id
 
     return errNo
@@ -262,6 +361,8 @@ GC_setStackBase() {
     BAH_GC_state.stackBase = <uint>$rsp
 }
 
+#define GC_thread_worker()
+
 GC_init() {
     BAH_GC_state.mainThread = syscall(__NR_gettid)
 
@@ -270,19 +371,31 @@ GC_init() {
 
     memset(&action.sa_mask, 0, sizeof(sigset_t))
     action.sa_handler = GC_thread_sig_handler
-    sigaction(SIGUSR1, &action, null)
+    sigaction(SIGXCPU, &action, null)
 
     BAH_GC_state.mut = malloc(sizeof(pthread_mutex_t))
     BAH_GC_state.cond = malloc(sizeof(pthread_cond_t))
+    // BAH_GC_state.scanMut = malloc(sizeof(pthread_mutex_t))
+
 
     pthread_mutex_init(BAH_GC_state.mut, 0)
     pthread_cond_init(BAH_GC_state.cond, null)
+    // pthread_mutex_init(BAH_GC_state.scanMut, 0)
 
     BAH_GC_state.listLength = 0
     BAH_GC_state.listRealLength = 4096
     s = BAH_GC_state.listRealLength * sizeof(BAH_GC_ptr)
     BAH_GC_state.list = malloc(s)
     memset(BAH_GC_state.list, 0, s)
+
+    // BAH_GC_state.scanChannel = BAH_GC_channel{}
+
+    // i=0; for i < 4, i++ {
+    //     st = <BAH_GC_thread*>malloc(sizeof(BAH_GC_thread))
+    //     pthread_create(&st.t, null, GC_thread_worker, null)
+    //     st.next = BAH_GC_state.scanThreads
+    //     BAH_GC_state.scanThreads = st
+    // }
 }
 
 #init GC_setStackBase()
@@ -300,12 +413,24 @@ GC_markPtr(p uint) {
 
     gcPtr = BAH_GC_state.find(p)
 
-    if gcPtr == null || gcPtr.marked {
+    if gcPtr == null {
+        return
+    }
+
+    if gcPtr.marked {
         return
     }
 
     gcPtr.marked = true
+
     if gcPtr.notScannable == false {
+        if BAH_GC_state.stackBase - <uint>$rbp >= 6000000 {
+            overflowNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
+            overflowNode.data = gcPtr
+            overflowNode.next = BAH_GC_state.overflowQueue
+            BAH_GC_state.overflowQueue = overflowNode
+            return
+        }
         GC_scan(p, p + gcPtr.size - 7, 1)
     }
 }
@@ -319,7 +444,6 @@ GC_scan(from uint, to uint, alignment uint) {
     // printInt(to - from)
     for p < to, p = p + alignment {
         content = *<uint*>p
-
         GC_markPtr(content)
     }
 }
@@ -343,10 +467,16 @@ GC_stopWorld() {
         if t.sysid == callerId {
             continue
         }
-        sigqueue(t.sysid, SIGUSR1, null)
+        sigqueue(t.sysid, SIGXCPU, null)
     }
 }
 
+// GC_thread_worker() {
+//     for 1==1 {
+//         gcPtr = BAH_GC_state.scanChannel.receive()
+//         GC_scan(gcPtr.p, gcPtr.p + gcPtr.size - 7, 1)
+//     }
+// }
 
 GC_collect() {
     //save registers
@@ -360,7 +490,7 @@ GC_collect() {
     orax = <uint>$rax
     orbx = <uint>$rbx
 
-    currBasePointer = <uint>$rbp + 16
+    currBasePointer = <uint>$rbp + 8
 
     if syscall(__NR_gettid) != BAH_GC_state.mainThread {
         //TODO: siqueue main thread and call collect there
@@ -368,8 +498,6 @@ GC_collect() {
     }
 
     GC_stopWorld()
-
-
 
     qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
 
@@ -415,13 +543,18 @@ GC_collect() {
     freed=0
     alive=0
 
-    // total = 0
-    // currPtr = BAH_GC_state.head
-    // for currPtr != null, currPtr = currPtr.next {
-    //     total++
-    // }
-
-
+    additional=0
+    for BAH_GC_state.overflowQueue != null {
+        currQueue = BAH_GC_state.overflowQueue
+        BAH_GC_state.overflowQueue = null
+        for currQueue != null {
+            GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size - 7, 1)
+            prevQueue = currQueue
+            currQueue = currQueue.next
+            free(prevQueue)
+            additional++
+        }
+    }
 
     l = BAH_GC_state.listLength
     i=0; for i < l, i++ {
@@ -446,11 +579,13 @@ GC_collect() {
     qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
 
 
-    return
-    puts("freed: ")
-    printInt(freed)
-    puts("still allive: ")
-    printInt(alive)
+    // return
+    // puts("freed: ")
+    // printInt(freed)
+    // puts("still allive: ")
+    // printInt(alive)
+    // puts("heap size:")
+    // printInt(BAH_GC_state.heapSize)
 }
 
 memoryAlloc(s uint) ptr {
@@ -489,6 +624,10 @@ memoryRealloc(o ptr, s uint) ptr {
 
     r = <uint>realloc(o, s)
 
+    if r == 0 {
+        panic("GC: could not reallocate memory.")
+    }
+
     index BAH_GC_ptr*
     i = BAH_GC_state.listLength
     for i < BAH_GC_state.listRealLength, i++ {
@@ -506,6 +645,10 @@ memoryRealloc(o ptr, s uint) ptr {
                 break
             }
         }
+    }
+
+    if i == -1 {
+        panic("GC: fatal error doing reallocation")
     }
 
     memset(<ptr>(<uint>r + index.size), 0, s - index.size)
@@ -532,7 +675,6 @@ memoryAllocSTR(s uint) str {
             BAH_GC_state.nextCollect = GC_min_collect
         }
     }
-
 
 
     r = BAH_GC_state.allocate(s, true)

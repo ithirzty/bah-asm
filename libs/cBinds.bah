@@ -27,7 +27,7 @@ const	SIGSEGV 	= 11
 // const	SIGTTIN 	= 21
 // const	SIGTTOU 	= 22
 // const	SIGIO 		= 23
-// const	SIGXCPU 	= 24
+const	SIGXCPU 	= 24
 // const	SIGXFSZ 	= 25
 // const	SIGVTALRM 	= 26
 // const	SIGPROF 	= 27
@@ -103,7 +103,6 @@ const MAP_ANONYMOUS = 32
 #define sizeof(p char*) uint
 //flow
 #define exit(i int32)
-#define sleep(t uint)
 #define waitpid(m int32, s int32*, w int32) int32
 
 //time

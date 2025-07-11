@@ -245,12 +245,12 @@ getLastModified(name str) int {
 
 
 #linux {
-    makeDir(path str, m uint32) bool {
+    makeDir(path str, m int32) bool {
         return mkdir(path, m) != -1
     }
 }
 #darwin {
-    makeDir(path str, m uint32) bool {
+    makeDir(path str, m int32) bool {
         return mkdir(path, m) != -1
     }
 }

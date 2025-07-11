@@ -17,6 +17,7 @@ struct tm {
 #define time(timer int) int
 #define localtime(timer int*) tm*
 #define strftime(buff char*, len uint, format char*, tp tm*) uint
+#define sleep(t uint)
 
 const TIME_UTC = 1
 
@@ -103,6 +104,16 @@ getTimeUnix() int {
     s = ts.tv_sec * 1000000000 + ts.tv_nsec
     return s
 }
+
+bahSleep(s uint) {
+    now = getTimeUnix() / 1000000000
+    end = now + s 
+    for now < end, now = getTimeUnix() / 1000000000 {
+        sleep(end - now)
+    }   
+}
+
+const sleep = bahSleep
 
 //Example
 // #include "iostream.bah"

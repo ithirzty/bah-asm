@@ -106,7 +106,7 @@ deleteRange(arr Bah_Array_Type*, from uint, to uint) {
 }
 
 #include "gc.bah"
-
+#include "channel.bah"
 
 print(s str) {
     write(1, s, len(s))
@@ -153,7 +153,8 @@ println(s str) {
     if <ptr>s == null {
         s = ""
     }
-    puts(s)
+    write(1, s+"\n", len(s)+1)
+    // puts(s)
 }
 
 backtrace(levelStart uint) {
@@ -223,6 +224,10 @@ backtrace(levelStart uint) {
             }
         }
 
+        if *debugLines != 2 {
+            lineNb = 0
+        }
+
         debugLines = <byte*>$debugLines
         for *debugLines != <byte>0 {
             type = *debugLines
@@ -245,8 +250,11 @@ backtrace(levelStart uint) {
             }
         }
 
-        if *debugLines == 0 {
-            lineNb = 0
+        if lineNb == 0 && fileNb == 0 {
+            print("\t\033[32mRecompile with -debug to see this frame.\033[m\n")
+            continue
+            // fnName = "no debug information"
+            // fileName = "<out of range>"
         }
 
         print("\t\033[33m")
@@ -341,6 +349,10 @@ __Bah_segfault_handle(sig int32, info ptr, ctx ptr) {
         }
     }
 
+    if *debugLines != 2 {
+        lineNb = 0
+    }
+
     debugLines = <byte*>$debugLines
     for *debugLines != <byte>0 {
         type = *debugLines
@@ -363,8 +375,9 @@ __Bah_segfault_handle(sig int32, info ptr, ctx ptr) {
         }
     }
 
-    if *debugLines == 0 {
-        lineNb = 0
+    if lineNb == 0 && fileNb == 0 {
+        fnName = "no debug information"
+        fileName = "<out of range>"
     }
 
     print("===Memory Erorr (segfault)===\n")
@@ -424,7 +437,7 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     if arr.realLength == 0 {
         arr.realLength = 64
     } else {
-        arr.realLength = arr.realLength * 2
+        arr.realLength *= 2
     }
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
 }
@@ -562,4 +575,4 @@ struct strBuilder {
 }
 
 //need to find wtf is hapening here
-#init putchar(<char>0) //fixes bug where libc not initialized if not called from main thread.
+// #init putchar(<char>0) //fixes bug where libc not initialized if not called from main thread.

@@ -30,8 +30,8 @@ enclavers = []char{'(', ')', '{', '}', '[', ']'}
 syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
                                     //&                                                    //;
 
-keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then", "default", "switch", "case", "while", "typedef"}
-            //     x      x      x        x       x       x          x          x        x         x          x         x       x      x      x       x         x      x        -          -        -       -          -
+keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
+            //     x      x      x        x       x       x          x          x        x         x          x         x       x      x      x       x         x      x
             // x: done
             //  : not done
             // -: not planned
