@@ -19,7 +19,7 @@ Compiler can now compile itself!
 - [x] Buffer
 - [x] Proper text
 - [ ] bitwise ops and powers
-- [ ] Extend
+- [x] Extend
 - [x] Relection
 - [~] +=, -=, /=, *=, >>=, <<=, &=, ~=
 - [x] Special ops (in)
@@ -31,12 +31,12 @@ Compiler can now compile itself!
 - [x] Struct operations
 - [ ] Diverse optimizations
 - [x] Garbage compiler
-- [ ] Dwarf ? Backtrace ? Panic ?
+- [~] Dwarf ? Backtrace ? Panic ?
 - [x] Includes
-- [ ] Imports
+- [x] Imports
 - [ ] Better macros (#linux...)
 - [ ] Generics
-- [ ] Async
+- [x] Async
 - [ ] Make sure GC is still compatible
 - [ ] Nice frontend
 - [ ] Static analysis at least as good as the old one
