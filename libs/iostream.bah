@@ -222,7 +222,7 @@ isFolder(path str) bool {
     if stat(path, &s) != 0 {
         return false
     }
-    if s.st_mode & S_IFDIR {
+    if s.st_mode & S_IFDIR != 0 {
         return true
     }
     return false

@@ -253,54 +253,48 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
     //also handle other operations
     if opStr == "*" || opStr == "*=" {
         return gen.generateOpMult(left, right, tp)
-    } else if opStr == "/" || opStr == "/=" {
+    }
+    
+    if opStr == "/" || opStr == "/=" {
         return gen.generateOpDiv(left, right, tp)
-    } else if opStr == "%" || opStr == "%=" {
+    }
+    
+    if opStr == "%" || opStr == "%=" {
         if tp == ASM_NUM_FLOAT {
             throwError(tok, "Cannot do modulo operation on floats.")
         }
         return gen.generateOpMod(left, right, tp)
-    } else if opStr == "-" || opStr == "-=" {
+    }
+    
+    if opStr == "-" || opStr == "-=" {
         return gen.generateOpSub(left, right, tp)
-    } else if opStr == "+" || opStr == "+=" {
+    }
+    
+    if opStr == "+" || opStr == "+=" {
         return gen.generateOpAdd(left, right, tp)
-    } else if opStr == "<" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_LESS, tp == ASM_NUM_UINT)
-    } else if opStr == ">" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_GREATER, tp == ASM_NUM_UINT)
-    } else if opStr == "<=" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_LESS_OR_EQ, tp == ASM_NUM_UINT)
-    } else if opStr == ">=" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_GREATER_OR_EQ, tp == ASM_NUM_UINT)
-    } else if opStr == "==" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_EQ, tp == ASM_NUM_UINT)
-    } else if opStr == "!=" {
-        leftSym = left
-        if leftSym.isTmp == false && leftSym.stack == false {
-            leftSym = gen.generateTmpSym(leftSym, leftSym.size)
-        }
-        return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp == ASM_NUM_UINT)
-    } else if opStr == "in" {
+    }
+
+    if opStr == ">>" {
+        return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_RIGHT)
+    }
+
+    if opStr == "<<" {
+        return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_LEFT)
+    }
+
+    if opStr == "&" {
+        return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_AND)
+    }
+
+    if opStr == "|" {
+        return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_OR)
+    }
+
+    if opStr == "^" {
+        return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_XOR)
+    }
+
+    if opStr == "in" {
         right = gen.generateTmpSym(right, 8)
 
         retSym = gen.generateTmpDecl(1, false)
@@ -350,6 +344,35 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         retSym.size = 1
 
         return retSym
+    }
+    
+    leftSym = left
+    if leftSym.isTmp == false && leftSym.stack == false {
+        leftSym = gen.generateTmpSym(leftSym, leftSym.size)
+    }
+
+    if opStr == "<" {
+        return gen.generateCompare(leftSym, right, ASM_OP_LESS, tp == ASM_NUM_UINT)
+    }
+    
+    if opStr == ">" {
+        return gen.generateCompare(leftSym, right, ASM_OP_GREATER, tp == ASM_NUM_UINT)
+    }
+    
+    if opStr == "<=" {
+        return gen.generateCompare(leftSym, right, ASM_OP_LESS_OR_EQ, tp == ASM_NUM_UINT)
+    }
+    
+    if opStr == ">=" {
+        return gen.generateCompare(leftSym, right, ASM_OP_GREATER_OR_EQ, tp == ASM_NUM_UINT)
+    }
+    
+    if opStr == "==" {
+        return gen.generateCompare(leftSym, right, ASM_OP_EQ, tp == ASM_NUM_UINT)
+    }
+    
+    if opStr == "!=" {
+        return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp == ASM_NUM_UINT)
     }
 
     throwError(tok, "Internal error: could not generate operation.")
@@ -1564,6 +1587,8 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
                     }
                 }
             }
+        } else {
+            throwError(&val.tok, "Immediate value of this declaration is not yet implemented.")
         }
 
         

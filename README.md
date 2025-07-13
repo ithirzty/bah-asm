@@ -41,7 +41,7 @@ Compiler can now compile itself!
 - [ ] Nice frontend
 - [ ] Static analysis at least as good as the old one
 - [ ] Different generator (for other backends)
-- [ ] Fix floats in compiled compiler
+- [x] Fix floats in compiled compiler
 
 TODO:
 - optimize %rax -> %rdx -> dest

@@ -18,7 +18,7 @@ strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 threadCreateFunction = "GC_thread_create"
 
-BAH_VERSION = "v0.131 (build 11)"
+BAH_VERSION = "v0.132 (build 12)"
 
 #linux {
     BAH_OS = "linux"
@@ -108,6 +108,22 @@ main(args []str) int {
     if flags.isSet("disableOptimizations") {
         gen.enableOptimizations = false
         initFnGen.enableOptimizations = false
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#linux", BAH_OS == "linux"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#darwin", BAH_OS == "darwin"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#windows", BAH_OS == "windows"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#debug", flags.isSet("debug")
     }
 
     initFnCallRope = rope("")

@@ -401,11 +401,17 @@ floatToStr(x float) str {
     units int
 
     if x < 0. {
-        decimals = <uint>(x * -100000.) % 100000
+        decimals = <uint>(x * -100000000.) % 100000000
         units = <int>(-1. * x)
     } else {
-        decimals = <uint>(x * 100000.) % 100000
+        decimals = <uint>(x * 100000000.) % 100000000
         units = <int>x
+    }
+
+    for decimals > 0, decimals /= 10 {
+        if (decimals % 10) != 0 {
+            break
+        }    
     }
 
     for decimals > 0, decimals /= 10 {

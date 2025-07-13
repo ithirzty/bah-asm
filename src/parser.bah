@@ -8,6 +8,13 @@ const BAH_LINE_FLOW_IF   = 4
 const BAH_LINE_FLOW_ELSE = 5
 const BAH_LINE_FLOW_FOR  = 6
 
+struct booleanHash {
+    name: str
+    isTrue: bool
+}
+
+BAH_boolean_hashes = []booleanHash
+
 #define parseLines(tokens []bahToken, start uint, end uint)
 #define parseLine(tokens []bahToken, start uint, end uint)
 #define consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint) [bahValue*, uint]
@@ -1449,7 +1456,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
         }
 
         if i > start && i+1 < end {
-            if (opLevel == 0 && (tokens[i].cont == "||")) || (opLevel == 1 && (tokens[i].cont == "&&")) || (opLevel == 2 && (tokens[i].cont == "<" || tokens[i].cont == ">" || tokens[i].cont == ">=" || tokens[i].cont == "<=" || tokens[i].cont == "==" || tokens[i].cont == "!=")) || (opLevel == 3 && (tokens[i].cont == "in" || tokens[i].cont == "+" || tokens[i].cont == "-")) || (opLevel == 4 && (tokens[i].cont == "*" || tokens[i].cont == "/" || tokens[i].cont == "%"))  {
+            if (opLevel == 0 && (tokens[i].cont == "||")) || (opLevel == 1 && (tokens[i].cont == "&&")) || (opLevel == 2 && (tokens[i].cont == "<" || tokens[i].cont == ">" || tokens[i].cont == ">=" || tokens[i].cont == "<=" || tokens[i].cont == "==" || tokens[i].cont == "!=")) || (opLevel == 3 && (tokens[i].cont == "in" || tokens[i].cont == "+" || tokens[i].cont == "-" || tokens[i].cont == "&" || tokens[i].cont == "|" || tokens[i].cont == "^" || tokens[i].cont == ">>" || tokens[i].cont == "<<")) || (opLevel == 4 && (tokens[i].cont == "*" || tokens[i].cont == "/" || tokens[i].cont == "%"))  {
                 if tokens[i].cont == "*" && i+1 < end && tokens[i+1].cont == "{" {
                     continue
                 }
@@ -1558,12 +1565,46 @@ parallelObjCompile(filePath str, outputName str, deps []str, cf cacheFile*) {
 
 parseHashDirective(tokens []bahToken, start uint, end uint) {
 
-    if tokens[start].cont == "#linux" || tokens[start].cont == "#darwin" || tokens[start].cont == "#windows" {
-        if tokens[start].cont[1:] == BAH_OS {
-            parseLines(tokens, start+2, end-1)
+    if tokens[end-1].cont == "}" {
+        i = start
+        for i < end, i++ {
+
+            j=0; for j < len(BAH_boolean_hashes), j++ {
+                if BAH_boolean_hashes[j].name == tokens[i].cont {
+                    break
+                }
+            }
+
+
+            if j == len(BAH_boolean_hashes) {
+                throwError(&tokens[i], "Unknown hash directive.")
+            }
+
+            hashVal = true
+
+            if tokens[i+1].cont == "!" {
+                hashVal = false
+                i++
+            }
+
+            if BAH_boolean_hashes[j].isTrue != hashVal {
+                return
+            }
+
+            i++
+            if tokens[i].cont == "{" {
+                break
+            }
+
+            if tokens[i].cont != "," {
+                throwError(&tokens[i], "Expected {codeblock} or coma separator (,) between hash directives.")
+            }
         }
+
+        parseLines(tokens, i+1, end-1)
         return
     }
+
     
     if parserCtx.scope > 0 {
         throwError(&tokens[start], "Directive should be used at global scope.")

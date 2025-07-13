@@ -29,6 +29,14 @@ ASM_set_parity = []str{"setnp", "setp"}
 ASM_set_above_below_floats = []str{"", "", "seta", "seta", "setnb", "setnb"}
 ASM_set_above_below_unsgined = []str{"sete", "setne", "setb", "setb", "setnb", "setnb"}
 
+ASM_or = []str{"orb", "orw", "orl", "orq"}
+ASM_xor = []str{"xorb", "xorw", "xorl", "xorq"}
+ASM_and = []str{"andb", "andw", "andl", "andq"}
+ASM_shift_left = []str{"", "", "sall", "salq"}
+ASM_shift_right = []str{"", "", "sarl", "sarq"}
+
+ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
+
 const ASM_reg_id_return = 0
 const ASM_reg_id_dest_addr = 1
 const ASM_reg_id_stack_pointer = 2
@@ -45,6 +53,12 @@ const ASM_OP_GREATER       = 2
 const ASM_OP_LESS          = 3
 const ASM_OP_LESS_OR_EQ    = 4
 const ASM_OP_GREATER_OR_EQ = 5
+
+const ASM_OP_BITWISE_OR    = 0
+const ASM_OP_BITWISE_XOR   = 1
+const ASM_OP_BITWISE_AND   = 2
+const ASM_OP_BITWISE_LEFT  = 3
+const ASM_OP_BITWISE_RIGHT = 4
 
 const ASM_SELF_OP_ADD = 0
 const ASM_SELF_OP_SUB = 1
@@ -1220,11 +1234,11 @@ struct asmContext {
         f = strToFloat(v)
         u = *(<uint*>&f)
 
-        partA = <uint32>u
-        partB = <uint32>(u >> 32)
+        partA = <int32>u
+        partB = <int32>(u >> 32)
 
         name = ".FLOAT_"+uintToStr(asmRandId)
-        this.data += rope(name+":\n.long "+uintToStr(partA)+"\n.long "+uintToStr(partB)+"\n")
+        this.data += rope(name+":\n.long "+intToStr(partA)+"\n.long "+intToStr(partB)+"\n")
         asmRandId++
 
         floatReg = asmSymbolReg(ASM_reg_id_floats, 8, this.xmmIndex)
@@ -1323,6 +1337,11 @@ struct asmContext {
             }
         } else if a.isReg == false {
             tmpReg = asmSymbolReg(ASM_reg_id_return, b.size, 0)
+
+            //further .generateConvSizes() could set a to %rax, in that case, a and b are moved into %rax
+            if b.size > a.size || this.isSameArg(tmpReg, a) {
+                tmpReg.address = ASM_reg_id_op + this.regIndex+1
+            }
             this.generateMoveValue(b, tmpReg)
             b = tmpReg
         }
@@ -2456,7 +2475,6 @@ struct asmContext {
         return r
     }
 
-
     generateOpSub(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
@@ -2502,6 +2520,52 @@ struct asmContext {
 
         return r
     }
+
+
+    generateOpBitwise(a asmSymbol, b asmSymbol, operation uint) asmSymbol {
+        operStart = len(this.instructions)
+
+        if a.size < b.size {
+            a = this.generateConvSizes(a, b.size, false)
+        } else if b.size < a.size {
+            b = this.generateConvSizes(b, a.size, false)
+        }
+
+        if operation == ASM_OP_BITWISE_LEFT || operation == ASM_OP_BITWISE_RIGHT {
+            if (b.isReg == false || b.address != ASM_reg_id_args + 3) && (b.isValue == false || b.name[0] != '$') {
+                rightReg = asmSymbolReg(ASM_reg_id_args, b.size, 3)
+                if this.isSameArg(a, rightReg) {
+                    a = this.generateTmpSym(a, a.size)
+                }
+
+                this.generateMoveValue(b, rightReg)
+                b = rightReg
+            }
+        }
+
+        inst = ASM_bitwise_ops[operation][spos(a.size)]
+
+        accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex), asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
+
+        if b.level != 0 || b.isReg && b.address == ASM_reg_id_op + this.regIndex{
+            this.generateMoveValue(b, accReg[1])
+            this.generateMoveValue(a, accReg[0])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, accReg[1], accReg[0]
+            }
+        } else {
+            this.generateMoveValue(a, accReg[0])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, b, accReg[0]
+            }
+        }
+
+        r = accReg[0]
+        r.operStart = operStart
+
+        return r
+    }
+
 
     generateConvFloatToInt(sym asmSymbol, size uint) asmSymbol {
         if sym.isValue == false || sym.isReg == false || sym.address >= ASM_reg_id_floats {

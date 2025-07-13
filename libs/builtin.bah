@@ -251,10 +251,12 @@ backtrace(levelStart uint) {
         }
 
         if lineNb == 0 && fileNb == 0 {
-            print("\t\033[32mRecompile with -debug to see this frame.\033[m\n")
+            print("\t\033[32m<out of range>\033[m")
+            #debug! {
+                print("\tRecompiling with -debug may help if this frame is inside Bah code.")
+            }
+            print("\n")
             continue
-            // fnName = "no debug information"
-            // fileName = "<out of range>"
         }
 
         print("\t\033[33m")
@@ -282,134 +284,248 @@ __Bah_panic(e str, loc str) {
     exit(1)
 }
 
-onMemoryError function()str = null
+#debug {
+    //Used by the compiler, called when a memory error occurs.
+    __Bah_segfault_handle(sig int32, info ptr, ctx ptr) {
+        res = ""
 
-//Used by the compiler, called when a memory error occurs.
-__Bah_segfault_handle(sig int32, info ptr, ctx ptr) {
-	res = ""
-	if onMemoryError != null {
-		res = onMemoryError()
-	}
+        currPtr = *<uint*>(<uint>ctx + 168)
+        rbp = *<uint*>(<uint>ctx + 120)
 
-    currPtr = *<uint*>(<uint>ctx + 168)
-    rbp = *<uint*>(<uint>ctx + 120)
+        fnName = ""
 
-    fnName = ""
+        debugInfos = <uint*>$debug
+        for *debugInfos != 0 {
+            fnAddress = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnAddressEnd = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnName = <str>debugInfos
 
-    debugInfos = <uint*>$debug
-    for *debugInfos != 0 {
-        fnAddress = *debugInfos
-        debugInfos = <uint*>(<uint>debugInfos + 8)
-        fnAddressEnd = *debugInfos
-        debugInfos = <uint*>(<uint>debugInfos + 8)
-        fnName = <str>debugInfos
-
-        if currPtr >= fnAddress && currPtr <= fnAddressEnd {
-            break
-        }
-
-
-        debugInfos = <uint*>(<uint>debugInfos + 5 + len(fnName))
-    }
-
-    lineNb = 0
-    fileNb = 0
-    fileName = "?"
-    foundGreater = false
-
-    debugLines = <byte*>$debugLines
-    for *debugLines != <byte>0 {
-        type = *debugLines
-        debugLines = <byte*>(<uint>debugLines + 1)
-
-        if type == 1 {
-            debugLines = <byte*>(<uint>debugLines + 4)
-            fileName = <str>debugLines
-            debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
-        }
-
-        if type == 2 {
-            addr = *<uint*>(debugLines)
-            debugLines = <byte*>(<uint>debugLines + 8)
-            currFileNb = *<int32*>debugLines
-            debugLines = <byte*>(<uint>debugLines + 4)
-            currLineNb = *<int32*>debugLines
-            debugLines = <byte*>(<uint>debugLines + 4)
-
-            if foundGreater && currPtr <= addr {
+            if currPtr >= fnAddress && currPtr <= fnAddressEnd {
                 break
             }
 
-            if currPtr >= addr {
-                foundGreater = true
-                lineNb = currLineNb
-                fileNb = currFileNb
-            }
 
+            debugInfos = <uint*>(<uint>debugInfos + 5 + len(fnName))
         }
-    }
 
-    if *debugLines != 2 {
         lineNb = 0
+        fileNb = 0
+        fileName = "?"
+        foundGreater = false
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                addr = *<uint*>(debugLines)
+                debugLines = <byte*>(<uint>debugLines + 8)
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                currLineNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+
+                if foundGreater && currPtr <= addr {
+                    break
+                }
+
+                if currPtr >= addr {
+                    foundGreater = true
+                    lineNb = currLineNb
+                    fileNb = currFileNb
+                }
+
+            }
+        }
+
+        if *debugLines != 2 {
+            lineNb = 0
+        }
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+
+                if currFileNb == fileNb {
+                    break
+                }
+
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                debugLines = <byte*>(<uint>debugLines + 16)
+            }
+        }
+
+        print("===Memory Erorr (segfault)===\n")
+
+        if lineNb == 0 && fileNb == 0 {
+            print("\t\033[32m<out of range>\033[m\n")
+        } else {
+            print("\t\033[33m")
+            print(fnName)
+            print("\033[m() \033[32m")
+            print(fileName)
+            if lineNb != 0 {
+                print(":")
+                printInt(lineNb)
+                print("\033[m")
+            } else {
+                print("\033[m\n")
+            }
+        }
+
+
+        backtrace(2)
+        exit(139)
     }
 
-    debugLines = <byte*>$debugLines
-    for *debugLines != <byte>0 {
-        type = *debugLines
-        debugLines = <byte*>(<uint>debugLines + 1)
+    __Bah_segint_handle(sig int32, info ptr, ctx ptr) {
+        res = ""
 
-        if type == 1 {
-            currFileNb = *<int32*>debugLines
-            debugLines = <byte*>(<uint>debugLines + 4)
-            fileName = <str>debugLines
+        currPtr = *<uint*>(<uint>ctx + 168)
+        rbp = *<uint*>(<uint>ctx + 120)
 
-            if currFileNb == fileNb {
+        fnName = ""
+
+        debugInfos = <uint*>$debug
+        for *debugInfos != 0 {
+            fnAddress = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnAddressEnd = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 8)
+            fnName = <str>debugInfos
+
+            if currPtr >= fnAddress && currPtr <= fnAddressEnd {
                 break
             }
 
-            debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+
+            debugInfos = <uint*>(<uint>debugInfos + 5 + len(fnName))
         }
 
-        if type == 2 {
-            debugLines = <byte*>(<uint>debugLines + 16)
+        lineNb = 0
+        fileNb = 0
+        fileName = "?"
+        foundGreater = false
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                addr = *<uint*>(debugLines)
+                debugLines = <byte*>(<uint>debugLines + 8)
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                currLineNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+
+                if foundGreater && currPtr <= addr {
+                    break
+                }
+
+                if currPtr >= addr {
+                    foundGreater = true
+                    lineNb = currLineNb
+                    fileNb = currFileNb
+                }
+
+            }
         }
+
+        if *debugLines != 2 {
+            lineNb = 0
+        }
+
+        debugLines = <byte*>$debugLines
+        for *debugLines != <byte>0 {
+            type = *debugLines
+            debugLines = <byte*>(<uint>debugLines + 1)
+
+            if type == 1 {
+                currFileNb = *<int32*>debugLines
+                debugLines = <byte*>(<uint>debugLines + 4)
+                fileName = <str>debugLines
+
+                if currFileNb == fileNb {
+                    break
+                }
+
+                debugLines = <byte*>(<uint>debugLines + 5 + len(fileName))
+            }
+
+            if type == 2 {
+                debugLines = <byte*>(<uint>debugLines + 16)
+            }
+        }
+
+        print("===Program interruption (sigint)===\n")
+
+        if lineNb == 0 && fileNb == 0 {
+            print("\t\033[32m<out of range>\033[m\n")
+        } else {
+            print("\t\033[33m")
+            print(fnName)
+            print("\033[m() \033[32m")
+            print(fileName)
+            if lineNb != 0 {
+                print(":")
+                printInt(lineNb)
+                print("\033[m")
+            } else {
+                print("\033[m\n")
+            }
+        }
+
+        backtrace(2)
+        exit(139)
     }
 
-    if lineNb == 0 && fileNb == 0 {
-        fnName = "no debug information"
-        fileName = "<out of range>"
+    //Used to register __Bah_segfault_handle().
+    __Bah_init_segfaultHandle() bool {
+        action = sigaction{
+            sa_handler: __Bah_segfault_handle
+            sa_flags: SA_SIGINFO
+        }
+        sigaction(SIGSEGV, &action, null)
+
+        action = sigaction{
+            sa_handler: __Bah_segint_handle
+            sa_flags: SA_SIGINFO
+        }
+        sigaction(SIGINT, &action, null)
+
+        return true
     }
 
-    print("===Memory Erorr (segfault)===\n")
-    print("\t\033[33m")
-    print(fnName)
-    print("\033[m() \033[32m")
-    print(fileName)
-    if lineNb != 0 {
-        print(":")
-        printInt(lineNb)
-        print("\033[m")
-    } else {
-        print("\033[m\n")
-    }
+    #init __Bah_init_segfaultHandle()
 
-    backtrace(2)
-    exit(139)
 }
 
-//Used to register __Bah_segfault_handle().
-__Bah_init_segfaultHandle() bool {
-    action = sigaction{
-        sa_handler: __Bah_segfault_handle
-        sa_flags: SA_SIGINFO
-    }
-    sigaction(SIGSEGV, &action, null)
-
-	// signal(SIGSEGV, __Bah_segfault_handle)
-	return true
-}
-
-#init __Bah_init_segfaultHandle()
 
 #define uintToStr(u uint) str
 
