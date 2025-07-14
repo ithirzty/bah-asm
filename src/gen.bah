@@ -460,7 +460,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             if val.type.isPtr {
                 structType = val.type.child
             }
-            initFn = parserCtx.findFunc(structType.child.name+"._init")
+            initFn = parserCtx.findMethod(structType, "_init")
 
             if val.type.isPtr == false {
                 sym = gen.generateVarDecl("strct_declare", val.type.size, true)
@@ -945,6 +945,12 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
 
         fnNameSym = generateBahValueSymbol(val.left, null)
+
+        if fnNameSym.isValue == false && fnNameSym.level != 0 {
+            newFnNameSym = fnNameSym
+            newFnNameSym.level = 0
+            gen.generateMoveValue(fnNameSym, newFnNameSym)
+        }
     
         if fnName == "sizeof" {
             return gen.staticInt(uintToStr(val.right.left.type.size))
@@ -976,11 +982,16 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             //store arguments in heap
 
             //calculate size
+
             allocSize = 0
+            
+            if isMethodCall {
+                allocSize = 8
+            }
+
             argVal = val.right
             for argVal != null, argVal = argVal.right {
                 allocSize += argVal.type.size
-
             }
 
             gen.generateFnCallStart()
@@ -988,6 +999,18 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             argsSym = gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false)
             argsSym = gen.generateTmpSym(argsSym, 8)
             offset = 0
+
+            if isMethodCall {
+                parentSym = val.left.left.sym
+                if val.left.left.type.isPtr == false {
+                    parentSym.level -= 1
+                }
+                parentSym.size = 8
+                setSym = gen.generateDestSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
+                setSym = gen.generateDestDereference(setSym)
+                gen.generateVarSet(setSym, parentSym, false)
+                offset = 8
+            }
 
             argVal = val.right
             for argVal != null, argVal = argVal.right {
@@ -1042,6 +1065,12 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             gen.generateFnCallStart()
             argsSym = asmSymbolStack(16, 8)
             offset = 0
+            if isMethodCall {
+                setSym = gen.generateSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
+                setSym = gen.generateDereference(setSym)
+                gen.generateFnCallArgument(setSym)
+                offset = 8
+            }
             argVal = val.right
             for argVal != null, argVal = argVal.right {
                 setSym = gen.generateSymOffset(argsSym, gen.staticInt(uintToStr(offset)))

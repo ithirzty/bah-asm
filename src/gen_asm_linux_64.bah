@@ -1819,13 +1819,25 @@ struct asmContext {
             }
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_cmp[spos(1)], asmSymbolValue("$0"), cond
+        if cond.isValue && cond.name[0] == '$' {
+            if cond.name == "$0" {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "jmp", asmSymbolValue(forNotSym)
+                }
+            }
+        } else {
+            if cond.size != 1 {
+                cond = this.generateConvSizes(cond, 1, true)
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_cmp[spos(1)], asmSymbolValue("$0"), cond
+            }
+
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "je", asmSymbolValue(forNotSym)
+            }
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "je", asmSymbolValue(forNotSym)
-        }
 
         this.endSym.insert(<ptr>len(this.instructions))
     }
@@ -1916,15 +1928,16 @@ struct asmContext {
                         if this.isSameArg(this.instructions[setInd+1].arg1, al) {
                             this.instructions[setInd+1].instruction = "#"
                         }
-
-
-
                         return
                     }
                 }
 
 
             }
+        }
+
+        if cond.size != 1 {
+            cond = this.generateConvSizes(cond, 1, true)
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -1953,13 +1966,6 @@ struct asmContext {
 
 
         this.scope--
-
-        // i=0; for i < len(this.symbols), i++ {
-        //     if this.symbols[i].scope > this.scope {
-        //         delete(this.symbols, i)
-        //         i--
-        //     }
-        // }
     }
 
     generateElseIf(cond asmSymbol, chainLength uint, chainLabels []uint) {
@@ -2004,6 +2010,10 @@ struct asmContext {
 
 
             }
+        }
+
+        if cond.size != 1 {
+            cond = this.generateConvSizes(cond, 1, true)
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -2785,7 +2795,8 @@ struct asmContext {
                         valueReg.level = arguments[i].level
                     }
 
-                    tmpSyms[len(tmpSyms)-1].address = this.generateStackAlloc(valueReg)
+                    tmpSyms[len(tmpSyms)-1] = this.generateVarDecl("small_arg", arguments[i].size, false)
+                    this.generateMoveValue(valueReg, tmpSyms[len(tmpSyms)-1])
                     
                     offset++
 
@@ -2805,7 +2816,7 @@ struct asmContext {
                         valueReg = asmSymbolReg(ASM_reg_id_args, ns, i + offset)
                         valueReg.level = arguments[i].level
                     }
-                    this.generateMoveValue(valueReg, asmSymbolStack(tmpSyms[len(tmpSyms)-1].address + 8, ns))
+                    this.generateMoveValue(valueReg, asmSymbolStack(tmpSyms[len(tmpSyms)-1].address - 8, ns))
                     
                 } else {
                     offset--

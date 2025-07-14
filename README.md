@@ -18,10 +18,9 @@ Compiler can now compile itself!
 - [x] Default values
 - [x] Buffer
 - [x] Proper text
-- [ ] bitwise ops and powers
+- [x] bitwise ops and powers
 - [x] Extend
 - [x] Relection
-- [~] +=, -=, /=, *=, >>=, <<=, &=, ~=
 - [x] Special ops (in)
 - [x] Arrays
 - [x] Tuples
@@ -29,19 +28,20 @@ Compiler can now compile itself!
 - [x] Methods
 - [x] Init and end methods
 - [x] Struct operations
-- [ ] Diverse optimizations
 - [x] Garbage compiler
-- [~] Dwarf ? Backtrace ? Panic ?
 - [x] Includes
 - [x] Imports
-- [ ] Better macros (#linux...)
-- [ ] Generics
+- [x] Better macros (#linux...)
 - [x] Async
+- [x] +=, -=, /=, *=
+- [x] Dwarf ? Backtrace ? Panic ?
+- [x] Fix floats in compiled compiler
+- [ ] Generics
+- [ ] Diverse optimizations
 - [ ] Make sure GC is still compatible
 - [ ] Nice frontend
 - [ ] Static analysis at least as good as the old one
 - [ ] Different generator (for other backends)
-- [x] Fix floats in compiled compiler
 
 TODO:
 - optimize %rax -> %rdx -> dest

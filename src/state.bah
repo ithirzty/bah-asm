@@ -338,6 +338,16 @@ struct parserContext {
         return null
     }
 
+    findMethod(strct bahType*, name str) bahFunction* {
+        for strct != null, strct = strct.ret {
+            fn = this.findFunc(strct.child.name+"."+name)
+            if fn != null {
+                return fn
+            }
+        }
+        return null
+    }
+
     findType(s str) bahType* {
         i=len(this.types) - 1; for i != -1, i-- {
             tp = this.types[i]

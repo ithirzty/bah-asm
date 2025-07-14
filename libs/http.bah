@@ -109,7 +109,7 @@ struct ifreq {
 #define shutdown(fd int32, flags int32) int32
 #define setsockopt(fd int32, w int32, flag int32, val ptr, flagSize uint32) int32
 #define getsockopt(fd int32, t int32, w int32, e ptr, el uint32*) int32
-#define fcntl(fd int32, oper int32, flags ptr) int32
+#define fcntl(fd int32, oper int32, flags int) int32
 #define ioctl(sock int32, f uint, v ptr) int32
 #define getaddrinfo(host char*, service char*, req addrinfo*, pai addrinfo**) int32
 #define freeaddrinfo(addr addrinfo*)
@@ -124,13 +124,12 @@ struct ifreq {
     #define! hostname_to_ip(host str, ip str)
 
     //Ran at startup to initiate networking on windows platform.
-    __Bah_win32_WSA_init() bool {
+    __Bah_win32_WSA_init() {
         wsadata WSADATA
         WSAStartup(MAKEWORD(1,1), &wsadata)
-        return true
     }
 
-    __Bah_win32_WSA_is_init = __Bah_win32_WSA_init()
+    #init __Bah_win32_WSA_init()
 }
 
 
@@ -205,13 +204,13 @@ BIO_get_ssl(bio ptr, ssl ptr*) int {
     return BIO_ctrl(bio, 110, 0, <char*>ssl)
 }
 
-__Bah_http_is_ssl_initialized = OPENSSL_init_ssl(0, null)
+#init OPENSSL_init_ssl(0, null)
 
 //Represents a response buffer for easier i/o reading.
 //You can append to the buffer and read its content.
 struct response_buffer {
     data: str
-    len: int
+    length: uint
 
     //Returns the buffer as a str.
     str() str {
@@ -220,25 +219,30 @@ struct response_buffer {
 
     //Returns the buffer as an array of char.
     arr() []char {
-        a = []char
-        noCheck(a->data = this->data + strLenSize)
-        noCheck(a->length = this->len)
-        return a
+        a = new Bah_Array_Type {
+            elemSize: 1
+            data: <ptr>(<uint>this.data + strLenSize)
+            length: this.length             
+        } 
+
+        return <[]char>a
     }
 
     //Appends data to the buffer.
     //s is the length of read data to append.
-    append(buff char*, s int) {
+    append(buff char*, s uint) {
         if len(this.data) == 0 {
-            this.data = memoryAllocSTR(s+1)
+            this.data = memoryAllocSTR(s+5)
+            ln = <uint32*>this.data
+            *ln = s
         } else {
-            d str = memoryRealloc(this.data, this.len + s + 1 + strLenSize)
+            d str = memoryRealloc(this.data, this.length + s + 1 + strLenSize)
             ln uint32* = d
             this.data = d
-            *ln = this.len + s
+            *ln = this.length + s
         }
-        memcpy(<ptr>(<int>this.data + strLenSize + this.len), buff, s)
-        this.len = this.len + s
+        memcpy(<ptr>(<uint>this.data + strLenSize + this.length), buff, s)
+        this.length += s
     }
 
 }
@@ -261,7 +265,7 @@ struct http_socket {
         this.sockfd = socket(2, 1, 0)
         if this.isOpened() {
             optVal = 1
-            setsockopt(this.sockfd, SOL_SOCKET, SO_REUSEADDR, &optVal, SIZE_OF_INT)
+            setsockopt(this.sockfd, SOL_SOCKET, SO_REUSEADDR, &optVal, 8)
             return true
         }
         return false
@@ -271,9 +275,9 @@ struct http_socket {
     setInterface(s str) bool {
         #linux {
             ifr ifreq
-            memset(&ifr, 0, sizeof(ifr))
-            memcpy(ifr.ifr_ifrn, cStr(s), len(s))
-            return setsockopt(this.sockfd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr)) == 0
+            memset(&ifr, 0, sizeof(ifreq))
+            memcpy(<ptr>ifr.ifr_ifrn, cStr(s), len(s))
+            return setsockopt(this.sockfd, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifreq)) == 0
         }
         #windows {
             return false
@@ -304,7 +308,7 @@ struct http_socket {
             flags = fcntl(this.sockfd, F_GETFL, 0)
             fcntl(this.sockfd, F_SETFL, flags | FD_CLOEXEC)
             err = 0
-            errlen uint32 = SIZE_OF_INT
+            errlen uint32 = 8
             getsockopt(this.sockfd, SOL_SOCKET, SO_ERROR, &err, &errlen)
             r = true
             if this.terminate() == false {
@@ -364,11 +368,11 @@ struct http_socket {
 
                 return true
             } else {
-                res = connect(this.sockfd,addrs.ai_addr, addrs.ai_addrlen)
+                res = connect(this.sockfd, addrs.ai_addr, addrs.ai_addrlen)
             }
 
-            if res <= 0 {
-            freeaddrinfo(addrs)
+            if res < 0 {
+                freeaddrinfo(addrs)
                 return false
             }
             freeaddrinfo(addrs)
@@ -471,7 +475,7 @@ struct http_socket {
             } else {
                 nDataLength = recv(this.sockfd,<char*>buff,1024,0)
             }
-            if this.sizeLimit != 0 && rep.len >= this.sizeLimit {
+            if this.sizeLimit != 0 && rep.length >= this.sizeLimit {
                 break
             }
             if nDataLength <= 0 {
@@ -623,7 +627,7 @@ urlDecode(s str) str {
         if c == '+' {
             r[len(r)] = ' '
         } else if c == '%' {
-            hexStr = []char{s[i+1], s[i+2], null}
+            hexStr = []char{s[i+1], s[i+2], <char>0}
             c = <char>strtol(cArr(hexStr), null, 16)
             r[len(r)] = c
             i += 2
@@ -708,8 +712,7 @@ struct http_transport {
 
     //To append to the body of the response.
     write(content str) {
-        body = this.body
-        body.append(content)
+        this.body.append(content)
     }
 
 }
@@ -802,7 +805,7 @@ http_response(sock http_socket*) http_response* {
 //Parses the HTTP request from a response buffer and returns a http_response.
 //This is an internal function.
 makeRespFromBody(response response_buffer) http_response* {
-    if response.len == 0 {
+    if response.length == 0 {
         return null
     }
 
@@ -925,6 +928,7 @@ makeRawHttpsRequest(host str, message str, timeout int) response_buffer {
 
     ctx = SSL_CTX_new(TLS_client_method())
     if timeout > 0 {
+        println("timed out")
         SSL_CTX_set_timeout(ctx, timeout)
     }
 
@@ -1304,7 +1308,7 @@ struct http_request extend http_transport {
         addr sockaddr_in
         addrSize uint32 = sizeof(sockaddr_in)
         getpeername(this.socket.sockfd, &addr, &addrSize)
-        return __STR(inet_ntoa(addr.sin_addr))
+        return cStrToBah(inet_ntoa(addr.sin_addr))
     }
 
 }
@@ -1312,7 +1316,7 @@ struct http_request extend http_transport {
 //Used for parsing the request (with limited size)
 http_requestSizeLimited(sock http_socket*, size int) http_request* {
     r = new http_request {
-        body: {}
+        body: new string
     }
 
     r.socket = http_socket {
@@ -1502,7 +1506,6 @@ struct http_server {
                 return
             }
         }
-
         req = http_requestSizeLimited(sock, this.maxRequestSize)
         resp = http_response(sock)
         this.handle(req, resp)

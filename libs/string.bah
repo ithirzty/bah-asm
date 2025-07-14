@@ -134,6 +134,8 @@ struct string {
         this.editable = true
         old = this.content
         this.content = <str>memoryAllocSTR(this.length+5)
+        lp = <uint32*>this.content
+        *lp = this.length
         strncpy(this.content, old, this.length)
     }
 
@@ -143,11 +145,12 @@ struct string {
             this.makeEditable()
         }
         sl = len(s)
-        nc = memoryAllocSTR(sl + this.length + 5)
+        nc = <uint32*>memoryAllocSTR(sl + this.length + 5)
         memcpy(<ptr>(<uint><ptr>nc + strLenSize), <ptr>(<uint><ptr>this.content + strLenSize), this.length)
-        strCatOffset(nc, this.length, s, sl)
-        this.content = nc
+        strCatOffset(<str>nc, this.length, s, sl)
+        this.content = <str>nc
         this.length += sl
+        *nc = this.length
     }
     
     //Prepends the specified str to the string.
@@ -156,11 +159,12 @@ struct string {
         sl = len(s)
         nl = this.length + sl
         tmpS = this.content
-        nc = memoryAllocSTR(nl + 5)
+        nc = <uint32*>memoryAllocSTR(nl + 5)
         if nc == null {
             panic("Error appending to string, possibly due to memory shortage.")
         }
-        this.content = nc
+        *nc = nl
+        this.content = <str>nc
         strncpy(this.content, s, sl)
         strCatOffset(this.content, sl, tmpS, this.length)
         this.length = nl
@@ -244,28 +248,28 @@ struct string {
     }
 
     //Used to know if the string as a specified prefix, returns 1 if true.
-    hasPrefix(need str) int {
+    hasPrefix(need str) bool {
         i = 0
         nl = len(need)
         if this.length < nl {
-            return 0
+            return false
         }
         for i < nl {
             c = this.charAt(i)
             sc = need[i]
             if c != sc {
-                return 0
+                return false
             }
             i++
         }
-        return 1
+        return true
     }
 
     //Used to know if the string as a specified suffix, returns 1 if true.
-    hasSuffix(need str) int {
+    hasSuffix(need str) bool {
         nl = len(need)
         if this.length < nl {
-            return 0
+            return false
         }
         i =  this.length - nl
         needleIndex = 0
@@ -273,13 +277,13 @@ struct string {
             c = this.charAt(i)
             sc = need[needleIndex]
             if c != sc {
-                return 0
+                return false
             }
             needleIndex++
             i++
         }
         
-        return 1
+        return true
 
     }
 
@@ -384,6 +388,26 @@ uintToStr(i uint) str {
 
     return buffToStr(<char*>(<uint>s + ind + 1))
 }
+
+const Bah_string_hex_characters = "0123456789ABCDEF"
+
+uintToHex(i uint) str {
+    if i == 0 {
+        return "0"
+    }
+
+    s = buffer 66
+    s[65] = <char>0
+    ind = 64
+
+    for i != 0, i /= 16 {
+        s[ind] = Bah_string_hex_characters[i % 16]
+        ind--
+    }
+
+    return buffToStr(<char*>(<uint>s + ind + 1))
+}
+
 
 //Used to convert an integer into a string.
 //*It returns a string, not a str*

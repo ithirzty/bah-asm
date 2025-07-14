@@ -1355,7 +1355,8 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         strctType = val.type.child
                     }
 
-                    method = parserCtx.findFunc(strctType.child.name+"."+tokens[i].cont)
+                    // method = parserCtx.findFunc(strctType.child.name+"."+tokens[i].cont)
+                    method = parserCtx.findMethod(strctType, tokens[i].cont)
                     if method == null {
                         throwError(&tokens[i], "Unknown struct member.")
                     }
@@ -2099,6 +2100,7 @@ parseStruct(tokens []bahToken, start uint, end uint) {
         if extdTp == null || extdTp.type != BAH_TYPE_STRCT {
             throwError(&tokens[start+3], "No structure named that way.")
         }
+        strctType.ret = extdTp
 
         extdTp = extdTp.child.next
 
@@ -2704,6 +2706,9 @@ parseLine(tokens []bahToken, start uint, end uint) {
                     if tokens[i].cont == "(" && tokens[i-1].cont != "function" || (tokens[i].type == TOKEN_TYPE_SYNTAX && tokens[i].cont != "*") {
                         val = consumeValue(tokens, start, end, -1, 0)
                         if val[0] != null {
+                            if val[0].value != BAH_VALUE_FUNC_CALL && val[0].isSelfOp == false {
+                                throwError(&val[0].tok, "Meaningless line.")
+                            }
                             generateBahValueSymbol(val[0], null)
                         } else {
                             if val[1] != end {
