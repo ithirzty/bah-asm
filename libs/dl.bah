@@ -1,0 +1,237 @@
+#import "iostream.bah"
+#import "string.bah"
+
+#cLib "ldl"
+
+#define dlopen(filename char*, flag int32) ptr
+#define dlerror() char*
+#define dlsym(handle ptr, symbol char*) ptr
+#define dlclose(handle ptr) int32
+
+const RTLD_LAZY	  = 0x00001
+const RTLD_NOW    = 0x00002
+
+const RTLD_GLOBAL = 0x00100
+const RTLD_LOCAL  = 0
+
+const SHT_NULL = 0
+const SHT_PROGBITS = 1
+const SHT_SYMTAB = 2
+const SHT_STRTAB = 3
+const SHT_RELA = 4
+const SHT_HASH = 5
+const SHT_DYNAMIC = 6
+const SHT_NOTE = 7
+const SHT_NOBITS = 8
+const SHT_REL = 9
+const SHT_SHLIB = 10
+const SHT_DYNSYM = 11
+const SHT_INIT_ARRAY = 14
+const SHT_FINI_ARRAY = 15
+const SHT_PREINIT_ARRAY = 16
+const SHT_GROUP = 17
+const SHT_SYMTAB_SHNDX = 18
+const SHT_LOOS = 0x60000000
+const SHT_HIOS = 0x6fffffff
+const SHT_LOPROC = 0x70000000
+const SHT_HIPROC = 0x7fffffff
+const SHT_LOUSER = 0x80000000
+const SHT_HIUSER = 0xffffffff
+
+const STT_NOTYPE = 0
+const STT_OBJECT = 1
+const STT_FUNC = 2
+const STT_SECTION = 3
+const STT_FILE = 4
+const STT_COMMON = 5
+const STT_TLS = 6
+const STT_LOOS = 10
+const STT_HIOS = 12
+const STT_LOPROC = 13
+const STT_HIPROC = 15
+
+// Elf64_Addr       8 	Unsigned program address
+// Elf64_Off 	    8 	Unsigned file offset
+// Elf64_Half 	    2 	Unsigned medium integer
+// Elf64_Word 	    4 	Unsigned integer
+// Elf64_Sword 	    4 	Signed integer
+// Elf64_Xword 	    8 	Unsigned long integer
+// Elf64_Sxword 	8 	Signed long integer
+
+struct Elf64_Ehdr {
+    e_ident: buffer:16
+    e_type: uint16
+    e_machine: uint16
+    e_version: uint32
+    e_entry: uint //entry point
+    e_phoff: uint //program header offset
+    e_shoff: uint //section header offset
+    e_flags: uint32 //processor flags
+    e_ehsize: uint16 //elf header size
+    e_phentsize: uint16 //size of an entry in program header table
+    e_phnum: uint16 //number of entries in program header table
+    e_shentsize: uint16 //size of an entry in the section header table
+    e_shnum: uint16 //number of entries in the section header table
+    e_shstrndx: uint16 //section header index of the string table
+}
+
+struct Elf64_Shdr {
+	sh_name: uint32 //name as index in the string table
+	sh_type: uint32 //section type
+	sh_flags: uint
+	sh_addr: uint //address of the section in the program image
+	sh_offset: uint //address as offset in the object file
+	sh_size: uint //size of the section
+	sh_link: uint32
+	sh_info: uint32
+	sh_addralign: uint
+	sh_entsize: uint
+}
+
+struct Elf64_Sym {
+	st_name: uint32
+	st_info: byte
+	st_other: byte
+	st_shndx: uint16
+	st_value: uint
+	st_size: uint
+}
+
+struct Elf64_Rela {
+	r_offset: uint
+	r_info: uint
+    r_addend: int
+}
+
+struct objectFile {
+    fm: fileMap
+    bytes: []byte
+
+    ELFheader: Elf64_Ehdr*
+    sectionHeaders: []Elf64_Shdr*
+    stringTable: ptr
+    symNameTable: ptr
+    symbols: []Elf64_Sym*
+
+    textAddress: uint
+    textSize: uint
+
+    _getELFstr(index uint) str {
+        s = <char*>(<uint>this.stringTable + index)
+        return cStrToBah(s)
+    }
+
+    _getELFsymName(index uint) str {
+        s = <char*>(<uint>this.symNameTable + index)
+        return cStrToBah(s)
+    }
+
+    performRelocations(section Elf64_Shdr*) {
+        tOffset = 0
+        i=0; for i < len(this.sectionHeaders), i++ {
+            tsection = this.sectionHeaders[i]
+            name = this._getELFstr(tsection.sh_name)
+            
+            if name == ".text" {
+                tOffset = tsection.sh_offset
+                break
+            }
+        }
+
+        j=0; for j * sizeof(Elf64_Rela) < section.sh_size, j++ {
+            rel = <Elf64_Rela*>&this.bytes[section.sh_offset + j * sizeof(Elf64_Rela)]
+            symbolNb = rel.r_info >> 32
+            relType = <uint32>rel.r_info & 4294967295
+            if relType == 4 {
+                sym = this.symbols[rel.r_info >> 32]
+                addr = <uint32*>(this.textAddress + rel.r_offset)
+                *addr = sym.st_value + rel.r_addend - rel.r_offset // sym.st_value
+            }
+        }
+    }
+
+    weakLinker() {
+        i=0; for i < len(this.sectionHeaders), i++ {
+            section = this.sectionHeaders[i]
+            if section.sh_type == SHT_RELA {
+                this.performRelocations(section)
+            }
+        }
+    }
+
+    open(filePath str) bool {
+        this.fm.executable = true
+        this.bytes = this.fm.open(filePath)
+
+        if this.fm.isValid() == false || len(this.bytes) < 64 {
+            this.fm.close()
+            return false
+        }
+
+        this.ELFheader = <Elf64_Ehdr*>&this.bytes[0]
+        allocateArray(this.sectionHeaders, this.ELFheader.e_shnum)
+
+        i=0; for i < this.ELFheader.e_shnum, i++ {
+            section = <Elf64_Shdr*>&this.bytes[this.ELFheader.e_shentsize * i + this.ELFheader.e_shoff]
+            this.sectionHeaders[i] = section
+
+            if i == this.ELFheader.e_shstrndx && section.sh_type == SHT_STRTAB {
+                this.stringTable = &this.bytes[section.sh_offset]
+            }
+        }
+
+        i=0; for i < len(this.sectionHeaders), i++ {
+            section = this.sectionHeaders[i]
+            name = this._getELFstr(section.sh_name)
+            
+            if name == ".text" {
+                this.textAddress = <uint>&this.bytes[section.sh_offset]
+                this.textSize = section.sh_size
+
+            }
+
+            if name == ".strtab" {
+                this.symNameTable = &this.bytes[section.sh_offset]
+            }
+
+            if name == ".symtab" {
+                j=0; for j * sizeof(Elf64_Sym) < section.sh_size, j++ {
+                    this.symbols[j] = <Elf64_Sym*>&this.bytes[section.sh_offset + j * sizeof(Elf64_Sym)]
+                }
+            }
+
+        }
+
+        return true
+    }
+
+    getSymbol(name str, type uint) ptr {
+        sectOffset = 0
+
+        if type == STT_FUNC {
+            i=0; for i < len(this.sectionHeaders), i++ {
+                section = this.sectionHeaders[i]
+                sectName = this._getELFstr(section.sh_name)
+                
+                if sectName == ".text" {
+                    sectOffset = section.sh_offset
+                    break
+                }
+
+            }
+        }
+
+
+        i=0; for i < len(this.symbols), i++ {
+            lookupName = this._getELFsymName(this.symbols[i].st_name)
+            if lookupName == name {
+                return <ptr>&this.bytes[this.symbols[i].st_value + sectOffset]
+            }
+        }
+        return null
+    }
+
+    close() {
+        this.fm.close()
+    }
+}

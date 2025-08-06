@@ -20,6 +20,34 @@ BAH_boolean_hashes = []booleanHash
 #define consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint) [bahValue*, uint]
 #define parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint)
 
+parallelObjCompile(filePath str, outputName str, deps []str, cf cacheFile*) {
+    println(ASCII_GREY+"[compiling] "+ASCII_RESET+filePath)
+
+    compDirectory = parserCtx.currentFilePath
+    i=len(compDirectory)-1; for i != -1, i-- {
+        if compDirectory[i] == '/' {
+            break
+        }
+    }
+    compDirectory = compDirectory[:i+1]
+
+    cmd = command(compilerPath+" "+filePath+" -object -o "+outputName)
+    err = cmd.runBytes()
+
+    if cmd.status != 0 {
+        println(arrToStr(err))
+        exit(cmd.status)
+    }
+
+    if cf == null {
+        makeCacheFile(filePath, deps)
+    } else {
+        updateCacheFile(cf, deps)
+    }
+    
+    compileWaitChannel.send(null)
+}
+
 includeFile(filePath str) {
     if filePath in parserCtx.parsedFiles {
         return
@@ -36,6 +64,13 @@ includeFile(filePath str) {
     oldFilePath = parserCtx.currentFilePath 
     oldCurrFile = parserCtx.currentFile 
     oldFileNb = gen.fileNb
+    oldDeclMode = parserCtx.declareMode
+
+    if isImportFile && isObjectFile == false {
+        parserCtx.declareMode = false
+    } else if isObjectFile {
+        parserCtx.declareMode = true
+    }
 
     parserCtx.currentFilePath = filePath
     parserCtx.currentFile = content
@@ -49,6 +84,61 @@ includeFile(filePath str) {
     gen.fileNb = oldFileNb
     parserCtx.currentFilePath = oldFilePath 
     parserCtx.currentFile = oldCurrFile 
+    parserCtx.declareMode = oldDeclMode
+
+}
+
+importFile(filePath str) {
+    if parserCtx.noImports {
+        includeFile(filePath)
+        return
+    }
+
+    if filePath in parserCtx.parsedFiles {
+        return
+    }
+
+    parserCtx.parsedFiles[len(parserCtx.parsedFiles)] = filePath
+
+
+    oldFilePath = parserCtx.currentFilePath 
+    oldCurrFile = parserCtx.currentFile 
+    oldFileNb = gen.fileNb
+    oDeclareMode = parserCtx.declareMode
+    oImportDeps = parserCtx.importDeps
+    oisImp = isImportFile
+
+    fs = fileStream{}
+    fs.open(filePath, "r")
+    content = fs.readContent()
+    fs.close()
+
+    parserCtx.currentFilePath = filePath
+    parserCtx.currentFile = content
+    parserCtx.declareMode = true
+    parserCtx.importDeps = []str
+    isImportFile = true
+
+    inclTokens = lexer(content)
+    gen.generateFileLocation(parserCtx.currentFilePath)
+    parseLines(inclTokens, 0, len(inclTokens))
+
+    cf = getCacheFile(filePath)
+    outputName = BAH_DIR+"cache/"+pathToVarName(filePath)
+
+    if isObjectFile == false && (cf == null || isValidCacheFile(cf) == false) {
+        parserCtx.currentCompileNb++
+        async parallelObjCompile(filePath, outputName, parserCtx.importDeps, cf)
+    }
+
+    parserCtx.libraries[len(parserCtx.libraries)] = outputName+".o"
+
+    gen.fileNb = oldFileNb
+    parserCtx.currentFilePath = oldFilePath 
+    parserCtx.currentFile = oldCurrFile 
+    parserCtx.declareMode = oDeclareMode
+    parserCtx.importDeps = oImportDeps
+    isImportFile = oisImp
 }
 
 consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*, uint] {
@@ -180,6 +270,11 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                     throwError(&tokens[i], "Invalid type.")
                 }
 
+                otp = tp[0]
+                tp[0] = new bahType
+                *tp[0] = *otp
+                tp[0].next = null
+
                 if currTp == r {
                     currTp.child = tp[0]
                 } else {
@@ -187,6 +282,7 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 }
                 tp[0].offset = r.size
                 r.size += tp[0].size
+
 
                 currTp = tp[0]
                 
@@ -329,6 +425,10 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
                 tok: t
             }
             return [val, start+1, true]
+        }
+
+        if parserCtx.scope != 0 && v.scope == 0 && parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
+            parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
         }
     }
 
@@ -497,6 +597,44 @@ consumeLeftValue(tokens []bahToken, start uint, end uint) [bahLeftValue*, uint, 
     //handle arrays, structs...
 
     return [val, i, false]
+}
+
+recursiveStructDeclaration(st bahType*) bahValue* {
+    currTp = st.child
+    val = new bahValue {
+        value: BAH_VALUE_DECLARATION
+        type: st
+    }
+    for currTp != null, currTp = currTp.next {
+        defVal = <bahValue*>currTp.defaultValue
+
+        if defVal == null {
+            if currTp.type == BAH_TYPE_ARRAY {
+                defVal = new bahValue {
+                    value: BAH_VALUE_DECLARATION
+                }
+                defVal.type = new bahType {
+                    type: BAH_TYPE_ARRAY
+                    size: ARR_TYPE_SIZE
+                    isNativePtr: true
+                    child: currTp.child
+                }
+            } else if currTp.type == BAH_TYPE_STRCT {
+                defVal = recursiveStructDeclaration(currTp)
+            } else {
+                continue
+            }
+        }
+
+        currVal = val.left
+        val.left = new bahValue {
+            type: currTp
+            right: defVal
+            left: currVal
+        }
+    }
+
+    return val
 }
 
 consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint) [bahValue*, uint] {
@@ -788,6 +926,8 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                                 isNativePtr: true
                                 child: currTp.child
                             }
+                        } else if currTp.type == BAH_TYPE_STRCT {
+                            defVal = recursiveStructDeclaration(currTp)
                         } else {
                             continue
                         }
@@ -917,6 +1057,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     elemType = new bahType
                     *elemType = *(elemVal[0].type)
+                    elemType.next = null
 
                     if currTp == val.type {
                         currTp.child = elemType
@@ -1018,6 +1159,11 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         val.value = BAH_VALUE_VAR
                         val.type = v.type
                         val.sym = v.sym
+
+                        if parserCtx.scope != 0 && v.scope == 0 && parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
+                            parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
+                        }
+
                     } else {
                         fn = parserCtx.findFunc(t.cont)
                         if fn != null {
@@ -1111,6 +1257,17 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 val.left = fnSymVal
                 val.tok = fnSymVal.tok
                 val.type = fnSymVal.type.ret
+
+                if parserCtx.scope != 0 && parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
+                    if fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_PURE) == false {
+                        parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
+                    } else {
+                        calledFn = parserCtx.findFunc(fnSymVal.tok.cont)
+                        if calledFn != null && calledFn.name != parserCtx.scopeCtx.currentFunction.name {
+                            parserCtx.scopeCtx.currentFunction.pureCalls[len(parserCtx.scopeCtx.currentFunction.pureCalls)] = calledFn
+                        }
+                    }
+                }
 
                 currArg = fnSymVal.type.child
                 currArgVal = val
@@ -1363,7 +1520,8 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     memb.value = BAH_VALUE_FUNC_SYM
                     memb.sym = asmSymbolValue(method.name)
-
+                    memb.sym.level = -1
+                    memb.sym.size = 8
                     val = new bahValue {
                         value: BAH_VALUE_STRUCT
                         left: val
@@ -1374,7 +1532,6 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 } else {
                     memb.type = currTp
-
                     varSym = val
                     val = new bahValue {
                         value: BAH_VALUE_STRUCT
@@ -1535,34 +1692,6 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
     return consumeValue(tokens, start, end, -1, opLevel+1)
 }
 
-parallelObjCompile(filePath str, outputName str, deps []str, cf cacheFile*) {
-    println(ASCII_GREY+"[compiling] "+ASCII_RESET+filePath)
-
-    compDirectory = parserCtx.currentFilePath
-    i=len(compDirectory)-1; for i != -1, i-- {
-        if compDirectory[i] == '/' {
-            break
-        }
-    }
-    compDirectory = compDirectory[:i+1]
-
-    cmd = command(compilerPath+" "+filePath+" -object -o "+outputName)
-    err = cmd.runBytes()
-
-    if cmd.status != 0 {
-        println(arrToStr(err))
-        exit(cmd.status)
-    }
-
-    if cf == null {
-        makeCacheFile(filePath, deps)
-    } else {
-        updateCacheFile(cf, deps)
-    }
-    
-    compileWaitChannel.send(null)
-}
-
 
 parseHashDirective(tokens []bahToken, start uint, end uint) {
 
@@ -1680,15 +1809,18 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
 
         inclFileName = tokens[start+1].cont[1:len(tokens[start+1].cont)-1]
 
-        currDirectory = absPath(parserCtx.currentFilePath)
-        i=len(currDirectory)-1; for i != -1, i-- {
-            if currDirectory[i] == '/' {
-                break
+        filePath = inclFileName
+        if inclFileName[0] != '/' {
+            currDirectory = absPath(parserCtx.currentFilePath)
+            i=len(currDirectory)-1; for i != -1, i-- {
+                if currDirectory[i] == '/' {
+                    break
+                }
             }
+            
+            currDirectory = currDirectory[:i+1]
+            filePath = currDirectory + inclFileName
         }
-        
-        currDirectory = currDirectory[:i+1]
-        filePath = currDirectory + inclFileName
 
         if fileExists(filePath) == false {
             filePath = BAH_DIR + inclFileName
@@ -1710,15 +1842,19 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
 
         inclFileName = tokens[start+1].cont[1:len(tokens[start+1].cont)-1]
 
-        currDirectory = absPath(parserCtx.currentFilePath)
-        i=len(currDirectory)-1; for i != -1, i-- {
-            if currDirectory[i] == '/' {
-                break
+        filePath = inclFileName
+        if inclFileName[0] != '/' {
+            currDirectory = absPath(parserCtx.currentFilePath)
+            i=len(currDirectory)-1; for i != -1, i-- {
+                if currDirectory[i] == '/' {
+                    break
+                }
             }
+            
+            currDirectory = currDirectory[:i+1]
+            filePath = currDirectory + inclFileName
         }
-        
-        currDirectory = currDirectory[:i+1]
-        filePath = currDirectory + inclFileName
+
 
         if fileExists(filePath) == false {
             filePath = BAH_DIR + inclFileName
@@ -1732,54 +1868,7 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
             parserCtx.importDeps[len(parserCtx.importDeps)] = filePath
         }
 
-        if parserCtx.noImports {
-            includeFile(filePath)
-            return
-        }
-
-        if filePath in parserCtx.parsedFiles {
-            return
-        }
-
-        parserCtx.parsedFiles[len(parserCtx.parsedFiles)] = filePath
-
-
-        oldFilePath = parserCtx.currentFilePath 
-        oldCurrFile = parserCtx.currentFile 
-        oldFileNb = gen.fileNb
-        oDeclareMode = parserCtx.declareMode
-        oImportDeps = parserCtx.importDeps
-
-        fs = fileStream{}
-        fs.open(filePath, "r")
-        content = fs.readContent()
-        fs.close()
-
-        parserCtx.currentFilePath = filePath
-        parserCtx.currentFile = content
-        parserCtx.declareMode = true
-        parserCtx.importDeps = []str
-
-        inclTokens = lexer(content)
-        gen.generateFileLocation(parserCtx.currentFilePath)
-        parseLines(inclTokens, 0, len(inclTokens))
-
-        cf = getCacheFile(filePath)
-        outputName = BAH_DIR+"cache/"+pathToVarName(filePath)
-
-        if isObjectFile == false && (cf == null || isValidCacheFile(cf) == false) {
-            parserCtx.currentCompileNb++
-            async parallelObjCompile(filePath, outputName, parserCtx.importDeps, cf)
-        }
-
-        parserCtx.libraries[len(parserCtx.libraries)] = outputName+".o"
-
-        gen.fileNb = oldFileNb
-        parserCtx.currentFilePath = oldFilePath 
-        parserCtx.currentFile = oldCurrFile 
-        parserCtx.declareMode = oDeclareMode
-        parserCtx.importDeps = oImportDeps
-
+        importFile(filePath)
 
     } else if tokens[start].cont == "#init" {
         if parserCtx.declareMode {
@@ -1793,6 +1882,7 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         parseLine(tokens, start+1, end)
 
         realGen.data += gen.data
+        realGen.staticData += gen.staticData
         realGen.bss += gen.bss
         gen = realGen
     } else {
@@ -1810,7 +1900,7 @@ parseReturn(tokens []bahToken, start uint, end uint) {
     if start+1 == end {
         //handle only return if no ret type
         if parserCtx.scopeCtx.currentFunction.type.ret != null {
-            throwError(&tokens[start], "Expected return value.")
+            throwError(&tokens[start], "Expected return value, current function of type: "+parserCtx.scopeCtx.currentFunction.type.toStr())
         }
 
         gen.generateEarlyReturn()
@@ -1837,8 +1927,25 @@ parseReturn(tokens []bahToken, start uint, end uint) {
 
     parserCtx.scopeCtx.hasReturned = true
 
-
     valSym = generateBahValueSymbol(val, null)
+
+    retType = parserCtx.scopeCtx.currentFunction.type.ret
+    if retType != null {
+        //fing mazochist who invented that
+        if retType.type == BAH_TYPE_STRCT {
+            if retType.child.next != null && retType.child.next.type == BAH_TYPE_FLOAT {
+                if retType.child.next.next != null {
+                    if retType.child.next.next.type == BAH_TYPE_FLOAT {
+                        valSym.isFloat = true
+                    }
+                } else {
+                    valSym.isFloat = true
+                }
+            }
+        } else if retType.type == BAH_TYPE_FLOAT {
+            valSym.isFloat = true
+        }
+    }
 
     gen.generateReturn(valSym)
 
@@ -1944,13 +2051,6 @@ parseElse(tokens []bahToken, start uint, end uint) {
             currentFunction: parserCtx.scopeCtx.currentFunction
         }
 
-        i= len(parserCtx._scopeCtx) - 1; for i != -1, i-- {
-            if parserCtx._scopeCtx[i].scope == parserCtx.scope + 1 && parserCtx._scopeCtx[i].isConditional {
-                parserCtx._scopeCtx[i].child = ifScope
-                break
-            }
-        }
-
         parserCtx.startScope(ifScope)
 
         parseLines(tokens, elseLineEnd+1, end-1)
@@ -1976,14 +2076,6 @@ parseElse(tokens []bahToken, start uint, end uint) {
             isElse: true
             currentFunction: parserCtx.scopeCtx.currentFunction
         }
-
-        i= len(parserCtx._scopeCtx) - 1; for i != -1, i-- {
-            if parserCtx._scopeCtx[i].scope == parserCtx.scope + 1 && parserCtx._scopeCtx[i].isConditional {
-                parserCtx._scopeCtx[i].child = elseScope
-                break
-            }
-        }
-
 
         parserCtx.startScope(elseScope)
 
@@ -2033,8 +2125,24 @@ parseFor(tokens []bahToken, start uint, end uint) {
     }
 
     gen.generateFor()
+    optimizedIndex = len(gen.instructions)-1
 
-    gen.generateForCond(generateBahValueSymbol(condVal, null))
+    shouldOptimizeForLoop = false
+    if gen.enableOptimizations && (isValueInexpensive(condVal) || condVal.value == BAH_VALUE_OP && isValueInexpensive(condVal.left) && isValueInexpensive(condVal.right)) {
+        shouldOptimizeForLoop = true
+        j = forLineEnd+1; for j < end-1, j++ {
+            if tokens[j].cont == "continue" {
+                shouldOptimizeForLoop = false
+                break
+            }
+        }
+    }
+
+    if shouldOptimizeForLoop == false {
+        optimizedIndex = -1
+    }
+
+    gen.generateForCond(generateBahValueSymbol(condVal, null), optimizedIndex)
 
     forLoopScope = new parserScope {
         isConditional: true
@@ -2047,12 +2155,16 @@ parseFor(tokens []bahToken, start uint, end uint) {
         parseLine(tokens, i+1, forLineEnd)
     }
 
+    if shouldOptimizeForLoop {
+        gen.generateForOptimizedCond(generateBahValueSymbol(condVal, null))
+    }
+
     gen.generateForIncr()
 
 
     parseLines(tokens, forLineEnd+1, end-1)
 
-    gen.generateForEnd()
+    gen.generateForEnd(shouldOptimizeForLoop)
 
     parserCtx.endScope()
 
@@ -2107,6 +2219,22 @@ parseStruct(tokens []bahToken, start uint, end uint) {
         for extdTp != null, extdTp = extdTp.next {
             memberCopy = new bahType
             *memberCopy = *extdTp
+
+            alignment = memberCopy.size
+
+            if alignment > 8 {
+                alignment = 8
+            }
+
+            if currOffset % alignment != 0 {
+                currOffset += alignment - (currOffset % alignment)
+            }
+
+            memberCopy.offset = currOffset
+            currParent.next = memberCopy
+            strctType.size = currOffset + memberCopy.size
+            currOffset += memberCopy.size
+
             currParent.next = memberCopy
             currParent = memberCopy
         }
@@ -2173,6 +2301,7 @@ parseStruct(tokens []bahToken, start uint, end uint) {
                 }
             }
 
+            parserCtx.addFunc(method)
             parseFnBody(method, tokens, fnLineEnd+1, i)
             
         } else { //field definition
@@ -2194,19 +2323,14 @@ parseStruct(tokens []bahToken, start uint, end uint) {
             *fieldType = *(fieldTypeCons[0])
             fieldType.name = tokens[nameInd].cont
 
+            alignment = fieldType.size
 
-
-
-            alignment = 1
-
-            if fieldType.size == 4 {
-                alignment = 4
-            } if fieldType.size >= 8 {
+            if alignment > 8 {
                 alignment = 8
             }
 
             if currOffset % alignment != 0 {
-                currOffset += alignment - currOffset % alignment
+                currOffset += alignment - (currOffset % alignment)
             }
 
 
@@ -2270,10 +2394,7 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 
 }
 
-parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
-
-    parserCtx.addFunc(fn)
-    
+parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {    
     if parserCtx.declareMode {
         return
     }
@@ -2302,12 +2423,19 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
     stackOff = 16 //stack frame size
 
     if returnSize > 16 {
-        // stackOff += 16
         gen.stackOffset = 16
     }
 
     arg = fn.type.child
+
+    if hasRetType && fn.type.ret.size <= 8 && fn.type.ret.isPtr == false && fn.type.ret.isNativePtr == false && fn.type.ret.type != BAH_TYPE_FLOAT {
+        fn.type.flags = BAH_TYPE_FLAG_PURE
+    }
+
     for arg != null, arg = arg.next {
+        if arg.size > 8 || arg.isPtr || arg.isNativePtr || arg.type == BAH_TYPE_FLOAT {
+            fn.type.flags = 0
+        }
         v = new bahVariable {
             name: arg.name
             type: arg
@@ -2320,12 +2448,29 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
             for tmpArg != null, tmpArg = tmpArg.next {
                 if tmpArg.size > 16 {
                     addr += tmpArg.size
+                    if addr % 16 != 0 {
+                        addr += (16 - addr % 16)
+                    }
                 }
             }
 
             v.sym = asmSymbolStack(0 - addr, v.type.size)
         } else {
             v.sym = gen.generateVarDecl(v.name, v.type.size, false)
+
+            if arg.type == BAH_TYPE_STRCT {
+                if arg.child.next != null && arg.child.next.type == BAH_TYPE_FLOAT {
+                    if arg.child.next.next != null {
+                        if arg.child.next.next.type == BAH_TYPE_FLOAT {
+                            v.sym.isFloat = true
+                        }
+                    } else {
+                        v.sym.isFloat = true
+                    }
+                }
+            } else if arg.type == BAH_TYPE_FLOAT {
+                v.sym.isFloat = true
+            }
         }
         genArgs[len(genArgs)] = v.sym
     }
@@ -2338,9 +2483,10 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
         throwError(&tokens[end-1], "Function with a return type shall be returned.")
     }
 
-    gen.generateFnEnd()
+    fn.asmInstructions = gen.generateFnEnd()
 
     parserCtx.endScope()
+
 }
 
 parseFnDecl(tokens []bahToken, start uint, end uint) {
@@ -2369,11 +2515,25 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
         throwError(&tokens[start], "Invalid function type in function declaration.")
     }
 
-    fn = new bahFunction {
-        name: tokens[start].cont
-        type: fnType
-        declared: true
+    fn = parserCtx.findFunc(tokens[start].cont)
+
+    if fn == null {
+        fn = new bahFunction {
+            name: tokens[start].cont
+            type: fnType
+            declared: true
+        }
+        parserCtx.addFunc(fn)
+    } else {
+        if fn.declared {
+            throwError(&tokens[start], "Cannot redeclare a function.")
+        } else if compatibleTypes(fn.type, fnType) == false {
+            throwError(&tokens[start], "Function declaration missmatch.")
+        }
+        fn.declared = true
+        fn.type = fnType
     }
+
 
     if tokens[start].cont == "main" && fnType.toStr() != "function([]str) int" {
         throwError(&tokens[start], "Invalid main function type, should be: function([]str) int.")
@@ -2382,15 +2542,162 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
     i++
 
     parseFnBody(fn, tokens, i, end)
+}
+
+parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCons [bahLeftValue*, uint, bool], rValCons [bahValue*, uint]) {
+    tmpDeclType bahType* = null
+
+    if rValCons[0] == null {
+        throwError(&tokens[eqlIndex+1], "Expected a value on the right of equal.")
+    }
+
+    if lValCons[0] == null {
+        throwError(&tokens[start], "Expected a symbol or an address on the left of equal.")
+    }
+
+    if lValCons[1] != eqlIndex {
+        typeCons = consumeType(tokens, lValCons[1], eqlIndex, false)
+        if typeCons[0] == null {
+            throwError(&tokens[lValCons[1]], "Expected type.")
+        } else if typeCons[1] != eqlIndex {
+            throwError(&tokens[typeCons[1]], "Did not expect anything after the type.")
+        }
+
+        if lValCons[2] == false {
+            throwError(&tokens[lValCons[1]], "Cannot cast the left value type outside of a declaration.")
+        }
+
+        tmpDeclType = typeCons[0]
+
+        //type?
+        // throwError(&tokens[lValCons[1]], "Didn't expect anything between left value and equal sign.")
+    }
+
+    rVal = rValCons[0]
+    lVal = lValCons[0]
+
+    if len(tokens[eqlIndex].cont) == 2 {
+        if lValCons[2] {
+            throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
+        }
+
+        leftRightVal = consumeValue(tokens, start, eqlIndex, -1, 0)[0]
+        rVal = new bahValue {
+            value: BAH_VALUE_OP
+            tok: tokens[eqlIndex]
+            left: leftRightVal
+            right: rVal
+            type: rVal.type
+        }
+    }
+    
+    if lValCons[2] {
+        //is declaration
+
+        if len(tokens[eqlIndex].cont) == 2 {
+            throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
+        }
+
+        lVal.variable = new bahVariable {
+            name: lValCons[0].tok.cont
+            type: rVal.type
+        }
 
 
+        if tmpDeclType != null {
+            lVal.variable.type = tmpDeclType
+            lVal.type = tmpDeclType
+        } else {
+            lVal.type = rVal.type
+        }
+
+        parserCtx.addVar(lVal.variable)
+
+        if parserCtx.scope == 0 {
+            if rVal == null {
+                if parserCtx.declareMode {
+                    lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
+                    lVal.variable.sym.size = lVal.variable.type.size
+                } else {
+                    lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
+                }
+            }
+        } else {
+            if lVal.isVariable == false || rVal.value != BAH_VALUE_DECLARATION && (rVal.value != BAH_VALUE_FUNC_CALL || rVal.type.size <= 8) {
+                lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
+            }
+        }
+    } else {
+        if parserCtx.scope == 0 {
+            throwError(&lVal.tok, "Cannot redeclare a global variable.")
+        }
+        if compatibleTypes(lVal.type, rVal.type) == false {
+            throwTypeError(rVal, lVal.type)
+        }
+    }
+
+    rValSym = asmSymbol{}
+
+    if rVal.isStaticValue {
+        rVal.type.size = lVal.type.size
+    }
+
+    if parserCtx.scope == 0 {
+        typeSize = lVal.variable.type.size
+        if lVal.variable.type.isNativePtr {
+            typeSize = 8
+        }
+        if isObjectFile {
+            lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
+            lVal.variable.sym.size = typeSize
+        } else {
+            syms = []asmSymbol
+            generateImmediateValues(rVal, syms)
+            lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
+        }
+    } else {
+        //Generate var setting
+
+        if lVal.isVariable == false && rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 16 {
+            lValSym = generateBahLeftValueSymbol(lVal)
+            tmpLvalSym = lValSym
+            if tmpLvalSym.level != 0 {
+                tmpLvalSym.level = 0
+                tmpLvalSym.size = 8
+                tmpLvalSym = gen.generateTmpSym(tmpLvalSym, tmpLvalSym.size)
+                tmpLvalSym.level = lValSym.level
+            }
+            rValSym = generateBahValueSymbol(rVal, &tmpLvalSym)
+            if isEmptySymbol(&rValSym) == false {
+                gen.generateVarSet(lValSym, rValSym, false)
+            }
+        } else {
+            if lValCons[2] == true && isSameType(lVal.type, rVal.type) == false {
+                rValSym = generateTypeConversion(rVal, lVal.type)
+            } else {
+                rValSym = generateBahValueSymbol(rVal, null)
+            }
+
+            if lVal.isArrayRecursive() {
+                rValSym = gen.generateTmpSym(rValSym, rValSym.size)
+            }
+
+            lValSym = generateBahLeftValueSymbol(lVal)
+            if lVal.isVariable && lVal.variable.scope == parserCtx.scope && (rVal.value == BAH_VALUE_DECLARATION || (rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 8)) {
+                lVal.variable.sym = rValSym
+            } else {
+                gen.generateVarSet(lValSym, rValSym, lVal.type.type == BAH_TYPE_UINT)
+            }
+        }
+
+    }
 }
 
 parseConst(tokens []bahToken, start uint, end uint) {
 
-    if parserCtx.scope != 0 {
-        throwError(&tokens[start], "Did not expect const definition inside a function.")
-    }
+    // if parserCtx.scope != 0 {
+    //     throwError(&tokens[start], "Did not expect const definition inside a function.")
+    // }
 
     i=start; for i < end, i++ {
     if tokens[i].cont == "=" {
@@ -2420,12 +2727,6 @@ parseConst(tokens []bahToken, start uint, end uint) {
         throwError(&tokens[i+1], "Expected a value on the right of equal.")
     }
 
-    variable = new bahVariable {
-        name: lVal.cont
-        type: rValCons[0].type
-        isConst: true
-    }
-
     rVal = rValCons[0]
 
     if rVal.isStaticValue == false {
@@ -2442,13 +2743,23 @@ parseConst(tokens []bahToken, start uint, end uint) {
             }
 
             if found == false {
-                throwError(&rVal.tok, "Expected constant value.")
+                lValCons = consumeLeftValue(tokens, start+1, i)
+                parseVariableSet(tokens, start+1, end, i, lValCons, rValCons)
+                lValCons[0].variable.isConst = true
+                return
             }
         }
 
 
         rVal = rVal.left
     }
+
+    variable = new bahVariable {
+        name: lVal.cont
+        type: rValCons[0].type
+        isConst: true
+    }
+
 
     parserCtx.addVar(variable)
 
@@ -2499,7 +2810,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
     t = tokens[start]
 
     parserCtx.currentLine = t.line
-    if parserCtx.declareMode == false {
+    if parserCtx.declareMode == false && parserCtx.scope != 0 {
         gen.generateLineLocation(t.line)
     }
 
@@ -2549,152 +2860,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
             lValCons = consumeLeftValue(tokens, start, i)
             rValCons = consumeValue(tokens, i+1, end, -1, 0)
 
-            tmpDeclType bahType* = null
-
-            if rValCons[0] == null {
-                throwError(&tokens[i+1], "Expected a value on the right of equal.")
-            }
-
-            if lValCons[0] == null {
-                throwError(&tokens[start], "Expected a symbol or an address on the left of equal.")
-            }
-
-            if lValCons[1] != i {
-                typeCons = consumeType(tokens, lValCons[1], i, false)
-                if typeCons[0] == null {
-                    throwError(&tokens[lValCons[1]], "Expected type.")
-                } else if typeCons[1] != i {
-                    throwError(&tokens[typeCons[1]], "Did not expect anything after the type.")
-                }
-
-                if lValCons[2] == false {
-                    throwError(&tokens[lValCons[1]], "Cannot cast the left value type outside of a declaration.")
-                }
-
-                tmpDeclType = typeCons[0]
-
-                //type?
-                // throwError(&tokens[lValCons[1]], "Didn't expect anything between left value and equal sign.")
-            }
-
-            rVal = rValCons[0]
-            lVal = lValCons[0]
-
-            if len(tokens[eqlIndex].cont) == 2 {
-                if lValCons[2] {
-                    throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
-                }
-
-                leftRightVal = consumeValue(tokens, start, i, -1, 0)[0]
-                rVal = new bahValue {
-                    value: BAH_VALUE_OP
-                    tok: tokens[eqlIndex]
-                    left: leftRightVal
-                    right: rVal
-                    type: rVal.type
-                }
-            }
-            
-            if lValCons[2] {
-                //is declaration
-
-                if len(tokens[eqlIndex].cont) == 2 {
-                    throwError(&tokens[eqlIndex], "Invalid self operation on declaration.")
-                }
-
-                lVal.variable = new bahVariable {
-                    name: lValCons[0].tok.cont
-                    type: rVal.type
-                }
-
-
-                if tmpDeclType != null {
-                    lVal.variable.type = tmpDeclType
-                    lVal.type = tmpDeclType
-                } else {
-                    lVal.type = rVal.type
-                }
-
-                parserCtx.addVar(lVal.variable)
-
-                if parserCtx.scope == 0 {
-                    if rVal == null {
-                        if parserCtx.declareMode {
-                            lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
-                            lVal.variable.sym.size = lVal.variable.type.size
-                        } else {
-                            lVal.variable.sym = gen.generateGlobalVarDecl(lVal.variable.name, lVal.variable.type.size)
-                        }
-                    }
-                } else {
-                    if lVal.isVariable == false || rVal.value != BAH_VALUE_DECLARATION && (rVal.value != BAH_VALUE_FUNC_CALL || rVal.type.size <= 8) {
-                        lVal.variable.sym = gen.generateVarDecl(lVal.variable.name, lVal.variable.type.size, false)
-                    }
-                }
-            } else {
-                if parserCtx.scope == 0 {
-                    throwError(&lVal.tok, "Cannot redeclare a global variable.")
-                }
-                if compatibleTypes(lVal.type, rVal.type) == false {
-                    throwTypeError(rVal, lVal.type)
-                }
-            }
-
-            rValSym = asmSymbol{}
-
-            if rVal.isStaticValue {
-                rVal.type.size = lVal.type.size
-            }
-
-            if parserCtx.scope == 0 {
-                typeSize = lVal.variable.type.size
-                if lVal.variable.type.isNativePtr {
-                    typeSize = 8
-                }
-                if parserCtx.declareMode {
-                    lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
-                    lVal.variable.sym.size = typeSize
-                } else {
-                    syms = []asmSymbol
-                    generateImmediateValues(rVal, syms)
-                    lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
-                }
-            } else {
-                //Generate var setting
-
-                if lVal.isVariable == false && rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 16 {
-                    lValSym = generateBahLeftValueSymbol(lVal)
-                    tmpLvalSym = lValSym
-                    if tmpLvalSym.level != 0 {
-                        tmpLvalSym.level = 0
-                        tmpLvalSym.size = 8
-                        tmpLvalSym = gen.generateTmpSym(tmpLvalSym, tmpLvalSym.size)
-                        tmpLvalSym.level = lValSym.level
-                    }
-                    rValSym = generateBahValueSymbol(rVal, &tmpLvalSym)
-                    if isEmptySymbol(rValSym) == false {
-                        gen.generateVarSet(lValSym, rValSym, false)
-                    }
-                } else {
-                    if lValCons[2] == true && isSameType(lVal.type, rVal.type) == false {
-                        rValSym = generateTypeConversion(rVal, lVal.type)
-                    } else {
-                        rValSym = generateBahValueSymbol(rVal, null)
-                    }
-
-                    if lVal.isArrayRecursive() {
-                        rValSym = gen.generateTmpSym(rValSym, rValSym.size)
-                    }
-
-                    lValSym = generateBahLeftValueSymbol(lVal)
-                    if lVal.isVariable && lVal.variable.scope == parserCtx.scope && (rVal.value == BAH_VALUE_DECLARATION || (rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 8)) {
-                        lVal.variable.sym = rValSym
-                    } else {
-                        gen.generateVarSet(lValSym, rValSym, lVal.type.type == BAH_TYPE_UINT)
-                    }
-                }
-
-            }
+            parseVariableSet(tokens, start, end, eqlIndex, lValCons, rValCons)
 
 
         } else {

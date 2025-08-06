@@ -14,6 +14,7 @@ struct Bah_Array_Type {
 	length: uint
 	realLength: uint
 	elemSize: uint
+    parent: Bah_Array_Type*
 }
 
 __bah_strlenSTR(s str) uint32 {
@@ -120,7 +121,7 @@ printInt(i int) {
     subZero = false
 
     if i == 0 {
-        println("0")
+        puts("0")
         return
     }
 
@@ -151,23 +152,22 @@ printInt(i int) {
 
 println(s str) {
     if <ptr>s == null {
-        s = ""
+        write(1, "\n", 1)
     }
     write(1, s+"\n", len(s)+1)
-    // puts(s)
 }
 
 backtrace(levelStart uint) {
     basePointer = <uint>$rbp
 
-    println("Backtrace:")
+    puts("Backtrace:")
 
-    for levelStart > 0, levelStart-- {
+    for levelStart != -1, levelStart-- {
         basePointer = *<uint*>(basePointer)
         currPtr = *<uint*>(basePointer + 8)
     }
 
-    for basePointer != 0, basePointer = *<uint*>(basePointer) {
+    for basePointer > 1, basePointer = *<uint*>(basePointer) {
         currPtr = *<uint*>(basePointer + 8)
         fnName = ""
 
@@ -269,6 +269,10 @@ backtrace(levelStart uint) {
 		    print("\033[m")
         } else {
             print("\033[m\n")
+        }
+
+        if fnName == "main" {
+            break
         }
 
     }
@@ -501,6 +505,7 @@ __Bah_panic(e str, loc str) {
             }
         }
 
+
         backtrace(2)
         exit(139)
     }
@@ -529,10 +534,24 @@ __Bah_panic(e str, loc str) {
 
 #define uintToStr(u uint) str
 
+arrayDuplicate(arr Bah_Array_Type*) {
+    size = arr.length * arr.elemSize
+    ndata = memoryAlloc(size)
+    memcpy(ndata, arr.data, size)
+    arr.data = ndata
+    arr.realLength = arr.length
+    arr.parent = null
+}
+
+
 __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     if arr == null {
         panic("Trying to set value of null array.")
         return
+    }
+
+    if arr.parent != null {
+        arrayDuplicate(arr)
     }
 
     if index >= arr.length {
@@ -568,7 +587,7 @@ allocateArray(arr Bah_Array_Type*, nbElems uint) {
 
 buffToStr(b char*) str {
     l = strlen(b)
-    r uint32* = memoryAllocSTR(l + 5)
+    r uint32* = memoryAllocSTR_NZ(l + 5)
     *r = l
     memcpy(<ptr>(<uint>r+4), b, l)
     return <str>r
@@ -579,7 +598,7 @@ cStrToBah(b char*) str {
         return null
     }
     l = strlen(b)
-    r uint32* = memoryAllocSTR(l + 5)
+    r uint32* = memoryAllocSTR_NZ(l + 5)
     *r = l
     memcpy(<ptr>(<uint>r+4), b, l)
     return <str>r
@@ -601,7 +620,8 @@ strSubstitute(s str, i uint, l uint) str {
 	if i < 0 || size < 0 || size > len(s) {
 		panic("builtin: str substitution out of bounds violation.")
 	}
-	ns uint32* = memoryAllocSTR(size+5)
+
+	ns uint32* = memoryAllocSTR_NZ(size+5)
     *ns = size
 	memcpy(<ptr>(<uint><ptr>ns + strLenSize), <ptr>(<uint><ptr>s + i + strLenSize), size)
 	return <str>ns
@@ -609,6 +629,24 @@ strSubstitute(s str, i uint, l uint) str {
 
 //Used by the compiler for operations like array[start:end].
 arraySubstitute(arr Bah_Array_Type*, i int, l int) Bah_Array_Type* {
+	length = l - i
+	if i < 0 || length < 0 || length > arr.length {
+		panic("builtin: array substitution out of bounds violation.")
+	}
+	offset int = i * arr.elemSize
+
+	na = new Bah_Array_Type {
+        elemSize: arr.elemSize
+        length: length
+        parent: arr
+    }
+
+	na.data = <ptr>(<uint>arr.data + offset)
+	return na
+}
+
+//Used by the compiler for operations like array[start:end].
+arraySubstituteAndCopy(arr Bah_Array_Type*, i int, l int) Bah_Array_Type* {
 	length = l - i
 	if i < 0 || length < 0 || length > arr.length {
 		panic("builtin: array substitution out of bounds violation.")
@@ -636,7 +674,7 @@ arrToStr(arr []char) str {
         strLen--
     }
     a Bah_Array_Type* = arr
-    str str = memoryAllocSTR(strLen+5)
+    str str = memoryAllocSTR_NZ(strLen+5)
     memcpy(<ptr>(<uint><ptr>str + strLenSize), a.data, strLen)
     ln uint32* = str
     *ln = strLen
@@ -648,10 +686,9 @@ strToArr(str str) []char {
     strLen = len(str)
     arr = []char
     a Bah_Array_Type* = arr
-    a.data = memoryAlloc(strLen+1)
+    a.data = memoryAllocSTR_NZ(strLen+1)
     memcpy(a.data, <ptr>(<uint><ptr>str + strLenSize), strLen)
-    a.length = strLen
-    
+    a.length = strLen    
     return arr
 }
 
@@ -692,3 +729,7 @@ struct strBuilder {
 
 //need to find wtf is hapening here
 // #init putchar(<char>0) //fixes bug where libc not initialized if not called from main thread.
+
+#debug {
+    #include "time.bah"
+}

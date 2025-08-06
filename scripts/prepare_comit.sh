@@ -7,7 +7,7 @@ echo "Ok"
 
 echo "Compiling binary..."
 rm libs/bah
-src/main src/main.bah -o ./libs/bah
+src/main src/main.bah -o ./libs/bah -trim
 echo "Ok"
 
 git add .

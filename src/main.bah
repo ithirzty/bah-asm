@@ -2,23 +2,16 @@
 #import "string.bah"
 #import "time.bah"
 #import "json.bah"
+#import "object.bah"
 #import "queue.bah"
 #import "path.bah"
 #import "exec.bah"
 #import "flags.bah"
+#import "dl.bah"
 
 #define printDebugContext()
 
-totalLines = 0
-memoryAllocFunction = "memoryAlloc"
-memoryAllocFunctionSTR = "memoryAllocSTR"
-strCompareFunction = "__bah_compareStr"
-argumentsToArrFunction = "__bah_argsToArr"
-strSplitFunction = "strSubstitute"
-arraySplitFunction = "arraySubstitute"
-threadCreateFunction = "GC_thread_create"
-
-BAH_VERSION = "v0.133 (build 13)"
+BAH_VERSION = "v0.134 (build 14)"
 
 #linux {
     BAH_OS = "linux"
@@ -33,12 +26,21 @@ BAH_VERSION = "v0.133 (build 13)"
 }
 
 isObjectFile = false
+isImportFile = false
 isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
 
-#include "./gen_asm_linux_64.bah"
+
+#import "./lexer.bah"
+#import "./gen_asm_linux_64.bah"
+
+//utils
+#include "./cache.bah"
+#include "./state.bah"
+#include "./types.bah"
+#include "./error.bah"
 
 gen asmContext
 initFnGen asmContext
@@ -46,11 +48,7 @@ globalFuncsGen asmContext
 initFnName = ".__Bah_init"
 compileWaitChannel channel*
 
-#include "./cache.bah"
-#include "./lexer.bah"
-#include "./state.bah"
-#include "./types.bah"
-#include "./error.bah"
+#include "./optimizer.bah"
 #include "./gen.bah"
 #include "./parser.bah"
 
@@ -59,8 +57,12 @@ printDebugContext() {
 }
 
 main(args []str) int {
+    if len(args) == 1 {
+        return 0
+    }
+
     startTime = getTimeUnix() //for timming compilation time
-    compilerPath = absPath(args[0])
+    compilerPath = args[0]
     compileWaitChannel = channel()
 
     gen = asmContext{}
@@ -69,6 +71,7 @@ main(args []str) int {
 
     initFnGen = asmContext{
         code: rope("")
+        staticData: rope("")
         data: rope("")
         bss: rope("")
         debugEnabled: false
@@ -76,6 +79,7 @@ main(args []str) int {
 
     globalFuncsGen = asmContext{
         code: rope("")
+        staticData: rope("")
         data: rope("")
         bss: rope("")
         debugEnabled: false
@@ -87,10 +91,12 @@ main(args []str) int {
     flags.addBool("v", "Get compiler version.")
     flags.addBool("object", "Compile to object file.")
     flags.addBool("silent", "Should not output anything.")
+    flags.addBool("trim", "Removes all debug data.")
     flags.addBool("asm", "Compile to assembly file.")
     flags.addBool("disableOptimizations", "Disables generation optimizations.")
     flags.addBool("noImports", "Redirects #import directive to #include.")
     flags.addBool("debug", "Includes in depth debug informations, useful for debugging. This also redirects imports to includes.")
+    flags.addBool("noBuiltin", "Do not import Bah's runtime.")
 
     flags.parse(args)
 
@@ -101,6 +107,8 @@ main(args []str) int {
     }
 
     parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug")
+    parserCtx.debugEnabled = flags.isSet("debug")
+    gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
 
     isObjectFile = flags.isSet("object")
     isSilent = flags.isSet("silent")
@@ -126,13 +134,33 @@ main(args []str) int {
         "#debug", flags.isSet("debug")
     }
 
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#static", false
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#dynamic", true
+    }
+
     initFnCallRope = rope("")
 
     if isObjectFile == false {
         gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
-        gen.data = rope(".global _start
+        if flags.isSet("noBuiltin") {
+            gen.staticData = rope(".global _start
 _start:
-xorq %rbp, %rbp
+movq %rsp, %rbp
+call "+initFnName+"
+movl (%rsp), %edi
+leaq 8(%rsp), %rsi
+leaq 16(%rsp,%rdi,8), %rdx
+call main
+.data\n")
+            
+        } else {
+            gen.staticData = rope(".global _start
+_start:
+movq %rsp, %rbp
 call "+initFnName+"
 movl (%rsp), %edi
 leaq 8(%rsp), %rsi
@@ -142,20 +170,19 @@ movq %rax, %rdi
 call main
 movl %eax, %edi
 call _exit
-.data
-.global __data_start
-__data_start:\n")
+.data\n")
+        }
+        gen.data = rope("")
         gen.bss = rope(".bss
 .global __bss_start
 __bss_start:\n")
-        gen.code = rope(".text
-.global __bss_end
-__bss_end:\n")
+        gen.code = rope(".text\n")
         initFnGen.generateFnStart(initFnName, null, 0)
     } else {
         gen.debugEnabled = false
         gen.debugInfo = rope("")
-        gen.data = rope(".data\n")
+        gen.staticData = rope(".data\n")
+        gen.data = rope("")
         gen.bss = rope(".bss\n")
         gen.code = rope(".text\n")
     }
@@ -181,14 +208,10 @@ __bss_end:\n")
 
     gen.generateFileLocation(parserCtx.currentFilePath)
 
-
-    if isObjectFile {
-        parserCtx.declareMode = true
+    if absPath(BAH_DIR + "builtin.bah") != absPath(file) && flags.isSet("noBuiltin") == false {
+        importFile(BAH_DIR + "builtin.bah")
     }
 
-    includeFile(BAH_DIR + "builtin.bah")
-
-    parserCtx.declareMode = false
 
     parseLines(tokens, 0, len(tokens))
 
@@ -230,13 +253,20 @@ __bss_end:\n")
 
     if isObjectFile == false {
         initFnGen.generateFnEnd()
+        gen.bss += rope(".global __bss_end\n__bss_end:\n")
+        gen.data = gen.staticData + gen.debugInfo + rope(".global __data_start\n__data_start:\n") + gen.data
         gen.code += initFnGen.code + globalFuncsGen.code
     } else {
+        gen.data = gen.staticData + gen.data
         gen.code += globalFuncsGen.code
     }
 
     if isSilent == false {
         println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\033[0m")
+    }
+
+    i=0; for i < len(evalTmpOFiles), i++ {
+        removeFile(evalTmpOFiles[i])
     }
 
 
@@ -255,15 +285,10 @@ __bss_end:\n")
         
 
         fs.open(fileName, "w")
-        fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
+        fs.writeFile((gen.data + gen.bss + gen.code).toStr())
         fs.close()
         return 0
     }
-
-    // fs.open(fileNameNoExt+".S", "w")
-    // fs.writeFile((gen.data + gen.debugInfo + gen.bss + gen.code).toStr())
-    // fs.close()
-    
 
     if isObjectFile {
         i=len(fileName)-1; for i != -1, i-- {
@@ -279,17 +304,15 @@ __bss_end:\n")
         }
         
 
-        cmd = command("as -g -o "+fileName)
-        cmd.input = (gen.data + gen.debugInfo + gen.bss + gen.code).toStr()
+        cmd = command("as -f -o "+fileName)
+        cmd.input = (gen.data + gen.bss + gen.code).toStr()
         cmd.run()
-        removeFile(fileNameNoExt+".S")
         return 0
     }
 
-    cmd = command("as -o "+fileNameNoExt+".o")
-    cmd.input = (gen.data + gen.debugInfo + gen.bss + gen.code).toStr()
+    cmd = command("as -f -o "+fileNameNoExt+".o")
+    cmd.input = (gen.data + gen.bss + gen.code).toStr()
     err = cmd.run()
-    // removeFile(fileNameNoExt+".S")
 
     if cmd.status != 0 {
         println("Error assembling program")

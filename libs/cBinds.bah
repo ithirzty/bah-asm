@@ -163,11 +163,7 @@ const S_IFIFO = 0010000
 const S_ISUID = 0004000
 
 struct dirent {
-	d_ino: uint
-	d_off: int
-	d_reclen: uint16
-	d_type: byte
-    d_name: buffer:256
+    pad: buffer:280
 }
 
 struct _IO_FILE {

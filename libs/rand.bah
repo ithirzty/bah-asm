@@ -13,7 +13,7 @@ RAND_SEEDED = false
 //If two instances of a PRNG have the same seed, they will have the same output.
 seedRandom(i int) {
     srand(i)
-    RAND_SEEDED = 1
+    RAND_SEEDED = true
 }
 
 //This generates a pseudo random integer in the range of min and max.

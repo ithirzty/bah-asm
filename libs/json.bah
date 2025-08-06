@@ -186,7 +186,32 @@ json_scan_inner(thisp ptr, e reflectElement) {
         return
     }
 
+    //is tuple
+    if e.isStruct == false && len(e.structLayout) != 0 {
+        i=0; for i < len(this.children), i++ {
+            if i >= len(e.structLayout) {
+                break
+            }
+
+            m = e.structLayout[i]
+
+            if jsonIsPtrType(m.type) && m.type != "str" {
+                m.value = memoryAlloc(m.size)
+                json_scan_inner(this.children[i], m)
+                p = <ptr*>(<uint>value + m.offset)
+                *p = m.value
+            } else {
+                m.value = <ptr>(<uint>value + m.offset)
+                json_scan_inner(this.children[i], m)
+            }
+        }
+    }
+
     //For all primitive types, value will be a pointer, the address to which we need to scan the data.
+
+    if this.str() == "null" {
+        return
+    }
 
     if type == "str" {
         v = <str*>value
@@ -474,12 +499,12 @@ json_isPrintable(c char) bool {
 
 //Used for escaping strings for json marshalling.
 jsonEscapeStr(s str) str {
-    if s == null {
+    if <ptr>s == null {
         return ""
     }
     r = strBuilder{}
     l = len(s)
-    
+
     i=0; for i < l, i++ {
         c = s[i]
         if c == <char>34 {
@@ -594,6 +619,28 @@ toJsonRope(e reflectElement) rope* {
         return r + rope("}")   
     }
 
+    //is tuple
+    if e.isStruct == false && len(e.structLayout) != 0 {
+        r = rope("[")
+        i=0; for i < len(e.structLayout), i++ {
+            m = e.structLayout[i]
+            
+            m.value = <ptr>(<uint>e.value + m.offset)
+            
+            if jsonIsPtrType(m.type) {
+                m.value = *<ptr*>m.value
+            }
+
+            r += toJsonRope(m)
+
+            if i+1 < len(e.structLayout) {
+                r += rope(", ")
+            }
+        }
+
+        return r + rope("]")
+    }
+
     //If the reflectElement is an array, we need to convert all of its elements
     ///as described by .arrayElem.
     if e.isArray {
@@ -633,15 +680,15 @@ toJsonRope(e reflectElement) rope* {
     }
 
     if type == "int32" {
-        return rope(intToStr(*(<int32*>value)))
+        return rope(intToStr(<int>*(<int32*>value)))
     }
 
     if type == "int16" {
-        return rope(intToStr(*(<int16*>value)))
+        return rope(intToStr(<int>*(<int16*>value)))
     }
 
     if type == "char" {
-        return rope(intToStr(*(<char*>value)))
+        return rope(intToStr(<int>*(<char*>value)))
     }
 
     if type == "uint" {
@@ -653,11 +700,11 @@ toJsonRope(e reflectElement) rope* {
     }
 
     if type == "uint16" {
-        return rope(uintToStr(*(<uint16*>value)))
+        return rope(uintToStr(<uint>*(<uint16*>value)))
     }
 
     if type == "byte" {
-        return rope(uintToStr(*(<byte*>value)))
+        return rope(uintToStr(<uint>*(<byte*>value)))
     }
 
     if type == "float" {

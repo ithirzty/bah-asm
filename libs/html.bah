@@ -22,7 +22,7 @@ struct htmlElement {
                     attr.trimLeft(strlen(attrName) + 1)
                     return attr.str()
                 }
-            } else if attr.compare(name) == 1 {
+            } else if attr.compare(name) {
                 return "true"
             }
             i++
@@ -96,14 +96,14 @@ struct htmlElement {
 //Returns true if the char is either a letter, '-' or '_'
 //*Note: this is an internal function.*
 isValidHTMLStringChar(c char) bool {
-    return isLetter(c) == 1 || c == '-' || c == '_' || c == '!' || isNumber(c)
+    return isLetter(c) || c == '-' || c == '_' || c == '!' || isNumber(c)
 }
 
 //Used for skipping white spaces inside the current char array.
 //*Note: this is an internal function.*
 skipHTMLspace(s str, i int) int {
     for i < len(s) {
-        if isSpace(s[i]) == 0 {
+        if isSpace(s[i]) == false {
             break
         }
         i++
@@ -377,9 +377,9 @@ parseHTMLElements(s str, parent htmlElement*) []htmlElement* {
                     content.append(c)
                     ti = len(text.str())
                     if ti > 0 {
-                        if isSpace(text.str()[ti-1]) == 1 && isSpace(c) == 0 {
+                        if isSpace(text.str()[ti-1]) && isSpace(c) == false {
                                 text.append(c)
-                        } else if isSpace(text.str()[ti-1]) == 0 || isSpace(c) == 0 {
+                        } else if isSpace(text.str()[ti-1]) == false || isSpace(c) == false {
                                 text.append(c)
                         }
                     } else {

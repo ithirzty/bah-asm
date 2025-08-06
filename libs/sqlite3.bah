@@ -11,35 +11,38 @@
 #define sqlite3_exec(ppDb sqlite3_ptr, sql char*, callback ptr, data ptr, err char**) int32
 #define sqlite3_free(err ptr)
 
+#define sqlite3_prepare_v3(db sqlite3_ptr, zSql char*, nByte int32, prepFlags uint32, ppStmt sqlite3_ptr*, pzTail char**) int32
+#define sqlite3_finalize(pstmt sqlite3_ptr)
+#define sqlite3_step(pstmt sqlite3_ptr) int32
+#define sqlite3_column_text(pstmt sqlite3_ptr, nb int32) char*
+#define sqlite3_column_blob(pstmt sqlite3_ptr, nb int32) ptr
+#define sqlite3_column_name(pstmt sqlite3_ptr, nb int32) char*
+#define sqlite3_column_type(pstmt sqlite3_ptr, nb int32) int32
+#define sqlite3_column_bytes(pstmt sqlite3_ptr, nb int32) int32
+
+#define sqlite3_bind_blob(pstmt sqlite3_ptr, nb int32, p ptr, l int32, trail ptr) int32
+#define sqlite3_bind_double(pstmt sqlite3_ptr, nb int32, f float) int32
+#define sqlite3_bind_int(pstmt sqlite3_ptr, nb int32, i int32) int32
+#define sqlite3_bind_int64(pstmt sqlite3_ptr, nb int32, i int) int32
+#define sqlite3_bind_text(pstmt sqlite3_ptr, nb int32, s char*, l int32, trail ptr) int32
+
+#define sqlite3_errmsg(db sqlite3_ptr) char*
+
+const SQLITE_ROW = 100
+const SQLITE_DONE = 101
+
+const SQLITE_INTEGER = 1
+const SQLITE_FLOAT = 2
+const SQLITE_TEXT = 3
+const SQLITE_BLOB = 4
+
 // #static {
 //     #warning "Lib sqlite3 is usually compilled dynamically (-d), may not link."
 // }
 
 VERBOSE_SQLITE3 = false
 
-//Scans a row element to a variable.
-dbResponse_scan_inner(e reflectElement, val str) {
-    typeS = string(e.type)
-    typeS.replace("*", "")
-    type = typeS.str()
-    if type == "int" {
-        ep int* = e.value
-        *ep = strToInt(val)
-    } else if type == "str" {
-        ep str* = e.value
-        if <ptr>val == null {
-            *ep = null
-        } else {
-            *ep = val
-        }
-    } else if type == "float" {
-        ep float* = e.value
-        *ep = strToFloat(val)
-    } else if type == "bool" {
-        ep bool* = e.value
-        *ep = <bool>strToInt(val)
-    }
-}
+#define dbResponse_scan_inner(thisp ptr, e reflectElement)
 
 //A single row of a SQL response.
 struct dbResponseRow {
@@ -48,31 +51,187 @@ struct dbResponseRow {
 
     //Scans the row to a variable.
     scan(e reflectElement) {
-        if e.isStruct == true {
-            i=0; for i < len(this.cols) {
-                pc = this.cols[i]
-                if <ptr>pc == null {
-                    i++
-                    continue
-                }
-                j=0; for j < len(e.structLayout) {
-                    m = e.structLayout[j]
-                    m.value = m.calculateOffset(e.value)
-                    e.structLayout[j] = m
-                    if m.name == this.cols[i] {
-                        dbResponse_scan_inner(m, this.argv[i])
-                        break
-                    }
-                    j++
-                }
-                i++
+        dbResponse_scan_inner(this, e)
+    }
+
+    str() str {
+        if len(this.argv) == 0 {
+            return ""
+        }
+
+        return this.argv[0]
+    }
+
+    get(name str) str {
+        i=0; for i < len(this.cols), i++ {
+            if this.cols[i] == name {
+                return this.argv[i]
             }
+        }
+
+        return ""
+    }
+}
+
+dbResponse_scan_str(s str, type str, value ptr) {
+
+    if type == "str" {
+        v = <str*>value
+        *v = s
+        return
+    }
+
+    if type == "int" {
+        v = <int*>value
+        *v = strToInt(s)
+        return
+    }
+
+    if type == "int32" {
+        v = <int32*>value
+        *v = strToInt(s)
+        return
+    }
+
+    if type == "int16" {
+        v = <int16*>value
+        *v = strToInt(s)
+        return
+    }
+
+    if type == "uint" {
+        v = <uint*>value
+        *v = strToUint(s)
+        return
+    }
+
+    if type == "uint32" {
+        v = <uint32*>value
+        *v = strToUint(s)
+        return
+    }
+
+    if type == "uint16" {
+        v = <uint16*>value
+        *v = strToUint(s)
+        return
+    }
+
+    if type == "byte" || type == "char" {
+        v = <byte*>value
+        *v = strToUint(s)
+        return
+    }
+
+    if type == "float" {
+        v = <float*>value
+        *v = strToFloat(s)
+        return
+    }
+
+    if type == "float32" {
+        v = <float32*>value
+        *v = strToFloat(s)
+        return
+    }
+
+    if type == "bool" {
+        v = (<bool*>value)
+        if s == "true" || strToInt(s) > 0 {
+            *v = true
+            
         } else {
-            dbResponse_scan_inner(e, this.argv[0])
+            *v = false
+        }
+        return
+    }
+
+    if type == "[]byte" {
+        //The reflectElement is an array.
+        //.arrayElement contains a template for every element of the array.
+        arr Bah_Array_Type* = value //converting the pointer to the internal Bah_Array_Type to access its length and others
+
+        arr.elemSize = 1
+        
+        allocateArray(arr, len(s)) //allocate enough space in the array to fit all the elements.
+        
+        i=<uint>0; for i < len(s), i++ {
+            //If the element is of type pointer, we should allocate memory to scan to and inject the pointer to the allocated
+            //memory as the array's element.
+            ev = <byte*>(<uint>arr.data + i * arr.elemSize)
+            *ev = s[i]
+        }
+
+    }
+}
+
+//Scans a row element to a variable.
+dbResponse_scan_inner(thisp ptr, e reflectElement) {
+    this dbResponseRow* = thisp
+
+    //dereferencing the mutable members of the refleElement to prevent undefined behavior.
+    type = e.type
+    value = e.value
+
+    if value == null {
+        return
+    }
+
+    //if there is multiple pointer levels, dereference until the pointer level == 1.
+    nb = 0 //the number of nested pointers
+    if e.isArray == false {
+        if type[len(type)-1] == '*' {
+            nb++
+        }
+        i = len(type)-1; for i >= 1, i-- {
+            if type[i] == '*' && type[i-1] == '*' {
+                value = *(<ptr*>value)
+                nb++
+            } else {
+                break
+            }
+        }
+        if nb > 0 {
+            type = type[:len(type)-nb]
         }
     }
 
+    //trying to scan a value at an address that has not been allocated.
+    if value == null {
+        return
+    }
+
+    //The reflectElement is a structure.
+    //.structLayout contains a template for every member of the structure.
+    if e.isStruct {
+        i=0; for i < len(e.structLayout), i++ {
+            member = e.structLayout[i]
+            valStr = this.get(member.name)
+            
+            //there is no json member with this name
+            if len(valStr) == 0 {
+                continue
+            }
+
+            //If the member is of type pointer, we need to allocated memory and inject
+            //the pointer to the allocated memory as the member's value.
+            if reflectIsPtrType(member.type) && member.type != "str" { //str will not count as a pointer because we dont 
+                member.value = memoryAlloc(member.size)             //want to acces the content of the str (chars) but the address of the chars.
+                dbResponse_scan_str(valStr, member.type, member.value)
+                p = <ptr*>(<uint>value + member.offset)
+                *p = member.value
+            } else { //Else, we scan directly the value to the member's address
+                member.value = <ptr>(<uint>value + member.offset)
+                dbResponse_scan_str(valStr, member.type, member.value)
+            }
+        }        
+        return
+    }
+
+    //For all primitive types, value will be a pointer, the address to which we need to scan the data.
+    dbResponse_scan_str(this.str(), type, value)
 }
+
 
 //A wrapper for a response from a SQL execution.
 struct dbResponse {
@@ -98,131 +257,95 @@ struct dbResponse {
             return
         }
 
-        e = reflectUnwrapPtr(e, true)
+        if e.isArray == false {
+            this.rows[0].scan(e)
+        } else {
+            arr = <Bah_Array_Type*>e.value
+            isPtr = e.arrayElem.type != "str" && reflectIsPtrType(e.arrayElem.type) //str will not count as a pointer because we dont want
 
-        if e.isArray == true {
-            ae = e.arrayElem
-            if ae.isStruct == true {
-                arr = <[]ptr>e.value
-                barr = <Bah_Array_Type*>arr
-                barr.elemSize = ae.size
-                if strCount(ae.type, "*") != 0 || ae.type == "ptr" || strHasPrefix(ae.type, "[]") || strHasPrefix(ae.type, "map:") {
-                    allocateArray(arr, len(this.rows))
-                    i=0; for i < len(this.rows), i++ {
-                        r = this.rows[i]
-                        ae.value = memoryAlloc(ae.size)
-                        r.scan(*ae)
-                        arr[i] = ae.value
-                    }
+            if isPtr {
+                arr.elemSize = sizeof(ptr)
+            } else {
+                arr.elemSize = e.arrayElem.size
+            }
+
+            allocateArray(arr, len(this.rows))
+            elem = *(e.arrayElem) //dereference .arrayElement to prevent undefined behavior.
+            
+
+            i=0; for i < len(this.rows), i++ {
+                if isPtr {
+                    elem.value = memoryAlloc(elem.size)
+                    elemp = <ptr*>(<uint>arr.data + i * sizeof(ptr))
+                    *elemp = elem.value
+                    this.rows[i].scan(elem)
                 } else {
-                    allocateArray(arr, len(this.rows))
-                    i=0; for i < len(this.rows), i++ {
-                        r = this.rows[i]
-                        ae.value = &arr[i]
-                        r.scan(*ae)
-                    }
-                }
-            } else if ae.type == "int" {
-                arr = <[]int>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v int
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "uint" {
-                arr = <[]uint>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v uint
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "int32" {
-                arr = <[]int32>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v int32
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "uint32" {
-                arr = <[]uint32>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v uint32
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "float" {
-                arr = <[]float>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v float
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "float32" {
-                arr = <[]float32>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v float32
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "str" {
-                arr = <[]str>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v = ""
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
-                }
-            } else if ae.type == "bool" {
-                arr = <[]bool>(e.value)
-                i=0; for i < len(this.rows) {
-                    r = this.rows[i]
-                    v bool
-                    r.scan(&v)
-                    arr[i] = v
-                    i++
+                    elem.value = <ptr>(<uint>arr.data + i * arr.elemSize)
+                    this.rows[i].scan(elem)
                 }
             }
-        } else {
-            r = this.rows[0]
-            r.scan(e)
+
         }
     }
 
 }
 
-//Inserts new row in the response.
-fillDBresponse(data ptr, argc int32, argv str*, azColName char**) int32 {
-    dbr dbResponse* = data
-    row = new dbResponseRow
-    i=0; for i < argc {
-        azColNameIndex = <char*>(<uint>azColName + i * sizeof(char*))
-        argvIndex = <char*>(<uint>argv + i * sizeof(char*))
-
-        if azColNameIndex == null || argvIndex == null {
-            i++
-            continue
-        }
-        col = cStrToBah(azColNameIndex)
-        arg = cStrToBah(argvIndex)
-        row.cols[i] = col
-        row.argv[i] = arg 
-        i++
+dbExec_bind_inner(pstmt sqlite3_ptr, e reflectElement, n uint) bool {
+    if e.type == "char" {
+        return sqlite3_bind_int(pstmt, n, <int32>*<char*>e.value) == 0
     }
-    dbr.rows[len(dbr.rows)] = row
-    return 0
+
+    if e.type == "int16" {
+        return sqlite3_bind_int(pstmt, n, <int32>*<int16*>e.value) == 0
+    }
+
+    if e.type == "int32" {
+        return sqlite3_bind_int(pstmt, n, *<int32*>e.value) == 0
+    }
+
+    if e.type == "int" {
+        return sqlite3_bind_int64(pstmt, n, *<int*>e.value) == 0
+    }
+
+    if e.type == "byte" {
+        return sqlite3_bind_int(pstmt, n, <int32>*<byte*>e.value) == 0
+    }
+
+    if e.type == "uint16" {
+        return sqlite3_bind_int(pstmt, n, <int32>*<uint16*>e.value) == 0
+    }
+
+    if e.type == "uint32" {
+        return sqlite3_bind_int(pstmt, n, *<uint32*>e.value) == 0
+    }
+
+    if e.type == "uint" {
+        return sqlite3_bind_int64(pstmt, n, *<int*>e.value) == 0
+    }
+
+    if e.type == "str" {
+        return sqlite3_bind_text(pstmt, n, <str>e.value, len(<str>e.value), null) == 0
+    }
+
+    if e.type == "[]byte" {
+        arr = <Bah_Array_Type*>e.value
+        return sqlite3_bind_blob(pstmt, n, arr.data, arr.length, null) == 0
+    }
+
+    if e.type == "float32" {
+        f = *<float32*>e.value
+        return sqlite3_bind_double(pstmt, n, <float>f) == 0
+    }
+
+    if e.type == "float" {
+        return sqlite3_bind_double(pstmt, n, *<float*>e.value) == 0
+    }
+
+    if e.type == "bool" {
+        return sqlite3_bind_int(pstmt, n, <int32>*<bool*>e.value) == 0
+    }
+
+    return false
 }
 
 //Wrapper for a sqlite3 database.
@@ -239,18 +362,136 @@ struct db {
         sqlite3_close(this.DB)
     }
 
-    //Executes a sql command.
     exec(sql str) dbResponse* {
         resp = new dbResponse
-        err char* = null
-        sqlite3_exec(this.DB, sql, fillDBresponse, resp, &err)
-        if err != null {
-            resp.err = cStrToBah(err)
+        pstmt sqlite3_ptr
+        rc = sqlite3_prepare_v3(this.DB, sql, len(sql), 0, &pstmt, null)
+
+        if rc != 0 {
             if VERBOSE_SQLITE3 {
-                println(resp.err)
+                println(cStrToBah(sqlite3_errmsg(this.DB)))
             }
-            sqlite3_free(err)
+            sqlite3_finalize(pstmt)
+            return null
         }
+
+        //not binding text yet
+
+        n = sqlite3_step(pstmt)
+
+        for n == SQLITE_ROW, n = sqlite3_step(pstmt) {
+            row = new dbResponseRow
+            i=0; for true, i++ {
+                cName = sqlite3_column_name(pstmt, i)
+                if cName == null {
+                    break
+                }
+                row.cols[len(row.cols)] = cStrToBah(cName)
+
+                if sqlite3_column_type(pstmt, i) >= SQLITE_TEXT  {
+                    size = sqlite3_column_bytes(pstmt, i)
+                    r = <uint32*>memoryAllocSTR(size + 5)
+                    *r = size
+                    memcpy(<ptr>(<uint>r + 4), sqlite3_column_blob(pstmt, i), size)
+                    row.argv[len(row.argv)] = <str>r
+                } else {
+                    row.argv[len(row.argv)] = cStrToBah(sqlite3_column_text(pstmt, i))
+                }
+
+            }
+            resp.rows[len(resp.rows)] = row
+        }
+
+        if n != SQLITE_DONE {
+            if VERBOSE_SQLITE3 {
+                println(cStrToBah(sqlite3_errmsg(this.DB)))
+            }
+            sqlite3_finalize(pstmt)
+            return null
+        }
+
+        sqlite3_finalize(pstmt)
+
+        return resp
+    }
+
+    execWithValues(sql str, values reflectElement) dbResponse* {
+        resp = new dbResponse
+        pstmt sqlite3_ptr
+
+        rc = sqlite3_prepare_v3(this.DB, sql, len(sql), 0, &pstmt, null)
+
+        if rc != 0 {
+            if VERBOSE_SQLITE3 {
+                println(cStrToBah(sqlite3_errmsg(this.DB)))
+            }
+            sqlite3_finalize(pstmt)
+            return null
+        }
+
+        if values.isStruct == false && len(values.structLayout) != 0 {
+            i=0; for i < len(values.structLayout), i++ {
+                m = values.structLayout[i]
+                
+                m.value = <ptr>(<uint>values.value + m.offset)
+                
+                if reflectIsPtrType(m.type) {
+                    m.value = *<ptr*>m.value
+                }
+
+                if dbExec_bind_inner(pstmt, m, i+1) == false {
+                    if VERBOSE_SQLITE3 {
+                        println("Invalid binding nb "+uintToStr(i+1)+": "+cStrToBah(sqlite3_errmsg(this.DB)))
+                    }
+                    sqlite3_finalize(pstmt)
+                    return null
+                }
+            }
+        } else {
+            if dbExec_bind_inner(pstmt, values, 1) == false {
+                if VERBOSE_SQLITE3 {
+                    println("Invalid binding: "+cStrToBah(sqlite3_errmsg(this.DB)))
+                }
+                sqlite3_finalize(pstmt)
+                return null
+            }
+        }
+
+        n = sqlite3_step(pstmt)
+
+        for n == SQLITE_ROW, n = sqlite3_step(pstmt) {
+            row = new dbResponseRow
+            i=0; for true, i++ {
+                cName = sqlite3_column_name(pstmt, i)
+                if cName == null {
+                    break
+                }
+                row.cols[len(row.cols)] = cStrToBah(cName)
+
+                if sqlite3_column_type(pstmt, i) >= SQLITE_TEXT  {
+                    size = sqlite3_column_bytes(pstmt, i)
+                    r = <uint32*>memoryAllocSTR(size + 5)
+                    *r = size
+                    memcpy(<ptr>(<uint>r + 4), sqlite3_column_blob(pstmt, i), size)
+                    row.argv[len(row.argv)] = <str>r
+                } else {
+                    row.argv[len(row.argv)] = cStrToBah(sqlite3_column_text(pstmt, i))
+                }
+
+            }
+            resp.rows[len(resp.rows)] = row
+        }
+
+        if n != SQLITE_DONE {
+            if VERBOSE_SQLITE3 {
+                println(cStrToBah(sqlite3_errmsg(this.DB)))
+            }
+            sqlite3_finalize(pstmt)
+            return null
+        }
+
+        sqlite3_finalize(pstmt)
+
         return resp
     }
 

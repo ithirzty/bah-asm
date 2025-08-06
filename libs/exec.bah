@@ -17,6 +17,44 @@ struct command {
 
     handle: ptr
 
+    open() bool {
+        cm = this.command
+        if this.error == false {
+            cm += " 2>/dev/null"
+        } else {
+            cm += " 2>&1"
+        }
+        this.handle = popen(cm, "w")
+        return this.handle != null
+    }
+
+    write(s str) {
+        fputs(s, this.handle)
+    }
+
+    read() str {
+        buff = memoryAllocSTR(1024)
+        response str = memoryAllocSTR(1)
+        res = <ptr>response
+        i=0; for res != null, i++ {
+            memset(buff, 0, 1024)
+            res = fgets(<ptr>buff, 1023, this.handle)
+            if res == null || res == <ptr>-1 {
+                break
+            }
+            response = memoryRealloc(response, (i+1)*1023)
+            ln int* = response
+            *ln = (i+1)*1023
+            memcpy(<ptr>(<int>response + strLenSize + i*1023), <ptr>(<uint>buff + strLenSize), 1024)
+        }
+        return response
+    }
+
+    close() int {
+        this.status = pclose(this.handle)
+        return this.status
+    }
+
     //To run the command.
     //This returns a str containning the output of the command.
     run() str {

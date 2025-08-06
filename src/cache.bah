@@ -41,16 +41,16 @@ pathToVarName(p str) str {
 readCache()  {
     cacheMutex = mutex()
     fs = fileStream{}
-    fs.open(BAH_DIR + "cache/cache.json", "r")
+    fs.open(BAH_DIR + "cache/cache.bobj", "r")
     if fs.isValid() == false || fs.getSize() == 0 {
         makeDir(BAH_DIR + "cache", S_IRWXU)
-        fs.createFile(BAH_DIR + "cache/cache.json")
+        fs.createFile(BAH_DIR + "cache/cache.bobj")
         return
     }
     if fs.getSize() > 0 {
-        j = parseJson(fs.readContent())
+        cache = <[]cacheFile*>fromObject(fs.readBytes())
+        // println(toJson(cache))
         fs.close()
-        j.scan(cache)
     }
 }
 
@@ -118,8 +118,8 @@ makeCacheFile(f str, incls []str) {
 //Used for saving the runtime copy of the cache to the cache file.
 writeCache() {
     fs = fileStream{}
-    fs.open(BAH_DIR + "cache/cache.json", "w")
-    fs.writeFile(toJson(cache))
+    fs.open(BAH_DIR + "cache/cache.bobj", "w")
+    fs.writeBytes(toObject(cache))
     fs.close()
 }
 

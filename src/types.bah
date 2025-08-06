@@ -1,6 +1,6 @@
 reversableCompatibleTypes(a bahType*, b bahType*, isRev bool) bool {
     //handle struct types, fn...
-    if a.type == BAH_TYPE_PTR && (b.isPtr || b.isNativePtr) {
+    if a.type == BAH_TYPE_PTR && (b.isPtr || b.isNativePtr || b.type == BAH_TYPE_TUPLE) {
         return true
     }
 
@@ -65,5 +65,78 @@ compatibleTypes(a bahType*, b bahType*) bool {
 }
 
 isSameType(a bahType*, b bahType*) bool {
-    return a.toStr() == b.toStr()
+    if a.type != b.type || a.size != b.size {
+        return false
+    }
+
+    if a.type == BAH_TYPE_STRCT {
+        return a.child.name == b.child.name
+    }
+
+    if a.type == BAH_TYPE_ARRAY {
+        return isSameType(a.child, b.child)
+    }
+    
+    if a.type == BAH_TYPE_FUNC {
+        if a.ret != null && b.ret == null || a.ret == null && b.ret != null {
+            return false
+        }
+
+        if a.ret != null && isSameType(a.ret, b.ret) == false {
+            return false
+        }
+
+        argA = a.child
+        argB = b.child
+        for argA != null, argA = argA.next {
+            if argB == null {
+                return false
+            }
+
+            if isSameType(argA, argB) == false {
+                return false
+            }
+
+            argB = argB.next
+        }
+
+        return argB == null
+    }
+
+    if a.type == BAH_TYPE_TUPLE {
+        argA = a.child
+        argB = b.child
+        for argA != null, argA = argA.next {
+            if argB == null {
+                return false
+            }
+
+            if isSameType(argA, argB) == false {
+                return false
+            }
+
+            argB = argB.next
+        }
+
+        return argB == null
+    }
+    
+    return true
+}
+
+containsPtr(type bahType*) bool {
+    if type.isPtr || type.isNativePtr || type.type == BAH_TYPE_PTR {
+        return true
+    }
+
+    if type.type == BAH_TYPE_STRCT {
+        field = type.child.next
+        for field != null, field = field.next {
+            if containsPtr(field) {
+                return true
+            }
+        }
+    }
+
+    return false
 }

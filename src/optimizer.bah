@@ -1,0 +1,170 @@
+//optimization done on bahValue trees
+
+falseSym = asmSymbol {
+    name: "$0"
+    size: 1
+    isValue: true
+    active: true
+}
+
+trueSym = asmSymbol {
+    name: "$1"
+    size: 1
+    isValue: true
+    active: true
+}
+
+#define generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol
+
+isValueSafe(val bahValue*) bool {
+
+    for val.value == BAH_VALUE_CAST {
+        val = val.left
+    }
+
+    if val.value == BAH_VALUE_DECLARATION {
+        //more complex behavior
+        return false
+    }
+
+    if val.value == BAH_VALUE_SPLIT || val.value == BAH_VALUE_INDEXED || val.value == BAH_VALUE_UNARY {
+        return false
+    }
+
+    if val.value == BAH_VALUE_STRUCT {
+        if val.left.type.isPtr {
+            return false
+        }
+        return isValueSafe(val.left)
+    }
+
+    if val.value == BAH_VALUE_OP {
+        return isValueSafe(val.left) && isValueSafe(val.right)
+    }
+
+    //todo: if a var, return true only if var cannot be null
+
+    if val.value == BAH_VALUE_FUNC_CALL {
+        currArg = val.right
+        for currArg != null, currArg = currArg.right {
+            if isValueSafe(currArg.left) == false {
+                return false
+            }
+        }
+
+        return isValueSafe(val.left)
+    }
+
+    return true
+}
+
+isValueInexpensive(val bahValue*) bool {
+    for val.value == BAH_VALUE_CAST {
+        val = val.left
+    }
+
+    if val.value == BAH_VALUE_STRUCT {
+        if val.left.type.isPtr {
+            return false
+        }
+        return isValueInexpensive(val.left)
+    }
+
+    return val.value != BAH_VALUE_OP && val.value != BAH_VALUE_FUNC_CALL && val.value != BAH_VALUE_INDEXED && val.value != BAH_VALUE_SPLIT && val.value != BAH_VALUE_DECLARATION
+}
+
+//branchless optimization for a || b
+optimizeBranchlessOR(val bahValue*) bahValue* {
+    firstOr = val
+    for firstOr != null, firstOr = firstOr.right {
+
+        if firstOr.value != BAH_VALUE_OP || firstOr.tok.cont != "||" {
+            break
+        }
+
+        if isValueSafe(firstOr.left) == false || isValueInexpensive(firstOr.left) == false {
+            continue
+        }
+
+        if firstOr.right.value != BAH_VALUE_OP || firstOr.right.tok.cont != "||" {
+            if isValueSafe(firstOr.right) && isValueInexpensive(firstOr.right) {
+                firstOr.value = BAH_VALUE_SYM
+                left = generateBahValueSymbol(firstOr.left, null)
+                firstOr.sym = gen.generateOpBitwise(left, generateBahValueSymbol(firstOr.right, null), ASM_OP_BITWISE_OR, true)
+                firstOr.sym.operStart = -1
+                continue
+            }
+        }
+
+        secondOr = firstOr.right
+        parent = firstOr
+        for secondOr != null, secondOr = secondOr.right {
+            if secondOr.value != BAH_VALUE_OP || secondOr.tok.cont != "||" {
+                break
+            }
+
+            if isValueSafe(secondOr.left) && isValueInexpensive(secondOr.left) {
+                secondOr.left.value = BAH_VALUE_SYM
+                left = generateBahValueSymbol(firstOr.left, null)
+                secondOr.left.sym = gen.generateOpBitwise(left, generateBahValueSymbol(secondOr.left, null), ASM_OP_BITWISE_OR, true)
+                firstOr.sym.operStart = -1
+                parent.right = secondOr.right
+                parent = secondOr
+                continue
+            }
+
+            parent = secondOr
+        }
+
+    }
+
+    return val
+}
+
+//branchless optimization for a && b
+optimizeBranchlessAND(val bahValue*) bahValue* {
+    firstAnd = val
+    for firstAnd != null, firstAnd = firstAnd.right {
+
+        if firstAnd.value != BAH_VALUE_OP || firstAnd.tok.cont != "&&" {
+            break
+        }
+
+        if isValueSafe(firstAnd.left) == false || isValueInexpensive(firstAnd.left) == false {
+            continue
+        }
+
+        if firstAnd.right.value != BAH_VALUE_OP || firstAnd.right.tok.cont != "&&" {
+            if isValueSafe(firstAnd.right) && isValueInexpensive(firstAnd.right) {
+                firstAnd.value = BAH_VALUE_SYM
+                left = generateBahValueSymbol(firstAnd.left, null)
+                firstAnd.sym = gen.generateOpBitwise(left, generateBahValueSymbol(firstAnd.right, null), ASM_OP_BITWISE_AND, true)
+                firstAnd.sym.operStart = -1
+                continue
+            }
+        }
+
+        secondAnd = firstAnd.right
+        parent = firstAnd
+        for secondAnd != null, secondAnd = secondAnd.right {
+            if secondAnd.value != BAH_VALUE_OP || secondAnd.tok.cont != "&&" {
+                break
+            }
+
+            if isValueSafe(secondAnd.left) && isValueInexpensive(secondAnd.left) {
+                left = generateBahValueSymbol(firstAnd.left, null)
+                firstAnd.left.value = BAH_VALUE_SYM
+                firstAnd.left.sym = gen.generateOpBitwise(left, generateBahValueSymbol(secondAnd.left, null), ASM_OP_BITWISE_AND, true)
+                firstAnd.left.sym.operStart = -1
+                parent.right = secondAnd.right
+                parent = secondAnd
+                continue
+            }
+
+            parent = secondAnd
+        }
+
+    }
+
+    return val
+}

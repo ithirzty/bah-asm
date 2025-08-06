@@ -432,16 +432,22 @@ floatToStr(x float) str {
         units = <int>x
     }
 
-    for decimals > 0, decimals /= 10 {
-        if (decimals % 10) != 0 {
-            break
-        }    
+    if decimals == 0 {
+        s[i] = '0'
+        i--
+    } else {
+        for decimals > 0, decimals /= 10 {
+            if (decimals % 10) != 0 {
+                break
+            }
+        }
+        for decimals > 0, decimals /= 10 {
+            s[i] = <char>(decimals % 10) + '0'
+            i--
+        }
     }
 
-    for decimals > 0, decimals /= 10 {
-        s[i] = <char>(decimals % 10) + '0'
-        i--
-    }
+
     
     s[i] = '.'
 

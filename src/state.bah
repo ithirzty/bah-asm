@@ -13,10 +13,11 @@ const BAH_TYPE_CUSTOM_TYPE  = 11
 const BAH_TYPE_BUFFER       = 12
 const BAH_TYPE_TUPLE        = 13
 
-const ARR_TYPE_SIZE        = 32
+const ARR_TYPE_SIZE        = 40
 const ARR_LENGTH_OFFSET    = 8
 const ARR_REALENGTH_OFFSET = 16
 const ARR_ELEMSIZE_OFFSET  = 24
+const ARR_PARENT_OFFSET  = 32
 
 const REFLECT_TYPE_SIZE = 72
 
@@ -27,21 +28,30 @@ struct bahFileLoc {
     to:   uint
 }
 
+const BAH_TYPE_FLAG_PURE = 1
+
 struct bahType {
     name:   str
     size:   uint
     offset: uint
-    type:   byte
-
-    isPtr: bool
-    isNativePtr: bool
 
     child: bahType*
     next:  bahType*
     ret:   bahType*
     defaultValue: ptr
+    flags: uint = 0
 
-    loc: bahFileLoc
+    type:   byte
+    isPtr: bool
+    isNativePtr: bool
+
+    isFlagSet(flag uint) bool {
+        return this.flags & flag != 0
+    }
+
+    toggleFlag(flag uint) {
+        this.flags = this.flags ^ flag
+    }
 
     toStr() str {
         if this.isPtr {
@@ -132,7 +142,6 @@ struct bahVariable {
 
     scope: uint
 
-    loc: bahFileLoc
     sym: asmSymbol
     isConst: bool
 }
@@ -141,8 +150,10 @@ struct bahFunction {
     name: str
     type: bahType*
     declared: bool
- 
-    loc: bahFileLoc
+
+    asmInstructions: rope*
+    pureCalls: []bahFunction*
+    call: ptr
 }
 
 const BAH_VALUE_OP          = 1
@@ -161,55 +172,27 @@ const BAH_VALUE_STRUCT      = 13
 const BAH_VALUE_DECLARATION = 14
 const BAH_VALUE_REFLECT     = 15
 // const BAH_VALUE_ASYNC       = 16
+const BAH_VALUE_SYM         = 17
 
 struct bahValue {
-    isPointer: bool
-    isStaticValue: bool
-    isSelfOp: bool
-    isAsync: bool
-    value: byte
-    // isOperation: bool
-    // isStaticValue: bool
-    // isFunctionSym: bool
-    // isFunctionCall: bool
-    // isVariable: bool
-    // isArgumentList: bool
-    // isSelfOp: bool
-    // isUnary: bool
-    // isCast: bool
-    // isIndexed: bool
-    // isSplit: bool
-    // isReg: bool
-    // isStruct: bool
-    // isStructDeclare: bool //todo: do a single .isDeclare and check type when generating
-    // isArrayDeclare: bool
-    // isBufferDeclare: bool
-    // isMapDeclare: bool
-    // isChanDeclare: bool
-    // isTupleDeclare: bool
-    // isReflect: bool
-    // isAsync: bool
-
     pemdas: uint
 
     tok: bahToken
-
     type: bahType*
 
     left: bahValue*
     right: bahValue*
 
     sym: asmSymbol
+
+    isPointer: bool
+    isStaticValue: bool
+    isSelfOp: bool
+    isAsync: bool
+    value: byte
 }
 
 struct bahLeftValue {
-    isVariable: bool //final symbol in the left-val tree
-    isArray:    bool //is only the array in which is the left-val
-    isStruct:   bool //same for struct
-    isBuffer:   bool
-    isMap:      bool
-    isUnary:    bool
-    isTuple:    bool
     type: bahType*
 
     tok: bahToken
@@ -218,6 +201,15 @@ struct bahLeftValue {
     variable: bahVariable*
     left: bahLeftValue*
     right: bahLeftValue*
+
+    isVariable: bool //final symbol in the left-val tree
+    isArray:    bool //is only the array in which is the left-val
+    isStruct:   bool //same for struct
+    isBuffer:   bool
+    isMap:      bool
+    isUnary:    bool
+    isTuple:    bool
+
 
     isArrayRecursive() bool {
         if this.isArray {
@@ -249,6 +241,7 @@ struct parserScope {
     
     parent: parserScope*
     child: parserScope*
+    next: parserScope*
 
     currentFunction: bahFunction*
 }
@@ -259,8 +252,6 @@ struct parserContext {
     types:     []bahType*
 
     scope: uint
-
-    _scopeCtx: []parserScope*
 
     parsedFiles: []str
     compiledFiles: []str
@@ -275,6 +266,7 @@ struct parserContext {
     declareMode: bool
     importDeps: []str
     noImports: bool
+    debugEnabled: bool
     
     scopeCtx: parserScope*
 
@@ -293,10 +285,12 @@ struct parserContext {
 
     startScope(scope parserScope*) {
         this.scope++
-        scope.parent = this.scopeCtx
+        if this.scopeCtx != null {
+            scope.parent = this.scopeCtx
+            scope.next = this.scopeCtx.child
+            this.scopeCtx.child = scope
+        }
         scope.scope = this.scope
-
-        this._scopeCtx[len(this._scopeCtx)] = scope
         this.scopeCtx = scope
     }
 
@@ -304,10 +298,9 @@ struct parserContext {
         this.scope--
         
         if this.scope == 0 {
-            clear(this._scopeCtx)
             this.scopeCtx = null
         } else {
-            this.scopeCtx = this._scopeCtx[this.scope - 1]
+            this.scopeCtx = this.scopeCtx.parent
         }
 
         i=0; for i < len(this.variables), i++ {
@@ -371,26 +364,25 @@ hasScopeReturned(scope parserScope*) bool {
             return true
         }
 
-        i=0; for i < len(parserCtx._scopeCtx), i++ {
-            if parserCtx._scopeCtx[i].parent == scope && parserCtx._scopeCtx[i].child != null && hasScopeReturned(parserCtx._scopeCtx[i]) {
+        child = scope.child
+        for child != null, child = child.next {
+            if hasScopeReturned(child) {
                 return true
             }
         }
         return false
-    } else {
-        currScope = scope.child
-        for currScope != null, currScope = currScope.child {
-            if hasScopeReturned(currScope) == false {
-                return false
-            }
-
-            if currScope.child == null && currScope.isElse == false {
-                return false
-            }
-        }
+    }
     
-        return scope.hasReturned
+    currScope = scope.child
+    for currScope != null, currScope = currScope.child {
+        if hasScopeReturned(currScope) == false {
+            return false
+        }
+
+        if currScope.child == null && currScope.isElse == false {
+            return false
+        }
     }
 
-    return false
+    return scope.hasReturned
 }

@@ -1,0 +1,307 @@
+#import "reflect.bah"
+
+//This library is used for fast serialization and deserializarion of complex types.
+//To serialize a value, use serializedValue = toObject(value).
+//To deserialize, use ptrToValue = fromObject(serializedValue).
+//Note that ptrToValue will not give a pointer to a value that is already a pointer.
+//  For instance, if the value is an array, it will output an array directly.
+
+#define toObjectInner(e reflectElement, arr []byte)
+
+object_realocate_arr(arr Bah_Array_Type*, s uint) {
+    arr.realLength += s
+    arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
+}
+
+//serialization
+
+object_int32toarr(i int32, arr Bah_Array_Type*) {
+    const size = 4
+    if arr.length + size >= arr.realLength {
+        object_realocate_arr(arr, size)
+    }
+
+    p = <int32*>(<uint>arr.data + arr.length)
+    *p = i
+    arr.length += size
+}
+
+object_int32toarrAt(i int32, index uint, arr Bah_Array_Type*) {
+    const size = 4
+    if index + size >= arr.realLength {
+        object_realocate_arr(arr, size)
+    }
+
+    p = <int32*>(<uint>arr.data + index)
+    *p = i
+    if index + size > arr.length {
+        arr.length = index + size + 1
+    }
+}
+
+object_inttoarr(i int32, arr Bah_Array_Type*) {
+    const size = 8
+    if arr.length + size >= arr.realLength {
+        object_realocate_arr(arr, size)
+    }
+
+    p = <int32*>(<uint>arr.data + arr.length)
+    *p = i
+    arr.length += size
+}
+
+object_strtoarr(s str, arr Bah_Array_Type*) {
+    const size = len(s)
+    if arr.length + size >= arr.realLength {
+        object_realocate_arr(arr, size)
+    }
+
+    memcpy(<ptr>(<uint>arr.data + arr.length), <ptr>(<uint>s + 4), size)
+    arr.length += size
+}
+
+object_memtoarr(mem ptr, size uint, arr Bah_Array_Type*) {
+    if arr.length + size >= arr.realLength {
+        object_realocate_arr(arr, size)
+    }
+
+    memcpy(<ptr>(<uint>arr.data + arr.length), mem, size)
+    arr.length += size
+}
+
+object_getRefsFromElem(e reflectElement, offset uint, arr []byte) uint {
+    nb = 0
+
+    i=0; for i < len(e.structLayout), i++ {
+        member = e.structLayout[i]
+        if reflectIsPtrType(member.type) {
+            member.value = *<ptr*>(<uint>e.value + member.offset)
+            if member.value != null {
+                object_int32toarr(offset + member.offset, arr)
+                toObjectInner(member, arr)
+                nb++
+            }
+        } else {
+            if member.isArray || len(member.structLayout) != 0 {
+                member.value = <ptr>(<uint>e.value + member.offset)
+                nb += object_getRefsFromElem(member, offset + member.offset, arr)
+            }
+        }
+
+    }
+
+    return nb
+}
+
+toObjectInner(e reflectElement, arr []byte) {
+    //dereferencing the mutable members of the refleElement to prevent undefined behavior.
+    type = e.type
+    value = e.value
+
+    if value == null {
+        return
+    }
+
+    //Unwrapping nested pointers so "value" is always a pointer, containg the address of the value.
+    //Note that reflectElement.value of an array cannot be a nested pointer and this step
+    //must be skipped for arrays are '*' at the end of an array type is not a nested array
+    //pointer but an array of pointer: if arr = []str, &arr != []str* but &arr[0] == str*.
+    if e.isArray == false {
+        nb = 0
+        if type[len(type)-1] == '*' {
+            //As str type is already a pointer to chars, if we encounter a pointer to a str, we need to
+            //dereference it one level further.
+            //Note that .value of int is the same as the .value of int* because the compiler will always
+            //give a pointer as .value.
+            if strHasPrefix(type, "str*") {
+                value = *(<ptr*>value)
+            }
+            nb++
+        }
+        i = len(type)-1; for i >= 1, i-- {
+            if type[i] == '*' && type[i-1] == '*' {
+                value = *(<ptr*>value)
+                nb++
+            } else {
+                break
+            }
+        }
+        if nb > 0 {
+            type = type[:len(type)-nb]
+        }
+    }
+
+    if value == null {
+        return
+    }
+
+    if type == "str" {
+        size = len(<str>value) + 5
+        object_int32toarr(size, arr)
+        arr[len(arr)] = <byte>1
+        object_memtoarr(value, size, arr)
+        object_int32toarr(0, arr)
+        return
+    }
+
+    object_int32toarr(e.size, arr)
+
+    arr[len(arr)] = <byte>1
+    object_memtoarr(value, e.size, arr)
+
+
+    if e.isStruct {
+        nbRefs = 0
+        nbRefsIndex = len(arr)
+        object_int32toarr(0, arr)
+
+        i=0; for i < len(e.structLayout), i++ {
+            member = e.structLayout[i]
+
+            if reflectIsPtrType(member.type) {
+                member.value = *<ptr*>(<uint>value + member.offset)
+                if member.value != null {
+                    object_int32toarr(member.offset, arr)
+                    toObjectInner(member, arr)
+                    nbRefs++
+                }
+            }
+        }
+
+        object_int32toarrAt(nbRefs, nbRefsIndex, arr)
+
+        return
+    }
+
+    //is tuple
+    if e.isStruct == false && len(e.structLayout) != 0 {
+        nbRefs = 0
+        i=0; for i < len(e.structLayout), i++ {
+            member = e.structLayout[i]
+
+            if reflectIsPtrType(member.type) {
+                member.value = *<ptr*>(<uint>value + member.offset)
+                if member.value != null {
+                    nbRefs++
+                }
+            }
+
+        }
+        object_int32toarr(nbRefs, arr)
+
+        i=0; for i < len(e.structLayout), i++ {
+            member = e.structLayout[i]
+
+            if reflectIsPtrType(member.type) {
+                member.value = *<ptr*>(<uint>value + member.offset)
+                if member.value != null {
+                    object_int32toarr(member.offset, arr)
+                    toObjectInner(member, arr)
+                }
+            }
+        }
+        return
+    }
+
+    if e.isArray {
+        object_int32toarr(1, arr)
+        object_int32toarr(0, arr)
+        arrT = <Bah_Array_Type*>value
+        dataSize = arrT.realLength * arrT.elemSize
+        object_int32toarr(dataSize, arr)
+
+        elem = *(e.arrayElem) //dereferencing .arrayElem to prevent undefined behavior.
+        if reflectIsPtrType(elem.type) == false {
+            arr[len(arr)] = <byte>1
+            object_memtoarr(arrT.data, dataSize, arr)
+
+            nbRefs = 0
+            nbRefsIndex = len(arr)
+            object_int32toarr(0, arr)
+
+            //if type contains refs, get them recursively
+            i=0; for i < arrT.length, i++ {
+                elem.value = <ptr>(<uint>arrT.data + i * arrT.elemSize)
+
+                nbRefs += object_getRefsFromElem(elem, i * arrT.elemSize, arr)
+            }
+
+            object_int32toarrAt(nbRefs, nbRefsIndex, arr)
+            return
+        }
+
+        arr[len(arr)] = <byte>0
+        
+
+        nbRefs = 0
+        nbRefsIndex = len(arr)
+        object_int32toarr(0, arr)
+
+        i=0; for i < arrT.length, i++ {
+            elem.value = *<ptr*>(<uint>arrT.data + i * arrT.elemSize)
+            if elem.value != null {
+                offset = i * arrT.elemSize
+                object_int32toarr(offset, arr)
+                toObjectInner(elem, arr)
+                nbRefs++
+            }
+        }
+
+        object_int32toarrAt(nbRefs, nbRefsIndex, arr)
+
+        return
+    }
+
+    //nb refs
+    object_int32toarr(0, arr)
+
+}
+
+fromObjectInner(obj Bah_Array_Type*, offset uint) [ptr, uint] {
+    size = *<int32*>(<uint>obj.data + offset)
+    offset += 4
+    hasCopy = *<byte*>(<uint>obj.data + offset)
+    offset += 1
+    nbRefs = 0
+
+    if hasCopy {
+        nbRefs = *<int32*>(<uint>obj.data + offset + size)
+    } else {
+        nbRefs = *<int32*>(<uint>obj.data + offset)
+    }
+    r ptr
+
+    if nbRefs == 0 {
+        r = memoryAllocSTR(size)
+    } else {
+        r = memoryAlloc(size)
+    }
+    
+    if hasCopy {
+        memcpy(r, <ptr>(<uint>obj.data + offset), size)
+        offset += size + 4
+    } else {
+        offset += 4
+    }
+
+    i=0; for i < nbRefs, i++ {
+        membOffset = *<int32*>(<uint>obj.data + offset)
+        offset += 4
+        res = fromObjectInner(obj, offset)
+        offset = res[1]
+        pr = <ptr*>(<uint>r + membOffset)
+        *pr = res[0]
+    }
+
+    return [r, offset]
+}
+
+toObject(e reflectElement) []byte {
+    arr = []byte
+    toObjectInner(e, arr)
+    return arr
+}
+
+fromObject(obj []byte) ptr {
+    return fromObjectInner(obj, 0)[0]
+}

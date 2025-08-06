@@ -1,5 +1,9 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "time.bah"
+
 //tokens types
-#define tokenType char
+#define tokenType int
 
 const TOKEN_NO_TYPE =      <tokenType>-1
 const TOKEN_TYPE_INT =     <tokenType>0
@@ -25,12 +29,13 @@ struct bahToken {
     isValue: bool
 }
 
+totalLines = 0
 
-enclavers = []char{'(', ')', '{', '}', '[', ']'}
-syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
+const enclavers = []char{'(', ')', '{', '}', '[', ']'}
+const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
                                     //&                                                    //;
 
-keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
+const keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
             //     x      x      x        x       x       x          x          x        x         x          x         x       x      x      x       x         x      x
             // x: done
             //  : not done
@@ -200,11 +205,8 @@ lexer(s str) []bahToken {
             currentType = TOKEN_TYPE_VAR
             tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
             i--
-        } else if c == <char>39 { //is a character
+        } else if c == <char>39 && i+2 < len(s) && s[i+2] == <char>39 { //is a character
             i += 2
-            if s[i] != <char>39 {
-                lexerErr(lineNb, i, "Missing closing tag in char declaration.")
-            }
             t = makeToken(i-2, lineNb, intToStr(<int>nc), TOKEN_TYPE_CHAR)
             t.cont = s[i-2:i+1]
             tokens[len(tokens)] = t
@@ -235,7 +237,7 @@ lexer(s str) []bahToken {
                         isCast = true
                         break
                     }
-                    if isAlphaNumeric(c) == false && c != '*' && c != ':' && c != '_' && c != '[' && c != ']' {
+                    if isAlphaNumeric(c) == false && c != '*' && c != ',' && c != ':' && c != '_' && c != '[' && c != ']' {
                         isFnType = (c == '(' || c == ')') && strHasPrefix(s[pos:i+1], "<function")
                         if isFnType == false {
                             break

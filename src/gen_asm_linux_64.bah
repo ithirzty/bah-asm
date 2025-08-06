@@ -1,41 +1,53 @@
-ASM_arguments_registers_64 = []str{"%rdi", "%rsi", "%rdx", "%rcx",  "%r8",  "%r9"}
-ASM_arguments_registers_32 = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
-ASM_arguments_registers_16 = []str{"%di", "%si", "%dx", "%cx", "%r8w", "%r9w"}
-ASM_arguments_registers_8  = []str{"%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"}
+#import "rope.bah"
+#import "string.bah"
+#import "iostream.bah"
+#import "json.bah"
 
-ASM_arguments_registers = [][]str{ASM_arguments_registers_8, ASM_arguments_registers_16, ASM_arguments_registers_32, ASM_arguments_registers_64}
+#include "globals.bah"
 
-ASM_float_registers = []str{"%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7"}
+#define printDebugContext()
 
-ASM_syscall_registers_64 = []str{"%rax", "%rbx", "%rcx", "%rdx"}
-ASM_syscall_registers_32 = []str{"%eax", "%ebx", "%ecx", "%edx"}
-ASM_syscall_registers_16 = []str{"%eax", "%ebx", "%ecx", "%edx"}
-ASM_syscall_registers_8  = []str{"%eax", "%ebx", "%ecx", "%edx"}
 
-ASM_syscall_registers = [][]str{ASM_syscall_registers_8, ASM_syscall_registers_16, ASM_syscall_registers_32, ASM_syscall_registers_64}
+const ASM_arguments_registers_64 = []str{"%rdi", "%rsi", "%rdx", "%rcx",  "%r8",  "%r9"}
+const ASM_arguments_registers_32 = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
+const ASM_arguments_registers_16 = []str{"%di", "%si", "%dx", "%cx", "%r8w", "%r9w"}
+const ASM_arguments_registers_8  = []str{"%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"}
 
-ASM_op_registers_64 = []str{"%rbx", "%rdx",  "%r8",  "%r9",  "%r10",  "%r11",  "%r12",  "%r13",  "%r14",  "%r15"}
-ASM_op_registers_32 = []str{"%ebx", "%edx", "%r8d", "%r9d", "%r10d", "%r11d", "%r12d", "%r13d", "%r14d", "%r15d"}
-ASM_op_registers_16 = []str{ "%bx",  "%dx", "%r8w", "%r9w", "%r10w", "%r11w", "%r12w", "%r13w", "%r14w", "%r15w"}
-ASM_op_registers_8  = []str{ "%bl",  "%dl", "%r8b", "%r9b", "%r10b", "%r11b", "%r12b", "%r13b", "%r14b", "%r15b"}
+const ASM_arguments_registers = [][]str{ASM_arguments_registers_8, ASM_arguments_registers_16, ASM_arguments_registers_32, ASM_arguments_registers_64}
 
-ASM_op_registers = [][]str{ASM_op_registers_8, ASM_op_registers_16, ASM_op_registers_32, ASM_op_registers_64}
+const ASM_float_registers = []str{"%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "%xmm8", "%xmm9", "%xmm10", "%xmm11", "%xmm12", "%xmm13", "%xmm14", "%xmm15"}
 
-ASM_return_register    = []str{"%al", "%ax", "%eax", "%rax"}
-ASM_addr_dest_register = []str{"%dil", "%di", "%edi", "%rdi"}
+const ASM_ymm_registers = []str{"%ymm0", "%ymm1", "%ymm2", "%ymm3", "%ymm4", "%ymm5", "%ymm6", "%ymm7", "%ymm8", "%ymm9", "%ymm10", "%ymm11", "%ymm12", "%ymm13", "%ymm14", "%ymm15"}
 
-ASM_set = []str{"sete", "setne", "setg", "setl", "setle", "setge"}
-ASM_set_parity = []str{"setnp", "setp"}
-ASM_set_above_below_floats = []str{"", "", "seta", "seta", "setnb", "setnb"}
-ASM_set_above_below_unsgined = []str{"sete", "setne", "setb", "setb", "setnb", "setnb"}
+const ASM_syscall_registers_64 = []str{"%rax", "%rbx", "%rcx", "%rdx"}
+const ASM_syscall_registers_32 = []str{"%eax", "%ebx", "%ecx", "%edx"}
+const ASM_syscall_registers_16 = []str{"%eax", "%ebx", "%ecx", "%edx"}
+const ASM_syscall_registers_8  = []str{"%eax", "%ebx", "%ecx", "%edx"}
 
-ASM_or = []str{"orb", "orw", "orl", "orq"}
-ASM_xor = []str{"xorb", "xorw", "xorl", "xorq"}
-ASM_and = []str{"andb", "andw", "andl", "andq"}
-ASM_shift_left = []str{"", "", "sall", "salq"}
-ASM_shift_right = []str{"", "", "sarl", "sarq"}
+const ASM_syscall_registers = [][]str{ASM_syscall_registers_8, ASM_syscall_registers_16, ASM_syscall_registers_32, ASM_syscall_registers_64}
 
-ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
+const ASM_op_registers_64 = []str{"%rbx", "%rdx",  "%r8",  "%r9",  "%r10",  "%r11",  "%r12",  "%r13",  "%r14",  "%r15"}
+const ASM_op_registers_32 = []str{"%ebx", "%edx", "%r8d", "%r9d", "%r10d", "%r11d", "%r12d", "%r13d", "%r14d", "%r15d"}
+const ASM_op_registers_16 = []str{ "%bx",  "%dx", "%r8w", "%r9w", "%r10w", "%r11w", "%r12w", "%r13w", "%r14w", "%r15w"}
+const ASM_op_registers_8  = []str{ "%bl",  "%dl", "%r8b", "%r9b", "%r10b", "%r11b", "%r12b", "%r13b", "%r14b", "%r15b"}
+
+const ASM_op_registers = [][]str{ASM_op_registers_8, ASM_op_registers_16, ASM_op_registers_32, ASM_op_registers_64}
+
+const ASM_return_register    = []str{"%al", "%ax", "%eax", "%rax"}
+const ASM_addr_dest_register = []str{"%dil", "%di", "%edi", "%rdi"}
+
+const ASM_set = []str{"sete", "setne", "setg", "setl", "setle", "setge"}
+const ASM_set_parity = []str{"setnp", "setp"}
+const ASM_set_above_below_floats = []str{"", "", "seta", "seta", "setnb", "setnb"}
+const ASM_set_above_below_unsgined = []str{"sete", "setne", "setb", "setb", "setnb", "setnb"}
+
+const ASM_or = []str{"orb", "orw", "orl", "orq"}
+const ASM_xor = []str{"xorb", "xorw", "xorl", "xorq"}
+const ASM_and = []str{"andb", "andw", "andl", "andq"}
+const ASM_shift_left = []str{"", "", "sall", "salq"}
+const ASM_shift_right = []str{"", "", "sarl", "sarq"}
+
+const ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
 
 const ASM_reg_id_return = 0
 const ASM_reg_id_dest_addr = 1
@@ -46,6 +58,7 @@ const ASM_reg_id_args    = 128
 const ASM_reg_id_syscall = 256
 const ASM_reg_id_op      = 512
 const ASM_reg_id_floats  = 1024
+const ASM_reg_id_ymm     = 2048
 
 const ASM_OP_EQ            = 0
 const ASM_OP_NOT_EQ        = 1
@@ -64,29 +77,42 @@ const ASM_SELF_OP_ADD = 0
 const ASM_SELF_OP_SUB = 1
 
 
-ASM_mov  = []str{"movb", "movw", "movl", "movq"}
-ASM_push = []str{"", "", "", "pushq"}
-ASM_pop  = []str{"", "", "", "popq"}
-ASM_add  = []str{"addb", "addw", "addl", "addq"}
-ASM_sub  = []str{"subb", "subw", "subl", "subq"}
-ASM_imul = []str{"imulb", "imulw", "imull", "imulq"}
-ASM_mul = []str{"mulb", "mulw", "mull", "mulq"}
-ASM_idiv = []str{"idivb", "idivw", "idivl", "idivq"}
-ASM_div = []str{"divb", "divw", "divl", "divq"}
-ASM_cmp = []str{"cmpb", "cmpw", "cmpl", "cmpq"}
-ASM_cmp_float = []str{"", "", "comiss", "comisd"}
-ASM_unordered_cmp_float = []str{"", "", "ucomiss", "ucomisd"}
-ASM_mov_float  = []str{"", "", "movd", "movq"}
-ASM_add_float  = []str{"", "", "addss", "addsd"}
-ASM_mul_float  = []str{"", "", "mulss", "mulsd"}
-ASM_sub_float  = []str{"", "", "subss", "subsd"}
-ASM_div_float  = []str{"", "", "divss", "divsd"}
-ASM_cond_mov_not_eq = "cmovne"
-ASM_convert_oct = "cqto"
+const ASM_mov  = []str{"movb", "movw", "movl", "movq"}
+const ASM_push = []str{"", "", "", "pushq"}
+const ASM_pop  = []str{"", "", "", "popq"}
+const ASM_add  = []str{"addb", "addw", "addl", "addq"}
+const ASM_sub  = []str{"subb", "subw", "subl", "subq"}
+const ASM_imul = []str{"imulb", "imulw", "imull", "imulq"}
+const ASM_mul = []str{"mulb", "mulw", "mull", "mulq"}
+const ASM_idiv = []str{"idivb", "idivw", "idivl", "idivq"}
+const ASM_div = []str{"divb", "divw", "divl", "divq"}
+const ASM_cmp = []str{"cmpb", "cmpw", "cmpl", "cmpq"}
+const ASM_cmp_float = []str{"", "", "comiss", "comisd"}
+const ASM_unordered_cmp_float = []str{"", "", "ucomiss", "ucomisd"}
+const ASM_mov_float  = []str{"", "", "movd", "movq"}
+const ASM_add_float  = []str{"", "", "addss", "addsd"}
+const ASM_mul_float  = []str{"", "", "mulss", "mulsd"}
+const ASM_sub_float  = []str{"", "", "subss", "subsd"}
+const ASM_div_float  = []str{"", "", "divss", "divsd"}
+const ASM_cond_mov_not_eq = "cmovne"
+const ASM_convert_oct = "cqto"
 
-ASM_NUM_INT   = 0
-ASM_NUM_UINT  = 1
-ASM_NUM_FLOAT = 2
+const ASM_NUM_INT   = 0
+const ASM_NUM_UINT  = 1
+const ASM_NUM_FLOAT = 2
+
+getTwoPow(x int) int {
+    a = 2
+    i=1; for a < x, i++ {
+        a *= 2
+    }
+
+    if a != x {
+        return -1
+    }
+
+    return i
+}
 
 spos(x uint) uint {
     if x == 1 {
@@ -100,8 +126,6 @@ spos(x uint) uint {
     }
     if x != 8 {
         return 0
-        printDebugContext()
-        panic("Invalid length.")
     }
 
     return 3
@@ -114,8 +138,6 @@ struct asmSymbol {
     size: uint
     address: int
     offset: int
-    parent: ptr
-    scope: uint
     level: int
     operStart: int = -1
 
@@ -124,6 +146,7 @@ struct asmSymbol {
     stack: bool
     isTmp: bool
     isValue: bool
+    active: bool
 
     toStr() str {
         if this.isValue {
@@ -131,9 +154,7 @@ struct asmSymbol {
         }
 
         if this.isTmp {
-
             return "TMP_"+uintToStr(this.address)
-            // panic("Trying to use non allocated temporary symbol: "+toJson(this)+".")
         }
 
         if this.isReg {
@@ -163,23 +184,30 @@ struct asmSymbol {
                     num = this.address - ASM_reg_id_syscall
                     if num > len(ASM_syscall_registers[spos(size)]) {
                         printDebugContext()
-                        panic("Not enough argument registers")
+                        panic("Not enough syscall registers")
                     }
                     s = ASM_syscall_registers[spos(size)][num]
                 } else if this.address < ASM_reg_id_floats { //operations and accumulators
                     num = this.address - ASM_reg_id_op
                     if num > len(ASM_op_registers[spos(size)]) {
                         printDebugContext()
-                        panic("Not enough argument registers")
+                        panic("Not enough operation registers")
                     }
                     s = ASM_op_registers[spos(size)][num]
-                } else {
+                } else if this.address < ASM_reg_id_ymm { //operations and accumulators
                     num = this.address - ASM_reg_id_floats
                     if num > len(ASM_float_registers) {
                         printDebugContext()
-                        panic("Not enough argument registers")
+                        panic("Not enough XMM registers")
                     }
                     s = ASM_float_registers[num]
+                } else {
+                    num = this.address - ASM_reg_id_ymm
+                    if num > len(ASM_ymm_registers) {
+                        printDebugContext()
+                        panic("Not enough YMM registers")
+                    }
+                    s = ASM_ymm_registers[num]
                 }
             } 
             if this.level == 1 {
@@ -220,6 +248,7 @@ asmSymbolValue(s str) asmSymbol {
     r = asmSymbol{
         isValue: true
         name: s
+        active: true
     }
     return r
 }
@@ -229,9 +258,10 @@ asmSymbolReg(id uint, size uint, num uint) asmSymbol {
         isReg: true
         size: size
         address: id + num
+        active: true
     }
 
-    if id >= ASM_reg_id_floats {
+    if id >= ASM_reg_id_floats && id < ASM_reg_id_ymm {
         r.isFloat = true
     }
     return r
@@ -242,6 +272,7 @@ asmSymbolStack(address int, size uint) asmSymbol {
         stack: true
         address: address
         size: size
+        active: true
     }
     return r
 }
@@ -249,6 +280,7 @@ asmSymbolStack(address int, size uint) asmSymbol {
 asmSymbolStaticName(name str) asmSymbol {
     r = asmSymbol {
         name: name
+        active: true
     }
     return r
 }
@@ -259,13 +291,14 @@ asmSymbolTmp(size uint) asmSymbol {
         isTmp: true
         address: asmRandId
         size: size
+        active: true
     }
     asmRandId++
     return r
 }
 
-isEmptySymbol(sym asmSymbol) bool {
-    return sym.isReg == false && sym.stack == false && sym.isValue == false && len(sym.name) == 0
+isEmptySymbol(sym asmSymbol*) bool {
+    return sym.active == false
 }
 
 struct asmInstruction {
@@ -274,10 +307,10 @@ struct asmInstruction {
     arg2: asmSymbol
 
     toStr() str {
-        if isEmptySymbol(this.arg2) == false {
+        if isEmptySymbol(&this.arg2) == false {
             return this.instruction+" "+this.arg1.toStr()+", "+this.arg2.toStr()
         }
-        if isEmptySymbol(this.arg1) == false {
+        if isEmptySymbol(&this.arg1) == false {
             return this.instruction+" "+this.arg1.toStr()
         }
         return this.instruction
@@ -294,6 +327,7 @@ struct asmStrLookup {
 struct asmContext {
     // symbols: []asmSymbol
 
+    staticData: rope*
     data: rope*
     bss: rope*
     code: rope*
@@ -302,29 +336,29 @@ struct asmContext {
     debugEnabled: bool = true
 
     currentFn: str
-    scope: uint = 0
-    startIndex: uint = 0
+    scope: uint
+    startIndex: uint
 
     verbose: bool = true
 
-    regIndex: uint = 0
+    regIndex: uint
 
-    stackOffset: uint = 0
-    maxStackOffset: uint = 0
+    stackOffset: uint
+    maxStackOffset: uint
 
     endSym: queue
     forStack: queue
 
     enableOptimizations: bool = true
 
-    xmmIndex: uint = 0
+    xmmIndex: uint
 
     instructions: []asmInstruction
     discardedArgs: []asmSymbol
 
     strings: []asmStrLookup
 
-    isSameArg(a asmSymbol, b asmSymbol) bool {
+    isSameArg(a asmSymbol*, b asmSymbol*) bool {
         if a.isTmp != b.isTmp {
             return false
         }
@@ -337,22 +371,30 @@ struct asmContext {
             if b.stack == false {
                 return false
             }
+
             if a.address == b.address {
                 return true
-            }
-            if a.size < b.size {
-                c = a
-                a = b
-                b = c
             }
 
             if a.address < 0 && b.address >= 0 || a.address >= 0 && b.address < 0 {
                 return false
             }
 
-            if a.address - a.size < b.address && a.address >= b.address {
+            if a.size < b.size {
+                c = a
+                a = b
+                b = c
+            }
+
+            // if b.address < a.address && b.address > a.address - a.size {
+            //     return true
+            // }
+
+
+            if a.address - a.size <= b.address && a.address >= b.address {
                 return true
             }
+
             return false
         }
 
@@ -360,7 +402,36 @@ struct asmContext {
             if b.isReg == false {
                 return false
             }
-            return a.address == b.address
+
+            if a.offset != b.offset {
+                return false
+            }
+
+            if a.address == b.address {
+                return true
+            }
+
+            if a.address == ASM_reg_id_op + 1 && b.address == ASM_reg_id_args + 2 || b.address == ASM_reg_id_op + 1 && a.address == ASM_reg_id_args + 2 {
+                return true
+            }
+
+            if a.address == ASM_reg_id_op + 2 && b.address == ASM_reg_id_args + 4 || b.address == ASM_reg_id_op + 2 && a.address == ASM_reg_id_args + 4 {
+                return true
+            }
+            
+            if a.address == ASM_reg_id_op + 3 && b.address == ASM_reg_id_args + 5 || b.address == ASM_reg_id_op + 3 && a.address == ASM_reg_id_args + 5 {
+                return true
+            }
+
+            if a.address > ASM_reg_id_ymm && b.address > ASM_reg_id_floats && a.address - ASM_reg_id_floats == b.address {
+                return true
+            }
+
+            if b.address > ASM_reg_id_ymm && a.address > ASM_reg_id_floats && b.address - ASM_reg_id_floats == a.address {
+                return true
+            }
+
+            return false
         }
 
         if a.isValue {
@@ -385,51 +456,63 @@ struct asmContext {
         return a.name == b.name
     }
 
-    isSameArgAndSize(a asmSymbol, b asmSymbol) bool {
+    isSameArgAndSize(a asmSymbol*, b asmSymbol*) bool {
         if this.isSameArg(a, b) {
-            return a.size == b.size && a.level == b.level
+            return a.address == b.address && a.size == b.size && a.level == b.level
         }
 
         return false
     }
 
-    isSet(arg asmSymbol, i uint) bool {
+    isSet(arg asmSymbol*, i uint) bool {
         if strHasPrefix(this.instructions[i].instruction, "cmp") == true {
-            return false
+            return arg.isReg && arg.address == ASM_reg_id_return
         }
 
-        if this.isSameArg(this.instructions[i].arg2, arg) {
+        if strHasPrefix(this.instructions[i].instruction, "div") == true {
+            return arg.isReg && (arg.address == ASM_reg_id_return || arg.address == ASM_reg_id_op + 1 || arg.address == ASM_reg_id_args + 2)
+        }
+
+        if this.isSameArg(&this.instructions[i].arg2, arg) {
             return true
         }
 
         return false
     }
 
-    isUsed(arg asmSymbol, i uint) bool {
+    isUsed(arg asmSymbol*, i uint) bool {
         //do not optimize out global variables
         if arg.isReg == false && arg.stack == false && arg.isValue == false {
             return true
         }
 
         if strHasPrefix(this.instructions[i].instruction, "cmp") {
-            if this.isSameArg(this.instructions[i].arg1, arg) || this.isSameArg(this.instructions[i].arg2, arg) {
+            if this.isSameArg(&this.instructions[i].arg1, arg) || this.isSameArg(&this.instructions[i].arg2, arg) {
                 return true
             }
             return false
+        }
+
+        if this.instructions[i].instruction[0] == 'j' {
+            return true
         }
 
         if arg.isReg && this.instructions[i].instruction == "call" {
             return true
         }
 
-        if this.isSameArg(this.instructions[i].arg1, arg) {
+        if arg.isReg && arg.address == ASM_reg_id_return && this.instructions[i].instruction == "ret" {
+            return true
+        }
+
+        if this.isSameArg(&this.instructions[i].arg1, arg) {
             return true
         }
 
         return false
     }
 
-    isSetInRange(arg asmSymbol, from uint, end uint) bool {
+    isSetInRange(arg asmSymbol*, from uint, end uint) bool {
         i = from; for i < end, i++ {
             if this.instructions[i].instruction[0] == '#' {
                 continue
@@ -443,7 +526,7 @@ struct asmContext {
         return false
     }
 
-    isUsedInRange(arg asmSymbol, from uint, end uint) bool {
+    isUsedInRange(arg asmSymbol*, from uint, end uint) bool {
         i = from; for i < end, i++ {
             if this.instructions[i].instruction[0] == '#' {
                 continue
@@ -454,15 +537,11 @@ struct asmContext {
             }
 
             if this.isSet(arg, i) {
-                return true
+                return arg.stack && arg.isTmp == false
             }
             
             if this.isUsed(arg, i) {
                 return true
-            }
-
-            if arg.isReg && this.instructions[i].instruction == "call" {
-                return false
             }
 
         }
@@ -501,6 +580,7 @@ struct asmContext {
 
     removeStackAllocs() {
         i=0; for i < len(this.discardedArgs), i++ {
+            printDebugContext()
             ind = i
             prevInd = ind
             i++
@@ -533,113 +613,144 @@ struct asmContext {
         clear(this.discardedArgs)
     }
 
-    optimizeInstructions(n uint) bool {
-        found = false
+    optimizeInstructions() {
+        // found = false
 
-        i=this.startIndex; for i < len(this.instructions), i++ {
-            istrct = this.instructions[i]
-
-            if this.instructions[i].instruction[0] == '#' {
-                continue
-            }
-
-
+        i = this.startIndex; for i < len(this.instructions), i++ {
+            istrct = &this.instructions[i]
 
             if strHasPrefix(istrct.instruction, "add") || strHasPrefix(istrct.instruction, "sub") {
                 if istrct.arg1.isValue && istrct.arg1.name == "$0" {
-                    this.instructions[i].instruction = "#"
+                    istrct.instruction = "#"
                 }
+                continue
             }
 
-            if strHasPrefix(istrct.instruction, "mov") || istrct.instruction == "leaq" {
-                
-                if this.isSameArgAndSize(istrct.arg1, istrct.arg2) {
+            if istrct.instruction[0] != 'm' {
+                continue
+            }
 
-                    this.instructions[i].instruction = "#" + istrct.instruction
-                    found = true
+            if istrct.arg1.size != istrct.arg2.size || istrct.arg1.level != istrct.arg2.level {
+                continue
+            }
+
+            if this.isSameArg(&istrct.arg1, &istrct.arg2) {
+                istrct.instruction = "#"
+                continue
+            }
+
+            if istrct.arg2.isReg && istrct.arg2.address >= ASM_reg_id_floats || istrct.arg2.stack && istrct.arg2.isTmp == false && istrct.arg2.address < 0 || istrct.arg2.isReg == false && istrct.arg2.stack == false && istrct.arg2.isValue == false {
+                continue
+            }
+
+            if istrct.arg2.stack && istrct.arg2.isTmp == false && this.isSetInRange(&istrct.arg2, this.startIndex, i) {
+                continue
+            }
+
+            isTmp = istrct.arg1.isTmp || istrct.arg2.isTmp
+
+            j=i+1; for j < len(this.instructions), j++ {
+                agnst = &this.instructions[j]
+
+                if agnst.instruction[0] == 'm' { 
+                    if this.isSameArgAndSize(&istrct.arg2, &agnst.arg1) && istrct.arg2.size == agnst.arg2.size && ((istrct.arg1.isReg && istrct.arg1.level == 0) || (agnst.arg2.isReg && agnst.arg2.level == 0)) {
+                        if this.isUsedInRange(&istrct.arg2, j+1, len(this.instructions)) || this.isSetInRange(&agnst.arg2, i+1, j) {
+                            break
+                        }
+
+                        if agnst.arg2.isReg && agnst.arg2.address >= ASM_reg_id_floats || agnst.arg2.stack && agnst.arg2.isTmp == false && agnst.arg2.address < 0 || agnst.arg2.isReg == false && agnst.arg2.stack == false && agnst.arg2.isValue == false {
+                            break
+                        }
+
+                        istrct.instruction = "#"
+                        if this.isSameArg(&istrct.arg1, &agnst.arg2) {
+                            agnst.instruction = "#"
+                            break
+                        }
+
+                        agnst.arg1 = istrct.arg1
+
+                        break
+                    }
+                }
+                
+                if isTmp && strHasPrefix(agnst.instruction, ".loc") {
+                    break
+                }
+
+                if agnst.instruction == "call" || agnst.instruction == "ret" || agnst.instruction[0] == 'j' {
+                    break
+                }
+
+                if strHasPrefix(agnst.instruction, ".FOR_LOOP_START_") {
+                    break
+                }
+
+                if isEmptySymbol(&agnst.arg2) == false && (this.isSet(&istrct.arg1, j) || this.isSet(&istrct.arg2, j)) {
+                    break
+                }
+
+            }
+
+        }
+    }
+    
+    generateSymFromTmp(sym asmSymbol, i uint, regIndex uint) uint {
+        j=regIndex; for j > 1, j-- {
+            reg = asmSymbolReg(ASM_reg_id_op, sym.size, j)
+            regNotBreaking = true
+            k=i; for k < len(this.instructions), k++ {
+                if this.instructions[k].instruction[0] == '#' {
                     continue
                 }
 
-
-                //Double move optimization.
-                //  'mov a -> b, mov b -> c'
-                //  becomes
-                //  'mov a, c'
-                j = i + 1
-                for j < len(this.instructions), j++ {
-                    next = this.instructions[j]
-
-                    if next.instruction[0] == '#' {
-                        continue
-                    }
-
-                    if istrct.arg2.isTmp && strHasPrefix(this.instructions[i].instruction, ".loc") {
-                        break
-                    }
-
-                    if strHasPrefix(next.instruction, "mov") == false && next.instruction != "leaq" && next.instruction[0] != '#'{
-                        j = len(this.instructions)
-                        break
-                    }
-
-                    if next.arg1.size != next.arg2.size {
-                        continue
-                    }
-
-                    //double mov
-                    if this.isSameArgAndSize(next.arg1, istrct.arg2) {
-
-                        if next.instruction != "leaq" && (istrct.arg1.isReg && istrct.arg1.level == 0 || next.arg2.isReg && next.arg2.level == 0) && istrct.arg1.size == next.arg2.size && (this.isUsedInRange(istrct.arg2, j+1, len(this.instructions)) == false) && this.isSetInRange(istrct.arg1, i+1, j) == false && this.isSetInRange(istrct.arg2, i+1, j) == false  && this.isSetInRange(next.arg2, i+1, j) == false {
-                            this.instructions[j].instruction = "#" + next.instruction
-                            discardedArg = this.instructions[i].arg2
-                            this.instructions[i].arg2 = next.arg2
-                            if discardedArg.stack && discardedArg.isTmp == false {
-                                // this.removeStackAlloc(discardedArg)
-                                this.discardedArgs[len(this.discardedArgs)] = discardedArg
-                            }
-                            found = true
-                        }
-
-
-                        break
-                    }
-
-                    //double mov with dereference
-                    if istrct.arg2.isReg && istrct.arg1.isReg && next.arg1.isReg && next.arg1.level == 1 && next.arg1.address == istrct.arg2.address {
-
-                        if next.instruction != "leaq" && (istrct.arg1.isReg && istrct.arg1.level == 0 || next.arg2.isReg && next.arg2.level == 0) && (this.isUsedInRange(istrct.arg2, j+1, len(this.instructions)) == false) && this.isSetInRange(istrct.arg1, i+1, j) == false {
-                            this.instructions[i].instruction = "#" + istrct.instruction
-                            discardedArg = this.instructions[j].arg1
-                            this.instructions[j].arg1 = istrct.arg1
-                            this.instructions[j].arg1.level = 1
-                            if discardedArg.stack && discardedArg.isTmp == false {
-                                // this.removeStackAlloc(discardedArg)
-                                this.discardedArgs[len(this.discardedArgs)] = discardedArg
-                            }
-                            found = true
-                        }
-
-                        break
-                    }
+                if strHasPrefix(this.instructions[k].instruction, ".loc") {
+                    break
                 }
 
+                if this.instructions[k].instruction == "mulsd" && (this.instructions[k].arg1.isTmp && this.instructions[k].arg1.address == sym.address || this.instructions[k].arg2.isTmp && this.instructions[k].arg2.address == sym.address) {
+                    regNotBreaking = false
+                    break
+                }
 
+                if this.instructions[k].arg1.isReg && this.instructions[k].arg1.address == reg.address || this.instructions[k].arg2.isReg && this.instructions[k].arg2.address == reg.address {
+                    regNotBreaking = false
+                    break
+                }
+
+                if this.instructions[k].instruction == "call" {
+                    regNotBreaking = false
+                    break
+                }
+
+                if this.instructions[k].instruction == "leaq" && this.isSameArg(&this.instructions[k].arg1, &sym) {
+                    regNotBreaking = false
+                    break
+                }
             }
 
+            if regNotBreaking {
+                for i < len(this.instructions), i++ {
+                    if this.instructions[i].instruction[0] == '#' {
+                        continue
+                    }
 
+                    if strHasPrefix(this.instructions[i].instruction, ".loc") {
+                        break
+                    }
+
+                    if this.instructions[i].arg1.isTmp && this.instructions[i].arg1.address == sym.address {
+                        this.instructions[i].arg1 = reg
+                    }
+
+                    if this.instructions[i].arg2.isTmp && this.instructions[i].arg2.address == sym.address {
+                        this.instructions[i].arg2 = reg
+                    }
+                }
+                return j - 1
+            }
         }
 
-        //removed for now because stack allocation is more complicated now
-
-        //last step
-        // if found == false {
-        //     this.removeStackAllocs()
-        // }
-
-        return found
-    }
-    
-    generateSymFromTmp(sym asmSymbol, i uint) uint {
         alignment = 1
         if sym.size == 4 {
             alignment = 8
@@ -675,36 +786,30 @@ struct asmContext {
             }
         }
 
-        return addr
+        return regIndex
     }
 
-    flushInstructions() {
+    flushInstructions() rope* {
+        r = rope("")
         if this.maxStackOffset > this.stackOffset {
             this.stackOffset = this.maxStackOffset
         }
 
-
         if this.enableOptimizations {
-            shouldOptimize = true
-            n = 0
-            for shouldOptimize {
-
-                shouldOptimize = this.optimizeInstructions(n)
-                n++
-            }
+            this.optimizeInstructions()
         }
-
-
-
+        
         //generating tmp symbols
         stackOffsetBeforeTmp = this.stackOffset
         maxStackOffset = this.stackOffset
-        i=0; for i < len(this.instructions), i++ {
+        currRegIndex = 5
+        i=this.startIndex; for i < len(this.instructions), i++ {
             if this.instructions[i].instruction[0] == '#' {
                 continue
             }
 
             if strHasPrefix(this.instructions[i].instruction, ".loc") {
+                currRegIndex = 5
                 if this.stackOffset > maxStackOffset {
                     maxStackOffset = this.stackOffset
                 }
@@ -712,37 +817,32 @@ struct asmContext {
             }
 
             //TODO: two args are the same tmp?
-
-            if this.instructions[i].arg1.isTmp {
-                this.generateSymFromTmp(this.instructions[i].arg1, i)
-            }
             if this.instructions[i].arg2.isTmp {
-                this.generateSymFromTmp(this.instructions[i].arg2, i)
+                currRegIndex = this.generateSymFromTmp(this.instructions[i].arg2, i, currRegIndex)
             }
         }
+
         if maxStackOffset > this.stackOffset {
             this.stackOffset = maxStackOffset
         }
-        
 
-
-        //trim unnecessary stackframe 
-        //WARNING: that will skip functions in the backtrace...
-        if this.stackOffset == 0 {
-            i=this.startIndex; for i < len(this.instructions), i++ {
-                if this.instructions[i].instruction[0] == '#' {
+        if this.enableOptimizations {
+            i = this.startIndex; for i < len(this.instructions), i++ {
+                if this.instructions[i].instruction == "#" {
                     continue
                 }
 
-                if strHasPrefix(this.instructions[i].instruction, "push") {
+                if this.instructions[i].arg2.stack || this.instructions[i].arg1.stack {
                     break
                 }
 
-                if this.instructions[i].arg1.stack || this.instructions[i].arg2.stack {
+                if this.instructions[i].instruction == "pushq" {
                     break
                 }
             }
 
+            //trim unnecessary stackframe 
+            //WARNING: that will skip functions in the backtrace...
             if i == len(this.instructions) {
                 this.stackOffset = 0
                 this.instructions[this.startIndex-2].instruction = "#"
@@ -771,8 +871,8 @@ struct asmContext {
                 istrct.arg2 = asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
             } else if istrct.instruction == "leave" {
                 if this.stackOffset == 0 {
-                    if this.instructions[1].instruction[0] == '#' {
-                        istrct.instruction = "#" + istrct.instruction
+                    if this.instructions[this.startIndex-3].instruction[0] == '#' {
+                        continue
                     } else {
                         istrct = asmInstruction {
                             "popq", asmSymbolReg(ASM_reg_id_base_pointer, 8, 0)
@@ -780,21 +880,28 @@ struct asmContext {
                     }
                 }
             } else if strHasPrefix(istrct.instruction, "mov") && istrct.arg1.isFloat && istrct.arg1.isReg && istrct.arg1.address >= ASM_reg_id_floats {
-                if istrct.arg2.isFloat && istrct.arg2.isReg && istrct.arg2.address >= ASM_reg_id_floats {
-                    istrct.instruction = "movups"
-                } else if istrct.instruction == "movq" {
-                    istrct.instruction = ASM_mov_float[spos(8)]
-                } else if istrct.instruction == "movl" {
-                    istrct.instruction = "movss"
+                if istrct.arg1.isReg && istrct.arg1.address >= ASM_reg_id_floats && istrct.arg2.isReg && istrct.arg2.level == 0 && istrct.arg2.address < ASM_reg_id_floats {
+                    istrct.instruction = "movq"
+                    istrct.arg2.size = 8
+                } else {
+                    if istrct.arg2.isFloat && istrct.arg2.isReg && istrct.arg2.address >= ASM_reg_id_floats {
+                        istrct.instruction = "vmovdqu"
+                    } else if istrct.instruction == "movq" {
+                        istrct.instruction = ASM_mov_float[spos(8)]
+                    } else if istrct.instruction == "movl" {
+                        istrct.instruction = "movss"
+                    }
                 }
             } else if istrct.instruction == "call" && istrct.arg1.isValue == false {
                 istrct.arg1 = asmSymbolValue("*"+istrct.arg1.toStr())
             }
 
 
-            this.code += rope(istrct.toStr()+"\n")
+            r += rope(istrct.toStr()+"\n")
         }
         clear(this.instructions)
+        this.code += r
+        return r
     }
 
     setToJump(inst str) str {
@@ -829,11 +936,14 @@ struct asmContext {
     lastFile: uint
 
     generateFileLocation(fileName str) {
-        if this.debugEnabled == false {
-            return
-        }
         this.instructions[len(this.instructions)] = asmInstruction {
             ".file "+uintToStr(this.totalFileNb)+" \""+fileName+"\""
+        }
+
+        if this.debugEnabled == false {
+            this.totalFileNb++
+            this.fileNb = this.totalFileNb
+            return
         }
 
         this.debugInfo += rope(".byte 1\n.int "+uintToStr(this.totalFileNb)+"\n.int "+uintToStr(len(fileName))+"\n.asciz \""+fileName+"\"\n")
@@ -844,6 +954,11 @@ struct asmContext {
 
     generateLineLocation(line uint) {
         if this.debugEnabled == false {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ".loc "+uintToStr(this.fileNb-1)+" "+uintToStr(line)
+            }
+            this.currentLine = line
+            this.lastFile = this.fileNb
             return
         }
 
@@ -876,7 +991,7 @@ struct asmContext {
                 printDebugContext()
                 panic("what the hell: cannot leaq register")
             }
-            if dest.isReg {
+            if dest.isReg && dest.level == 0 {
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "leaq", sym, dest
                 }
@@ -891,13 +1006,14 @@ struct asmContext {
             return
         }
         if sym.size > 8 {
-            incrSize = 16
+            incrSize = 32
             offset = 0
             lastIncr = 0
+            regnNB = 0
 
             if sym.isReg && sym.size == 16 {
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "movups", sym, dest
+                    "vmovdqu", sym, dest
                 }
                 return
             }
@@ -944,7 +1060,7 @@ struct asmContext {
                     destReg asmSymbol
                     trsfrReg asmSymbol
 
-                    if dest.stack {
+                    if dest.stack && dest.isTmp == false {
                         destReg = asmSymbolStack(dest.address - offset, incrSize)
                     } else {
                         if dest.level <= 0 {
@@ -960,7 +1076,7 @@ struct asmContext {
                         destReg.level = dest.level
                     }
 
-                    inst = "movups"
+                    inst = "vmovdqu"
                     if incrSize <= 2 {
                         inst = ASM_mov[spos(incrSize)]
                         trsfrReg = asmSymbolReg(ASM_reg_id_op, incrSize, this.regIndex)                    
@@ -968,7 +1084,12 @@ struct asmContext {
                         if incrSize <= 8 {
                             inst = ASM_mov_float[spos(incrSize)]
                         }
-                        trsfrReg = asmSymbolReg(ASM_reg_id_floats, incrSize, 0)                    
+                        if incrSize == 32 {
+                            trsfrReg = asmSymbolReg(ASM_reg_id_ymm, incrSize, regnNB+1)                    
+                        } else {
+                            trsfrReg = asmSymbolReg(ASM_reg_id_floats, incrSize, regnNB)
+                        }
+                        regnNB = (regnNB + 1) % 8
                     }
 
                     this.instructions[len(this.instructions)] = asmInstruction {
@@ -994,7 +1115,7 @@ struct asmContext {
                 destReg asmSymbol
                 trsfrReg asmSymbol
 
-                if dest.stack {
+                if dest.stack && dest.isTmp == false {
                     destReg = asmSymbolStack(dest.address - offset, incrSize)
                 } else {
                     if dest.level <= 0 {
@@ -1011,7 +1132,7 @@ struct asmContext {
                 }
 
 
-                inst = "movups"
+                inst = "vmovdqu"
                 if incrSize <= 2 {
                     inst = ASM_mov[spos(incrSize)]
                     trsfrReg = asmSymbolReg(ASM_reg_id_op, incrSize, this.regIndex)                    
@@ -1019,7 +1140,12 @@ struct asmContext {
                     if incrSize <= 8 {
                         inst = ASM_mov_float[spos(incrSize)]
                     }
-                    trsfrReg = asmSymbolReg(ASM_reg_id_floats, incrSize, 0)                    
+                    if incrSize == 32 {
+                        trsfrReg = asmSymbolReg(ASM_reg_id_ymm, incrSize, regnNB+1)                    
+                    } else {
+                        trsfrReg = asmSymbolReg(ASM_reg_id_floats, incrSize, regnNB)
+                    }
+                    regnNB = (regnNB + 1) % 8
                 } 
 
 
@@ -1061,7 +1187,7 @@ struct asmContext {
                 from = dest
             }
 
-            if isEmptySymbol(oDest) == false {
+            if isEmptySymbol(&oDest) == false {
                 dest.size = oDest.size
             }
             
@@ -1071,7 +1197,7 @@ struct asmContext {
                     ASM_mov[spos(dest.size)], from, dest
                 }
             }
-            if isEmptySymbol(oDest) == false {
+            if isEmptySymbol(&oDest) == false {
                 this.instructions[len(this.instructions)] = asmInstruction {
                     ASM_mov[spos(dest.size)], dest, oDest
                 }
@@ -1085,8 +1211,13 @@ struct asmContext {
             from = tmpReg
         }
 
+        inst = ASM_mov[spos(sym.size)]
+        if dest.isReg && dest.address >= ASM_reg_id_floats && from.stack && sym.size == 4 {
+            inst = "movd"
+        }
+
         this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_mov[spos(sym.size)], from, dest
+            inst, from, dest
         }
     }
 
@@ -1117,10 +1248,25 @@ struct asmContext {
             return value
         }
 
+        if size > 8 {
+            return asmSymbolStack(this.generateStackAlloc(value), value.size)
+        }
+
         r = asmSymbolTmp(size)
 
         this.generateMoveValue(value, r)
         return r
+    }
+
+    generatePrefetch(addr asmSymbol) {
+        if addr.stack == false && addr.level <= 0 {
+            printDebugContext()
+            panic("Invalid prefetch.")
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "prefetchnta", addr
+        }
     }
 
     generateUnary(sym asmSymbol) asmSymbol {
@@ -1171,7 +1317,6 @@ struct asmContext {
     }
 
     generateStaticStr(s str, length uint) asmSymbol {
-
         name = ""
 
         i=0; for i < len(this.strings), i++ {
@@ -1183,7 +1328,7 @@ struct asmContext {
 
         if i == len(this.strings) {
             name = ".VAR_"+uintToStr(asmRandId)
-            this.data += rope(name+":\n.int "+uintToStr(length)+"\n.asciz "+s+"\n")
+            this.staticData += rope(name+":\n.int "+uintToStr(length)+"\n.asciz "+s+"\n")
             this.strings[len(this.strings)] = asmStrLookup {
                 string: s
                 symbolName: name
@@ -1191,10 +1336,10 @@ struct asmContext {
         }
 
         r = asmSymbol {
-            parent: this
             name: name
             size: 8
             level: -1
+            active: true
         }
         asmRandId++
         return r
@@ -1202,10 +1347,10 @@ struct asmContext {
 
     staticInt(v str) asmSymbol {
         r = asmSymbol {
-            parent: this
             name: "$"+v
             size: 8
             isValue: true
+            active: true
         }
 
         return r
@@ -1213,26 +1358,21 @@ struct asmContext {
 
     staticFloat32(v str) asmSymbol {
         f = <float32>strToFloat(v)
-        u = *(<uint32*>&f)
+        u = *(<int32*>&f)
 
         name = ".FLOAT32_"+uintToStr(asmRandId)
         this.data += rope(name+":\n.long "+uintToStr(u)+"\n")
         asmRandId++
 
-        this.xmmIndex = (this.xmmIndex + 1) % len(ASM_float_registers)
-
-        floatReg = asmSymbolReg(ASM_reg_id_floats, 8, this.xmmIndex)
-
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "movss", asmSymbolStaticName(name), floatReg
-        }
-
-        return floatReg
+        r = asmSymbolStaticName(name)
+        r.size = 4
+        r.isFloat = true
+        return r
     }
 
     staticFloat64(v str) asmSymbol {
         f = strToFloat(v)
-        u = *(<uint*>&f)
+        u = *(<int*>&f)
 
         partA = <int32>u
         partB = <int32>(u >> 32)
@@ -1241,19 +1381,39 @@ struct asmContext {
         this.data += rope(name+":\n.long "+intToStr(partA)+"\n.long "+intToStr(partB)+"\n")
         asmRandId++
 
-        floatReg = asmSymbolReg(ASM_reg_id_floats, 8, this.xmmIndex)
-
-        this.instructions[len(this.instructions)] = asmInstruction {
-            ASM_mov_float[spos(8)], asmSymbolStaticName(name), floatReg
-        }
-
-        return floatReg
+        r = asmSymbolStaticName(name)
+        r.isFloat = true
+        r.size = 8
+        return r
     }
 
 
     generateConvSizes(sym asmSymbol, to uint, isUnsigned bool) asmSymbol {
         if sym.size == to {
             return sym
+        }
+
+        if sym.isFloat {
+            dest = asmSymbolReg(ASM_reg_id_floats, 8, 0)
+            if sym.isReg && sym.level == 0 {
+                dest = sym
+            } else {
+                this.generateMoveValue(sym, dest)
+                sym = dest
+            }
+            if to == 4 {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "cvtsd2ss", sym, dest
+                }
+            } else {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "cvtss2sd", sym, dest
+                }
+            }
+
+            dest.size = to
+            dest.isFloat = true
+            return dest
         }
 
         if sym.isValue {
@@ -1339,7 +1499,7 @@ struct asmContext {
             tmpReg = asmSymbolReg(ASM_reg_id_return, b.size, 0)
 
             //further .generateConvSizes() could set a to %rax, in that case, a and b are moved into %rax
-            if b.size > a.size || this.isSameArg(tmpReg, a) {
+            if b.size > a.size || this.isSameArg(&tmpReg, &a) {
                 tmpReg.address = ASM_reg_id_op + this.regIndex+1
             }
             this.generateMoveValue(b, tmpReg)
@@ -1367,24 +1527,19 @@ struct asmContext {
         ret = asmSymbolReg(ASM_reg_id_return, 1, 0)
 
         if a.isFloat || b.isFloat {
-            if a.isFloat == false {
-                aDest = asmSymbolReg(ASM_reg_id_floats, a.size, 1)
-
-                if b.isFloat && this.isSameArg(b, aDest) {
-                    aDest = asmSymbolReg(ASM_reg_id_floats, a.size, 0)
+            if a.isReg == false || a.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, 8, 0)
+                if b.isReg && b.address >= ASM_reg_id_floats {
+                    r.address += (b.address + 1 - ASM_reg_id_floats) % 16
                 }
-                this.generateMoveValue(a, aDest)
-                a = aDest
+                this.generateMoveValue(a, r)
+                a = r
             }
 
-            if b.isFloat == false {
-                bDest = asmSymbolReg(ASM_reg_id_floats, b.size, 0)
-
-                if a.isFloat && this.isSameArg(a, bDest) {
-                    bDest = asmSymbolReg(ASM_reg_id_floats, b.size, 1)
-                }
-                this.generateMoveValue(b, bDest)
-                b = bDest
+            if b.isReg == false || b.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, 8, (a.address + 1 - ASM_reg_id_floats) % 16)
+                this.generateMoveValue(b, r)
+                b = r
             }
 
             if op == ASM_OP_EQ || op == ASM_OP_NOT_EQ {
@@ -1448,14 +1603,6 @@ struct asmContext {
         r = this.generateTmpSym(ret, 1)
         r.operStart = operStart
 
-        // r = asmSymbol {
-        //     parent: this
-        //     size: 1
-        //     stack: true
-        //     address: this.generateStackAlloc(ret)
-        //     operStart: operStart
-        // }
-
         return r
     }
 
@@ -1473,8 +1620,8 @@ struct asmContext {
         jumpSym = <str>this.endSym.end.data
 
         if cond.operStart != -1 {
-            setOpIndex = cond.operStart + 1
-            for setOpIndex < len(this.instructions), setOpIndex++ {
+            setOpIndex = len(this.instructions)-1
+            for setOpIndex > cond.operStart, setOpIndex-- {
                 if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
                     break
                 }
@@ -1493,8 +1640,14 @@ struct asmContext {
             this.instructions[len(this.instructions)] = asmInstruction {
                 "cmpb", asmSymbolValue("$1"), cond
             }
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "je", asmSymbolValue(jumpSym)
+            if cond.isReg && cond.address == ASM_reg_id_return {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "je", asmSymbolValue(jumpSym+"_END")
+                }
+            } else {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "je", asmSymbolValue(jumpSym)
+                }
             }
         }
     }
@@ -1504,8 +1657,8 @@ struct asmContext {
         operStart = <uint>this.endSym.pop()
 
         if cond.operStart != -1 {
-            setOpIndex = cond.operStart + 1
-            for setOpIndex < len(this.instructions), setOpIndex++ {
+            setOpIndex = len(this.instructions)-1
+            for setOpIndex > cond.operStart, setOpIndex-- {
                 if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
                     break
                 }
@@ -1568,8 +1721,8 @@ struct asmContext {
         jumpSym = <str>this.endSym.end.data
 
         if cond.operStart != -1 {
-            setOpIndex = cond.operStart + 1
-            for setOpIndex < len(this.instructions), setOpIndex++ {
+            setOpIndex = len(this.instructions)-1
+            for setOpIndex > cond.operStart, setOpIndex-- {
                 if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
                     break
                 }
@@ -1601,15 +1754,14 @@ struct asmContext {
         operStart = <uint>this.endSym.pop()
 
         if cond.operStart != -1 {
-            setOpIndex = cond.operStart + 1
-            for setOpIndex < len(this.instructions), setOpIndex++ {
+            setOpIndex = len(this.instructions)-1
+            for setOpIndex > cond.operStart, setOpIndex-- {
                 if strHasPrefix(this.instructions[setOpIndex].instruction, "set") {
                     break
                 }
             }
 
             this.instructions[setOpIndex].instruction = this.setToJump(this.instructions[setOpIndex].instruction)
-
 
             this.instructions[setOpIndex].arg1 = asmSymbolValue(jumpSym)
             this.instructions[setOpIndex+1].instruction = "#"
@@ -1659,8 +1811,6 @@ struct asmContext {
 
         if sym.stack == false || sym.level != 0 {
             sym = this.generateTmpSym(sym, sym.size)
-            // sym = asmSymbolStack(this.generateStackAlloc(sym), sym.size)
-            // sym.singleUse = true
         }
 
         syms[len(syms)] = sym
@@ -1669,6 +1819,10 @@ struct asmContext {
     generateStrConcatEnd() asmSymbol {
         syms = <[]asmSymbol>this.endSym.pop()
         operStart = <uint>this.endSym.pop()
+
+        if len(syms) == 1 {
+            return syms[0]
+        }        
 
         this.instructions[len(this.instructions)] = asmInstruction {
             "movl", asmSymbolValue("$5"), asmSymbolReg(ASM_reg_id_args, 4, 0)
@@ -1694,7 +1848,7 @@ struct asmContext {
         sizeSym = this.generateTmpSym(asmSymbolReg(ASM_reg_id_args, 8, 0), 8)
 
         this.instructions[len(this.instructions)] = asmInstruction {
-            "call", asmSymbolValue(memoryAllocFunctionSTR)
+            "call", asmSymbolValue(memoryAllocFunctionSTR_NZ)
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -1748,29 +1902,19 @@ struct asmContext {
             this.instructions[len(this.instructions)] = asmInstruction {
                 "call", asmSymbolValue("memcpy")
             }
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "movq", rdiSym, asmSymbolReg(ASM_reg_id_args, 8, 2)
-            }
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "movq", sizeSym, asmSymbolReg(ASM_reg_id_args, 8, 0)
-            }
             if i+1 != len(syms) {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "movq", rdiSym, asmSymbolReg(ASM_reg_id_args, 8, 2)
+                }
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "movq", sizeSym, asmSymbolReg(ASM_reg_id_args, 8, 0)
+                }
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "addq", asmSymbolReg(ASM_reg_id_args, 8, 2), asmSymbolReg(ASM_reg_id_args, 8, 0)
                 }
             }
         }
 
-        // r = asmSymbol {
-        //     parent: this
-        //     size: 8
-        //     isReg: true
-        //     address: ASM_reg_id_op + this.regIndex
-        //     operStart: operStart
-        // }
-
-        // r = asmSymbolStack(this.generateStackAlloc(r), 8)
-        // r.singleUse = true
         return retSym
     }
 
@@ -1778,17 +1922,22 @@ struct asmContext {
         this.scope++
         forLoopStartSym = ".FOR_LOOP_START_"+uintToStr(asmRandId)
         this.endSym.insert(<ptr>this.stackOffset)
+        this.endSym.insert(<ptr>(len(this.instructions)))
         this.endSym.insert(forLoopStartSym)
         this.forStack.insert(<ptr>asmRandId)
         this.endSym.insert(<ptr>asmRandId)
         asmRandId++
 
         this.instructions[len(this.instructions)] = asmInstruction {
+            "#opti_placeholder"
+        }
+        
+        this.instructions[len(this.instructions)] = asmInstruction {
             forLoopStartSym+":"
         }
     }
 
-    generateForCond(cond asmSymbol) {
+    generateForCond(cond asmSymbol, optimizedIndex int) {
         idNb = <uint>this.endSym.pop()
         forLoopStartSym = <str>this.endSym.pop()
 
@@ -1797,19 +1946,29 @@ struct asmContext {
 
         this.endSym.insert(forLoopStartSym)
 
+        this.forStack.insert(<ptr>optimizedIndex)
+        if optimizedIndex != -1 {
+            delete(this.instructions, optimizedIndex)
+        }
+
         if cond.level != 0 {
             retReg = asmSymbolReg(ASM_reg_id_return, 1, 0)
             this.generateMoveValue(cond, retReg)
             cond = retReg
         } else {
-            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(cond, this.instructions[len(this.instructions)-1].arg2) {
+            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(&cond, &this.instructions[len(this.instructions)-1].arg2) {
                 al = this.instructions[len(this.instructions)-1].arg1
                 setInd = len(this.instructions)-2
-                if this.isSameArg(this.instructions[setInd].arg1, al) {
+                if this.isSameArg(&this.instructions[setInd].arg1, &al) {
                     jmpInst = this.setToJump(this.instructions[setInd].instruction)
                     if len(jmpInst) > 0 {
                         this.instructions[setInd].instruction = jmpInst
                         this.instructions[setInd].arg1 = asmSymbolValue(forNotSym)
+                        if optimizedIndex != -1 {
+                            this.instructions[len(this.instructions)] = asmInstruction {
+                                forLoopStartSym+":"
+                            }
+                        }
                         this.endSym.insert(<ptr>len(this.instructions))
                         return
                     }
@@ -1838,6 +1997,12 @@ struct asmContext {
             }
         }
 
+        if optimizedIndex != -1 {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                forLoopStartSym+":"
+            }
+        }
+
 
         this.endSym.insert(<ptr>len(this.instructions))
     }
@@ -1846,34 +2011,193 @@ struct asmContext {
         lastIndex = this.endSym.pop()
 
         incrIstrcts = this.instructions[lastIndex:]
-
+        arrayDuplicate(incrIstrcts)
+        
         rArr = <Bah_Array_Type*>(this.instructions)
         rArr.length = len(this.instructions) - len(incrIstrcts)
 
-        this.endSym.insert(incrIstrcts)   
+        this.endSym.insert(incrIstrcts)
         this.forStack.insert(incrIstrcts)
 
     }
 
-    generateForEnd() {
+    generateForOptimizedCond(cond asmSymbol) {
+        forLoopStartSym = <str>this.endSym.end.prev.data
+
+        if cond.level != 0 {
+            retReg = asmSymbolReg(ASM_reg_id_return, 1, 0)
+            this.generateMoveValue(cond, retReg)
+            cond = retReg
+        } else {
+            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(&cond, &this.instructions[len(this.instructions)-1].arg2) {
+                al = this.instructions[len(this.instructions)-1].arg1
+                setInd = len(this.instructions)-2
+                if this.isSameArg(&this.instructions[setInd].arg1, &al) {
+                    if strHasPrefix(this.instructions[setInd].instruction, "set") {
+                        this.instructions[setInd].instruction = "j" + this.instructions[setInd].instruction[3:]
+                        this.instructions[setInd].arg1 = asmSymbolValue(forLoopStartSym)
+                        this.instructions[setInd+1].instruction = "#"
+                        return
+                    }
+                }
+            }
+        }
+
+        if cond.isValue && cond.name[0] == '$' {
+            if cond.name == "$1" {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "jmp", asmSymbolValue(forLoopStartSym)
+                }
+            }
+        } else {
+            if cond.size != 1 {
+                cond = this.generateConvSizes(cond, 1, true)
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ASM_cmp[spos(1)], asmSymbolValue("$0"), cond
+            }
+
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "jne", asmSymbolValue(forLoopStartSym)
+            }
+        }
+
+
+        // this.endSym.insert(<ptr>len(this.instructions))
+    }
+
+    generateForEnd(optimized bool) {
         incrInstructs = <[]asmInstruction>this.endSym.pop()
         loopStart = <str>this.endSym.pop()
         loopNot = <str>this.endSym.pop()
 
         this.forStack.pop()
         this.forStack.pop()
+        this.forStack.pop()
+
+        loopStartIndex = <uint>this.endSym.pop()
 
         i=0; for i < len(incrInstructs), i++ {
             this.instructions[len(this.instructions)] = incrInstructs[i]
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "jmp", asmSymbolValue(loopStart)
+        // currSym asmSymbol*
+        // lastCurrSym asmSymbol*
+        // uses = [0,0]
+        // const regNB = 8
+        // if this.enableOptimizations && len(this.instructions) - loopStartIndex >= 100 {
+        //     i=loopStartIndex; for i < len(this.instructions), i++ {
+        //         if this.instructions[i].instruction == "ret" {
+        //             currSym = null
+        //             break
+        //         }
+
+        //         if this.instructions[i].arg1.isReg && this.instructions[i].arg1.address == ASM_reg_id_op + regNB || this.instructions[i].arg2.isReg && this.instructions[i].arg2.address == ASM_reg_id_op + regNB {
+        //             currSym = null
+        //             break
+        //         }
+
+        //         if this.instructions[i].instruction[0] == 'm' && this.instructions[i].arg2.stack && this.instructions[i].arg2.size <= 8 && this.instructions[i].arg2.isTmp == false {
+        //             j=i-1; for j > this.startIndex, j-- {
+        //                 if this.instructions[j].arg2.stack && this.isSameArg(this.instructions[i].arg2, this.instructions[j].arg2) {
+        //                     break
+        //                 }
+
+        //                 if this.instructions[j].arg1.stack && this.isSameArg(this.instructions[i].arg2, this.instructions[j].arg1) {
+        //                     break
+        //                 }
+        //             }
+
+        //             if j != this.startIndex {
+        //                 continue
+        //             }
+
+        //             lastCurrSym = currSym
+        //             uses[1] = uses[0]
+        //             uses[0] = 0
+        //             currSym = &this.instructions[i].arg2
+
+
+
+        //             j=i+1; for j < len(this.instructions), j++ {
+
+        //                 if this.instructions[j].arg1.stack && this.instructions[j].arg1.isTmp == false && this.instructions[j].arg1.address == currSym.address {
+        //                     if this.instructions[j].arg2.isReg && this.instructions[j].arg2.address >= ASM_reg_id_floats || this.instructions[j].instruction == "leaq" || this.instructions[j].arg1.size != currSym.size {
+        //                         uses[0] = 0
+        //                         break
+        //                     }
+
+        //                     uses[0]++
+        //                     continue
+        //                 }
+
+        //                 if this.instructions[j].arg2.stack && this.instructions[j].arg2.isTmp == false && this.instructions[j].arg2.address == currSym.address {
+        //                     if this.instructions[j].arg2.size != currSym.size || this.instructions[j].arg1.isReg && this.instructions[j].arg1.address >= ASM_reg_id_floats {
+        //                         uses[0] = 0
+        //                         break
+        //                     }
+
+        //                     uses[0]++
+        //                     continue
+        //                 }
+        //             }
+                    
+        //             if currSym == null {
+        //                 break
+        //             }
+
+        //             if uses[0] <= uses[1] {
+        //                 uses[0] = uses[1]
+        //                 currSym = lastCurrSym
+        //             }
+
+        //         }
+        //     }
+        // }
+
+        // if currSym != null {
+        //     searchAddr = currSym.address
+        //     debugSym = *currSym
+        //     changed = false
+        //     i=loopStartIndex; for i < len(this.instructions), i++ {
+        //         if this.instructions[i].arg1.stack && this.instructions[i].arg1.isTmp == false && this.instructions[i].arg1.address == searchAddr {
+        //             changed = true
+        //             this.instructions[i].arg1 = asmSymbolReg(ASM_reg_id_op, this.instructions[i].arg1.size, regNB)
+        //         }
+
+        //         if this.instructions[i].arg2.stack && this.instructions[i].arg2.isTmp == false && this.instructions[i].arg2.address == searchAddr {
+        //             changed = true
+        //             this.instructions[i].arg2 = asmSymbolReg(ASM_reg_id_op, this.instructions[i].arg2.size, regNB)
+        //         }
+        //     }
+
+        //     if changed {
+        //         // printDebugContext()
+        //         // println(debugSym.toStr()+": "+uintToStr(uses[0])+" instructions: "+intToStr(len(this.instructions) - loopStartIndex))
+        //         this.instructions[loopStartIndex] = asmInstruction {
+        //             "pushq", asmSymbolReg(ASM_reg_id_op, 8, regNB)
+        //         }
+        //     } else {
+        //         currSym = null
+        //     }
+        // }
+
+        if optimized == false {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "jmp", asmSymbolValue(loopStart)
+            }
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
             loopNot+":"
         }
+
+        // if currSym != null {
+        //     this.instructions[len(this.instructions)] = asmInstruction {
+        //         "popq", asmSymbolReg(ASM_reg_id_op, 8, regNB)
+        //     }
+        // }
+
         this.scope--
 
         if this.stackOffset > this.maxStackOffset {
@@ -1884,7 +2208,8 @@ struct asmContext {
     }
 
     generateForContinue() {
-        loopId = <uint>this.forStack.end.prev.data
+        loopId = <uint>this.forStack.end.prev.prev.data
+        optimized = <int>this.forStack.end.prev.data != -1
         incrInstructs = <[]asmInstruction>this.forStack.end.data
         loopStart = ".FOR_LOOP_START_"+uintToStr(loopId)
 
@@ -1892,19 +2217,29 @@ struct asmContext {
             this.instructions[len(this.instructions)] = incrInstructs[i]
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "jmp", asmSymbolValue(loopStart)
+        if optimized == false {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "jmp", asmSymbolValue(loopStart)
+            }
+        } else {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "jmp", asmSymbolValue(".FOR_NOT_"+uintToStr(loopId))
+            }
         }
+
     }
 
     generateForBreak() {
-        loopId = <uint>this.forStack.end.prev.data
+        loopId = <uint>this.forStack.end.prev.prev.data
         this.instructions[len(this.instructions)] = asmInstruction {
             "jmp", asmSymbolValue(".FOR_NOT_"+uintToStr(loopId))
         }
     }
 
     generateIf(cond asmSymbol) {
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "#scope", asmSymbolValue(uintToStr(this.stackOffset))
+        // }
         this.scope++
         ifNotSym = ".IF_NOT_"+uintToStr(asmRandId)
         this.endSym.insert(<ptr>this.stackOffset)
@@ -1917,15 +2252,15 @@ struct asmContext {
             cond = retReg
         } else {
 
-            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(cond, this.instructions[len(this.instructions)-1].arg2) {
+            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(&cond, &this.instructions[len(this.instructions)-1].arg2) {
                 al = this.instructions[len(this.instructions)-1].arg1
                 setInd = len(this.instructions)-2
-                if this.isSameArg(this.instructions[setInd].arg1, al) {
+                if this.isSameArg(&this.instructions[setInd].arg1, &al) {
                     jmpInst = this.setToJump(this.instructions[setInd].instruction)
                     if len(jmpInst) > 0 {
                         this.instructions[setInd].instruction = jmpInst
                         this.instructions[setInd].arg1 = asmSymbolValue(ifNotSym)
-                        if this.isSameArg(this.instructions[setInd+1].arg1, al) {
+                        if this.isSameArg(&this.instructions[setInd+1].arg1, &al) {
                             this.instructions[setInd+1].instruction = "#"
                         }
                         return
@@ -1947,7 +2282,6 @@ struct asmContext {
         this.instructions[len(this.instructions)] = asmInstruction {
             "je", asmSymbolValue(ifNotSym)
         }
-
     }
 
     generateEndIf() {
@@ -1969,6 +2303,9 @@ struct asmContext {
     }
 
     generateElseIf(cond asmSymbol, chainLength uint, chainLabels []uint) {
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "#scope", asmSymbolValue(uintToStr(this.stackOffset))
+        // }
         this.scope++
         this.endSym.insert(<ptr>this.stackOffset)
         elseNotSym = ".ELSE_NOT_"+uintToStr(asmRandId)
@@ -1996,14 +2333,17 @@ struct asmContext {
             this.generateMoveValue(cond, retReg)
             cond = retReg
         }  else {
-            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(cond, this.instructions[len(this.instructions)-1].arg2) {
+            if this.instructions[len(this.instructions)-1].instruction == "movb" && this.isSameArg(&cond, &this.instructions[len(this.instructions)-1].arg2) {
                 al = this.instructions[len(this.instructions)-1].arg1
                 setInd = len(this.instructions)-2
-                if this.isSameArg(this.instructions[setInd].arg1, al) {
+                if this.isSameArg(&this.instructions[setInd].arg1, &al) {
                     jmpInst = this.setToJump(this.instructions[setInd].instruction)
                     if len(jmpInst) > 0 {
                         this.instructions[setInd].instruction = jmpInst
                         this.instructions[setInd].arg1 = asmSymbolValue(elseNotSym)
+                        if this.isSameArg(&this.instructions[setInd+1].arg1, &al) {
+                            this.instructions[setInd+1].instruction = "#"
+                        }
                         return
                     }
                 }
@@ -2023,10 +2363,12 @@ struct asmContext {
         this.instructions[len(this.instructions)] = asmInstruction {
             "je", asmSymbolValue(elseNotSym)
         }
-
     }
 
     generateElse(chainLength uint, chainLabels []uint) {
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "#scope", asmSymbolValue(uintToStr(this.stackOffset))
+        // }
         this.scope++
         this.endSym.insert(<ptr>this.stackOffset)
         elseNotSym = ".ELSE_NOT_"+uintToStr(asmRandId)
@@ -2039,6 +2381,7 @@ struct asmContext {
 
         this.endSym.insert(elseNotSym)
         asmRandId++
+
     }
 
     generateEndElse() {
@@ -2076,13 +2419,12 @@ struct asmContext {
         this.stackOffset = addr
 
         r = asmSymbol {
-            parent: this
             name: name
             size: size
-            scope: this.scope
-
+            
             stack: true
             address: this.stackOffset
+            active: true
         }
 
         //need to zero initialize it
@@ -2090,11 +2432,20 @@ struct asmContext {
             this.instructions[len(this.instructions)] = asmInstruction {
                 "pxor", asmSymbolReg(ASM_reg_id_floats, 16, 0), asmSymbolReg(ASM_reg_id_floats, 16, 0)
             }
+
             offset = r.address
+            for size >= 32, size -= 32 {
+                destAddr = asmSymbolStack(offset, 32)
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "vmovdqu", asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+                }
+                offset -= 32
+            }
+            
             for size >= 16, size -= 16 {
                 destAddr = asmSymbolStack(offset, 16)
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "movups", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
+                    "vmovdqu", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }
                 offset -= 16
             }
@@ -2106,7 +2457,7 @@ struct asmContext {
                 offset -= 8
             }
             for size >= 4, size -= 4 {
-                destAddr = asmSymbolStack(offset, 8)
+                destAddr = asmSymbolStack(offset, 4)
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "movl", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }   
@@ -2120,7 +2471,7 @@ struct asmContext {
             }
 
             for size >= 1, size-- {
-                destAddr = asmSymbolStack(offset, 8)
+                destAddr = asmSymbolStack(offset, 1)
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "movb", asmSymbolReg(ASM_reg_id_return, 1, 0), destAddr
                 }
@@ -2138,11 +2489,20 @@ struct asmContext {
             this.instructions[len(this.instructions)] = asmInstruction {
                 "pxor", asmSymbolReg(ASM_reg_id_floats, 16, 0), asmSymbolReg(ASM_reg_id_floats, 16, 0)
             }
+            
             offset = r.address
+            for size >= 32, size -= 32 {
+                destAddr = asmSymbolStack(offset, 32)
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "vmovdqu", asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+                }
+                offset -= 32
+            }
+            
             for size >= 16, size -= 16 {
                 destAddr = asmSymbolStack(offset, 16)
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "movups", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
+                    "vmovdqu", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }
                 offset -= 16
             }
@@ -2154,16 +2514,23 @@ struct asmContext {
                 offset -= 8
             }
             for size >= 4, size -= 4 {
-                destAddr = asmSymbolStack(offset, 8)
+                destAddr = asmSymbolStack(offset, 4)
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "movl", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }   
                 offset -= 4
             }
+
+            if size != 0 {
+                this.instructions[len(this.instructions)] = asmInstruction{
+                    "xorb", asmSymbolReg(ASM_reg_id_return, 1, 0), asmSymbolReg(ASM_reg_id_return, 1, 0)
+                }
+            }
+
             for size >= 1, size-- {
-                destAddr = asmSymbolStack(offset, 8)
+                destAddr = asmSymbolStack(offset, 1)
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "movb", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
+                    "movb", asmSymbolReg(ASM_reg_id_return, 1, 0), destAddr
                 }
                 offset -= 1
             }
@@ -2257,16 +2624,88 @@ struct asmContext {
         this.generateMoveValue(b, a)
     }
 
+    generateOpBitwise(a asmSymbol, b asmSymbol, operation uint, lossy bool) asmSymbol {
+        operStart = len(this.instructions)
+
+        if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
+            a = this.generateConvSizes(a, b.size, false)
+        } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
+            b = this.generateConvSizes(b, a.size, false)
+        }
+
+        if operation == ASM_OP_BITWISE_LEFT || operation == ASM_OP_BITWISE_RIGHT {
+            if (b.isReg == false || b.address != ASM_reg_id_args + 3) && (b.isValue == false || b.name[0] != '$') {
+                rightReg = asmSymbolReg(ASM_reg_id_args, b.size, 3)
+                if this.isSameArg(&a, &rightReg) {
+                    a = this.generateTmpSym(a, a.size)
+                }
+
+                this.generateMoveValue(b, rightReg)
+                b = rightReg
+            }
+        }
+
+        inst = ASM_bitwise_ops[operation][spos(a.size)]
+
+        accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex), asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
+
+        if b.level != 0 || b.isReg && b.address == ASM_reg_id_op + this.regIndex{
+            this.generateMoveValue(b, accReg[1])
+            this.generateMoveValue(a, accReg[0])
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, accReg[1], accReg[0]
+            }
+        } else {
+            if lossy && a.isReg {
+                accReg[0] = a
+            } else {
+                this.generateMoveValue(a, accReg[0])
+            }
+            this.instructions[len(this.instructions)] = asmInstruction {
+                inst, b, accReg[0]
+            }
+        }
+
+        r = accReg[0]
+        r.operStart = operStart
+
+        return r
+    }
+
     generateOpAdd(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
 
+        if a.isValue && a.name[0] == '$' && b.isValue && b.name[0] == '$' {
+            if numType == ASM_NUM_UINT {
+                a.name = "$" + uintToStr(strToUint(a.name[1:]) + strToUint(b.name[1:]))
+            } else {
+                a.name = "$" + intToStr(strToInt(a.name[1:]) + strToInt(b.name[1:]))
+            }
 
+            return a
+        }
 
+        if numType == ASM_NUM_FLOAT {
+            a.isFloat = true
+            b.isFloat = true
+        }
 
         if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
             a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
             b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         }
 
@@ -2281,16 +2720,28 @@ struct asmContext {
         accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex),asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
 
         if numType == ASM_NUM_FLOAT {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mov_float[spos(a.size)], a, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+            if a.isReg == false || a.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, size, 0)
+                if b.isReg && b.address >= ASM_reg_id_floats {
+                    r.address += (b.address + 1 - ASM_reg_id_floats) % 16
+                }
+                this.generateMoveValue(a, r)
+                a = r
             }
+
+            if b.isReg == false || b.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, size, (a.address + 1 - ASM_reg_id_floats) % 16)
+                this.generateMoveValue(b, r)
+                b = r
+            }
+
             this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_add_float[spos(a.size)], b, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+                ASM_add_float[spos(a.size)], b, a
             }
             
-            r = asmSymbolReg(ASM_reg_id_floats, 8, 0)
-            r.operStart = operStart
-            return r
+            a.operStart = operStart
+            a.isFloat = true
+            return a
         }
 
         if b.isReg == true && b.address == accReg[0].address {
@@ -2319,13 +2770,67 @@ struct asmContext {
 
         return r
     }
+    
 
     generateOpMult(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
+        if a.isValue && a.name[0] == '$' && b.isValue && b.name[0] == '$' {
+            if numType == ASM_NUM_UINT {
+                a.name = "$" + uintToStr(strToUint(a.name[1:]) * strToUint(b.name[1:]))
+            } else {
+                a.name = "$" + intToStr(strToInt(a.name[1:]) * strToInt(b.name[1:]))
+            }
+
+            return a
+        }
+
+        if a.isValue && a.name[0] == '$' {
+            if a.name == "$1" {
+                return b
+            } else if a.name == "$0" {
+                return a
+            } else {
+                n = strToInt(a.name[1:])
+                if n % 2 == 0 {
+                    p = getTwoPow(n)
+                    if p != -1 {
+                        return this.generateOpBitwise(b, this.staticInt(intToStr(p)), ASM_OP_BITWISE_LEFT, false)
+                    }
+                }
+            }
+        }
+
+        if b.isValue && b.name[0] == '$' {
+            if b.name == "$1" {
+                return a
+            } else if b.name == "$0" {
+                return b
+            } else {
+                n = strToInt(b.name[1:])
+                if n % 2 == 0 {
+                    p = getTwoPow(n)
+                    if p != -1 {
+                        return this.generateOpBitwise(a, this.staticInt(intToStr(p)), ASM_OP_BITWISE_LEFT, false)
+                    }
+                }
+            }
+        }
+
+        if numType == ASM_NUM_FLOAT {
+            a.isFloat = true
+            b.isFloat = true
+        }
+
         if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
             a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
             b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         }
 
@@ -2335,22 +2840,28 @@ struct asmContext {
         accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex),asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
 
         if numType == ASM_NUM_FLOAT {
-            if b.isFloat == false {
-                bDest = asmSymbolReg(ASM_reg_id_floats, b.size, 0)
-
-                if a.isFloat && this.isSameArg(a, bDest) {
-                    bDest = asmSymbolReg(ASM_reg_id_floats, b.size, 1)
+            if a.isReg == false || a.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, 0)
+                if b.isReg && b.address >= ASM_reg_id_floats {
+                    r.address += (b.address + 1 - ASM_reg_id_floats) % 16
                 }
-                this.generateMoveValue(b, bDest)
-                b = bDest
+                this.generateMoveValue(a, r)
+                a = r
+            }
+
+            if b.isReg == false || b.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, (a.address + 1 - ASM_reg_id_floats) % 16)
+                this.generateMoveValue(b, r)
+                b = r
             }
 
             this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mul_float[spos(a.size)], a, b
+                ASM_mul_float[spos(a.size)], b, a
             }
             
-            b.operStart = operStart
-            return b
+            a.operStart = operStart
+            a.isFloat = true
+            return a
         }
 
         if b.isReg == true && b.address == accReg[0].address {
@@ -2383,9 +2894,40 @@ struct asmContext {
     generateOpDiv(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
+        if a.isValue && a.name[0] == '$' && b.isValue && b.name[0] == '$' {
+            if numType == ASM_NUM_UINT {
+                a.name = "$" + uintToStr(strToUint(a.name[1:]) / strToUint(b.name[1:]))
+            } else {
+                a.name = "$" + intToStr(strToInt(a.name[1:]) / strToInt(b.name[1:]))
+            }
+
+            return a
+        }
+
+        if b.isValue && b.name[0] == '$' {
+            n = strToInt(b.name[1:])
+            if n % 2 == 0 {
+                p = getTwoPow(n)
+                if p != -1 {
+                    return this.generateOpBitwise(a, this.staticInt(intToStr(p)), ASM_OP_BITWISE_RIGHT, false)
+                }
+            }
+        }
+
+        if numType == ASM_NUM_FLOAT {
+            a.isFloat = true
+            b.isFloat = true
+        }
+
         if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
             a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
             b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         }
 
@@ -2402,16 +2944,28 @@ struct asmContext {
         accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex),asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
         
         if numType == ASM_NUM_FLOAT {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mov_float[spos(a.size)], a, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+            if a.isReg == false || a.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, 0)
+                if b.isReg && b.address >= ASM_reg_id_floats {
+                    r.address += (b.address + 1 - ASM_reg_id_floats) % 16
+                }
+                this.generateMoveValue(a, r)
+                a = r
             }
+
+            if b.isReg == false || b.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, (a.address + 1 - ASM_reg_id_floats) % 16)
+                this.generateMoveValue(b, r)
+                b = r
+            }
+
             this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_div_float[spos(a.size)], b, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+                ASM_div_float[spos(a.size)], b, a
             }
             
-            r = asmSymbolReg(ASM_reg_id_floats, 8, 0)
-            r.operStart = operStart
-            return r
+            a.operStart = operStart
+            a.isFloat = true
+            return a
         }
 
         if a.isReg == true && a.address != accReg[0].address {
@@ -2445,11 +2999,27 @@ struct asmContext {
     generateOpMod(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
+        if a.isValue && a.name[0] == '$' && b.isValue && b.name[0] == '$' {
+            if numType == ASM_NUM_UINT {
+                a.name = "$" + uintToStr(strToUint(a.name[1:]) % strToUint(b.name[1:]))
+            } else {
+                a.name = "$" + intToStr(strToInt(a.name[1:]) % strToInt(b.name[1:]))
+            }
+
+            return a
+        }
+
         operStart = len(this.instructions)
 
         if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
             a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
             b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         }
 
@@ -2488,11 +3058,33 @@ struct asmContext {
     generateOpSub(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
+        if a.isValue && a.name[0] == '$' && b.isValue && b.name[0] == '$' {
+            if numType == ASM_NUM_UINT {
+                a.name = "$" + uintToStr(strToUint(a.name[1:]) - strToUint(b.name[1:]))
+            } else {
+                a.name = "$" + intToStr(strToInt(a.name[1:]) - strToInt(b.name[1:]))
+            }
+
+            return a
+        }
+
+
         operStart = len(this.instructions)
 
+        if numType == ASM_NUM_FLOAT {
+            a.isFloat = true
+            b.isFloat = true
+        }
+
         if a.size < b.size {
+            if b.isReg && b.address == ASM_reg_id_return {
+                b = this.generateTmpSym(b, b.size)
+            }
             a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         } else if b.size < a.size {
+            if a.isReg && a.address == ASM_reg_id_return {
+                a = this.generateTmpSym(a, a.size)
+            }
             b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         }
 
@@ -2500,19 +3092,31 @@ struct asmContext {
         accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex),asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
         
         if numType == ASM_NUM_FLOAT {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mov_float[spos(a.size)], a, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+            if a.isReg == false || a.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, 0)
+                if b.isReg && b.address >= ASM_reg_id_floats {
+                    r.address += (b.address + 1 - ASM_reg_id_floats) % 16
+                }
+                this.generateMoveValue(a, r)
+                a = r
             }
+
+            if b.isReg == false || b.address < ASM_reg_id_floats {
+                r = asmSymbolReg(ASM_reg_id_floats, a.size, (a.address + 1 - ASM_reg_id_floats) % 16)
+                this.generateMoveValue(b, r)
+                b = r
+            }
+
             this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_sub_float[spos(a.size)], b, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+                ASM_sub_float[spos(a.size)], b, a
             }
             
-            r = asmSymbolReg(ASM_reg_id_floats, 8, 0)
-            r.operStart = operStart
-            return r
+            a.operStart = operStart
+            a.isFloat = true
+            return a
         }
 
-        if b.level != 0 || b.isReg && b.address == ASM_reg_id_op + this.regIndex{
+        if b.level != 0 || b.isReg && b.address == ASM_reg_id_op + this.regIndex {
             this.generateMoveValue(b, accReg[1])
             this.generateMoveValue(a, accReg[0])
             this.instructions[len(this.instructions)] = asmInstruction {
@@ -2530,58 +3134,18 @@ struct asmContext {
 
         return r
     }
-
-
-    generateOpBitwise(a asmSymbol, b asmSymbol, operation uint) asmSymbol {
-        operStart = len(this.instructions)
-
-        if a.size < b.size {
-            a = this.generateConvSizes(a, b.size, false)
-        } else if b.size < a.size {
-            b = this.generateConvSizes(b, a.size, false)
-        }
-
-        if operation == ASM_OP_BITWISE_LEFT || operation == ASM_OP_BITWISE_RIGHT {
-            if (b.isReg == false || b.address != ASM_reg_id_args + 3) && (b.isValue == false || b.name[0] != '$') {
-                rightReg = asmSymbolReg(ASM_reg_id_args, b.size, 3)
-                if this.isSameArg(a, rightReg) {
-                    a = this.generateTmpSym(a, a.size)
-                }
-
-                this.generateMoveValue(b, rightReg)
-                b = rightReg
-            }
-        }
-
-        inst = ASM_bitwise_ops[operation][spos(a.size)]
-
-        accReg = [asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex), asmSymbolReg(ASM_reg_id_op, a.size, this.regIndex+1)]
-
-        if b.level != 0 || b.isReg && b.address == ASM_reg_id_op + this.regIndex{
-            this.generateMoveValue(b, accReg[1])
-            this.generateMoveValue(a, accReg[0])
-            this.instructions[len(this.instructions)] = asmInstruction {
-                inst, accReg[1], accReg[0]
-            }
-        } else {
-            this.generateMoveValue(a, accReg[0])
-            this.instructions[len(this.instructions)] = asmInstruction {
-                inst, b, accReg[0]
-            }
-        }
-
-        r = accReg[0]
-        r.operStart = operStart
-
-        return r
-    }
-
 
     generateConvFloatToInt(sym asmSymbol, size uint) asmSymbol {
-        if sym.isValue == false || sym.isReg == false || sym.address >= ASM_reg_id_floats {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mov_float[spos(sym.size)], sym, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+        if sym.isValue && sym.name[0] == '$' {
+            if size == 4 {
+                return this.staticInt(intToStr(<int>strToFloat(sym.name[1:])))
+            } else if size == 8 {
+                return this.staticInt(intToStr(<int>strToFloat(sym.name[1:])))
             }
+        }
+
+        if sym.isValue == false || sym.isReg == false || sym.address >= ASM_reg_id_floats {
+            this.generateMoveValue(sym, asmSymbolReg(ASM_reg_id_floats, 8, 0))
         }
 
         inst = "cvttsd2siq"
@@ -2628,6 +3192,14 @@ struct asmContext {
     }
 
     generateConvIntToFloat(sym asmSymbol, size uint) asmSymbol {
+        if sym.isValue && sym.name[0] == '$' {
+            if size == 4 {
+                return this.staticFloat32(sym.name[1:])
+            } else if size == 8 {
+                return this.staticFloat64(sym.name[1:])
+            }
+        }
+
         this.instructions[len(this.instructions)] = asmInstruction {
             "pxor", asmSymbolReg(ASM_reg_id_floats, 8, 0), asmSymbolReg(ASM_reg_id_floats, 8, 0)
         }
@@ -2647,10 +3219,10 @@ struct asmContext {
             }
         }
         this.instructions[len(this.instructions)] = asmInstruction {
-            inst, sym, asmSymbolReg(ASM_reg_id_floats, 8, 0)
+            inst, sym, asmSymbolReg(ASM_reg_id_floats, size, 0)
         }
 
-        return asmSymbolReg(ASM_reg_id_floats, 8, 0)
+        return asmSymbolReg(ASM_reg_id_floats, size, 0)
     }
 
 
@@ -2685,7 +3257,7 @@ struct asmContext {
 
     generateDestSymOffset(sym asmSymbol, offset asmSymbol) asmSymbol {
         
-        if sym.stack && sym.level == -1 && offset.isValue {
+        if sym.stack && sym.isTmp == false && sym.level == -1 && offset.isValue {
             sym.address -= strToInt(offset.name[1:])
             return sym
         }
@@ -2743,10 +3315,6 @@ struct asmContext {
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
-            ".cfi_startproc"
-        }
-        
-        this.instructions[len(this.instructions)] = asmInstruction {
             "pushq", asmSymbolReg(ASM_reg_id_base_pointer, 8, 0)
         }
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -2759,6 +3327,7 @@ struct asmContext {
         this.startIndex = len(this.instructions)
 
         offset = 0
+        floatNb = 0
 
         if returnSize > 16 {
             this.instructions[len(this.instructions)] = asmInstruction {
@@ -2777,7 +3346,6 @@ struct asmContext {
         i=0; for i < len(arguments) , i++ {
             tmpSyms[len(tmpSyms)] = arguments[i]
             tmpSyms[len(tmpSyms)-1].stack = true
-            tmpSyms[len(tmpSyms)-1].scope = this.scope
 
             valueReg = asmSymbol{}
 
@@ -2836,6 +3404,11 @@ struct asmContext {
                 valueReg.size = arguments[i].size
             } else {
                 valueReg = asmSymbolReg(ASM_reg_id_args, arguments[i].size, i + offset)
+                if arguments[i].isFloat {
+                    valueReg = asmSymbolReg(ASM_reg_id_floats, arguments[i].size, floatNb)
+                    floatNb++
+                    offset--
+                }
                 valueReg.level = arguments[i].level
             }
 
@@ -2843,23 +3416,16 @@ struct asmContext {
         }
     }
 
-    generateFnEnd() {
+    generateFnEnd() rope* {
         this.scope--
         if len(this.instructions) != 0 && this.instructions[len(this.instructions)-1].instruction == "ret" {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ".cfi_endproc"
-            }
             this.instructions[len(this.instructions)] = asmInstruction {
                 ".global ."+this.currentFn+"_end"
             }
             this.instructions[len(this.instructions)] = asmInstruction {
                 "."+this.currentFn+"_end:"
             }
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "#fn ended"
-            }
-            this.flushInstructions()
-            return
+            return this.flushInstructions()
         }
 
         this.instructions[len(this.instructions)] = asmInstruction {
@@ -2868,21 +3434,14 @@ struct asmContext {
         this.instructions[len(this.instructions)] = asmInstruction {
             "ret"
         }
-
-        this.instructions[len(this.instructions)] = asmInstruction {
-            ".cfi_endproc"
-        }
         this.instructions[len(this.instructions)] = asmInstruction {
             ".global ."+this.currentFn+"_end"
         }
         this.instructions[len(this.instructions)] = asmInstruction {
             "."+this.currentFn+"_end:"
         }
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "#fn ended"
-        }
 
-        this.flushInstructions()
+        return this.flushInstructions()
     }
 
     generateReturn(value asmSymbol) {
@@ -2957,9 +3516,11 @@ struct asmContext {
     generateFnCallArgument(arg asmSymbol) {
         args = <[]asmSymbol>this.endSym.end.data
 
+        isFloat = arg.isFloat
 
-        if arg.isReg && (arg.address >= ASM_reg_id_op && arg.address < ASM_reg_id_floats || arg.address == ASM_reg_id_return) {
+        if arg.isReg {
             arg = this.generateTmpSym(arg, arg.size)
+            arg.isFloat = isFloat
         }
 
         args[len(args)] = arg
@@ -2968,40 +3529,7 @@ struct asmContext {
     generateFnCall(fnName asmSymbol, returnSize uint, returnAddress asmSymbol*, returnsFloat bool) asmSymbol {
         arguments = <[]asmSymbol>this.endSym.pop()
 
-        floatN = 0
-        floatTotal = 0
         returnAlloc asmSymbol
-        //handle float registers
-        floatRegs = []int{-1,-1,-1,-1,-1,-1,-1,-1}
-        i=0; for i < len(arguments), i++ {
-            if arguments[i].isFloat {
-                if arguments[i].isReg {
-                    regN = arguments[i].address - ASM_reg_id_floats
-                    if floatTotal != regN {
-                        floatRegs[regN] = i
-                    }
-                }
-                floatTotal++
-            }
-        }
-
-        i=0; for i < len(floatRegs), i++ {
-            if floatRegs[i] == -1 {
-                continue
-            }
-            j = floatRegs[i]
-
-            arguments[j].isReg = false
-            arguments[j].stack = true
-            arguments[j].address = this.stackOffset
-
-            this.stackOffset += arguments[j].size
-
-            this.instructions[len(this.instructions)] = asmInstruction {
-                ASM_mov_float[spos(arguments[j].size)], asmSymbolReg(ASM_reg_id_floats, 8, i), arguments[j]
-            }
-
-        }
 
         offset int = 0
 
@@ -3018,19 +3546,14 @@ struct asmContext {
         }
 
         rspOffset = 0
+        floatNb = 0
         i=0; for i < len(arguments), i++ {
 
-            if arguments[i].isFloat {
-                if arguments[i].isReg && arguments[i].address - ASM_reg_id_floats == (floatTotal - floatN - 1) {
-                    floatN++
-                    continue
-                }
-                
-                this.instructions[len(this.instructions)] = asmInstruction {
-                    ASM_mov_float[spos(arguments[i].size)], arguments[i], asmSymbolReg(ASM_reg_id_floats, 8, floatTotal - floatN - 1)
-                }
-
-                floatN++
+            if arguments[i].isFloat && floatNb < 8 {
+                //TODO: handle 16bytes structs (also in fnstart)
+                this.generateMoveValue(arguments[i], asmSymbolReg(ASM_reg_id_floats, 8, floatNb))
+                floatNb++
+                offset--
                 continue
             }
 
@@ -3085,11 +3608,15 @@ struct asmContext {
                 } else {
                     offset--
                     dest = asmSymbolReg(ASM_reg_id_op, 8, 4) //Avoid using rdi to not overwrite first argument
+                    sizeAligned = arguments[i].size
+                    if sizeAligned % 16 != 0 {
+                        sizeAligned += (16 - sizeAligned % 16)
+                    }
                     this.instructions[len(this.instructions)] = asmInstruction {
-                        "subq", asmSymbolValue("$"+uintToStr(arguments[i].size)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+                        "subq", asmSymbolValue("$"+uintToStr(sizeAligned)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
                     }
                     this.generateMoveValue(asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0), dest)
-                    rspOffset += arguments[i].size
+                    rspOffset += sizeAligned
                     dest.level = 1
                     this.generateMoveValue(arguments[i], dest)
                     
@@ -3159,7 +3686,9 @@ struct asmContext {
         }
 
         if returnsFloat {
-            return asmSymbolReg(ASM_reg_id_floats, returnSize, 0)
+            f = asmSymbolReg(ASM_reg_id_floats, returnSize, 0)
+            f.isFloat = true
+            return f
         }
         
         r = asmSymbolReg(ASM_reg_id_return, returnSize, 0)

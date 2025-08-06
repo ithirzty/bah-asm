@@ -162,7 +162,7 @@ struct fileStream {
         }
 
         sz = this.getSize()
-        r uint32* = memoryAllocSTR(sz + 6)
+        r uint32* = memoryAllocSTR_NZ(sz + 6)
         fread(<ptr>(<uint>r + 4), 1, sz, this.handle)
         *r = sz
         return <str>r
@@ -190,6 +190,87 @@ struct fileStream {
 
 }
 
+//A wrapper to make file direct operation, wihtout needing to write file on changes.
+//**This is way faster than the fileStream** but every modification made to the returned string will be directly made to the file.
+struct fileMap {
+    handle: int = -1
+    size:int
+    p: ptr
+    executable: bool = false
+
+    //To open a file inside the fileMap.
+    //It returns the content of the file as str.
+    open(fileName str) []char {
+        #linux {
+            this.handle = open(fileName, O_RDWR, <ptr>(S_IRUSR | S_IWUSR))
+            sb = stat{}
+            fstat(this.handle, &sb)
+            this.size = sb.st_size
+            flags = PROT_READ | PROT_WRITE
+            if this.executable {
+                flags = flags | PROT_EXEC
+            }
+            this.p = mmap(null, sb.st_size, flags, MAP_SHARED, this.handle, 0)
+            arr = []char
+            bArr = <Bah_Array_Type*>arr
+            bArr.length = this.size
+            bArr.data = this.p
+            return arr
+        }
+        #darwin {
+            this.handle = open(fileName, O_RDWR, S_IRUSR | S_IWUSR)
+            sb = stat{}
+            fstat(this.handle, &sb)
+            this.size = sb.st_size
+            this.p = mmap(null, sb.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, this.handle, 0)
+            arr = []char
+            bArr = <Bah_Array_Type*>arr
+            bArr.length = this.size
+            bArr.data = this.p
+            return arr
+        }
+
+        #windows {
+            fs = fileStream{}
+            fs.open(fileName, "r+")
+            iv = fs.isValid()
+            if iv == 1 {
+                this.handle = 0
+            } else {
+                this.handle = -1
+            }
+            file = fs.readBytes()
+            fs.close()
+            //file str = mmap(0, sb.st_size, noCheck(PROT_READ | PROT_WRITE), noCheck(MAP_SHARED), this.handle, 0)
+            return file
+        }
+
+    }
+
+    //Check if file is valid or not.
+    isValid() bool {
+        return this.handle >= 0
+    }
+
+    //To close a file after you are done working on it.
+    close() {
+        #linux {
+            if this.handle == -1 {
+                return
+            }
+            munmap(this.p, this.size)
+            close(this.handle)
+        }
+        #darwin {
+            if this.handle == -1 {
+                return
+            }
+            munmap(this.p, this.size)
+            close(this.handle)
+        }
+    }
+}
+
 //Returns a list of all files found inside the specified directory.
 listFiles(dir str) []str {
     d = opendir(dir)
@@ -200,7 +281,7 @@ listFiles(dir str) []str {
     file = readdir(d)
     for file != null {
         lf = len(files)
-        name = cStrToBah(<char*>file.d_name)
+        name = cStrToBah(<char*>(<uint>file + 19))
         if name != "." && name != ".." {
             files[lf] = name
         }
