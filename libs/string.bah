@@ -409,6 +409,43 @@ uintToHex(i uint) str {
 }
 
 
+hexToInt(s str) int {
+    l = len(s) - 2
+    r = 0
+    e = 1
+    i=0; for i < l, i++ {
+        if s[len(s) - i - 1] <= '9' {
+            r += e * <int>(s[len(s) - i - 1] - '0')
+        } else if isUpper(s[len(s) - i - 1]) {
+            r += e * (<int>(s[len(s) - i - 1] - 'A') + 10)
+        } else {
+            r += e * (<int>(s[len(s) - i - 1] - 'a') + 10)
+        }
+        e *= 16
+    }
+
+    return r
+}
+
+hexToUint(s str) uint {
+    l = len(s) - 2
+    r uint = 0
+    e = 1
+    i=0; for i < l, i++ {
+        if s[len(s) - i - 1] <= '9' {
+            r += e * <uint>(s[len(s) - i - 1] - '0')
+        } else if isUpper(s[len(s) - i - 1]) {
+            r += e * (<uint>(s[len(s) - i - 1] - 'A') + 10)
+        } else {
+            r += e * (<uint>(s[len(s) - i - 1] - 'a') + 10)
+        }
+        e *= 16
+    }
+
+    return r
+}
+
+
 //Used to convert an integer into a string.
 //*It returns a string, not a str*
 intToString(i int) string {

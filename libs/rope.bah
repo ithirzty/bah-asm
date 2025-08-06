@@ -79,7 +79,7 @@ struct rope {
     //Used to get the rope as a str.
     toStr() str {
         tl = this.getLen()
-        s = <uint32*>memoryAllocSTR(tl + 5)
+        s = <uint32*>memoryAllocSTR_NZ(tl + 5)
         *s = tl
         off = 0
         this.addStr(<str>s, &off)
@@ -89,10 +89,23 @@ struct rope {
     //Used for concatenation.
     //This is the method that will be called when doing `a + b`.
     add(r rope*) rope* {
+        if len(this.str) == 0 && this.left == null && this.right == null {
+            n = new rope
+            *n = *r
+            return n
+        }
+
+        if len(r.str) == 0 && r.left == null && r.right == null {
+            n = new rope
+            *n = *this
+            return n
+        }
+        
         n = new rope {
             left: this
             right: r
-        }        
+        }
+
         return n
     }
 

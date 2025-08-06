@@ -7,3 +7,19 @@ argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 threadCreateFunction = "GC_thread_create"
+
+tokToInt(s str) int {
+    if len(s) > 2 && s[0] == '0' && s[1] == 'x' {
+        return hexToInt(s)
+    }
+
+    return strToInt(s)
+}
+
+tokToUint(s str) uint {
+    if len(s) > 2 && s[0] == '0' && s[1] == 'x' {
+        return hexToUint(s)
+    }
+
+    return strToUint(s)
+}

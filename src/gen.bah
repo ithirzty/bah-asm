@@ -66,9 +66,9 @@ evalFunc(func bahFunction*, args bahValue*) asmSymbol {
     argVal = args
     for argVal != null, argVal = argVal.right {
         if argVal.type.type == BAH_TYPE_INT {
-            values[len(values)] = strToInt(argVal.left.tok.cont)
+            values[len(values)] = tokToInt(argVal.left.tok.cont)
         } else if argVal.type.type == BAH_TYPE_UINT {
-            values[len(values)] = strToUint(argVal.left.tok.cont)
+            values[len(values)] = tokToUint(argVal.left.tok.cont)
         }
     }
 
@@ -647,7 +647,6 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 sym.size = 1
                 return sym
             } else if val.tok.type == TOKEN_TYPE_INT {
-
                 sym = gen.staticInt(val.tok.cont)
                 sym.size = val.type.size
                 return sym

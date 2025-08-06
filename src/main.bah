@@ -11,7 +11,7 @@
 
 #define printDebugContext()
 
-BAH_VERSION = "v0.134 (build 14)"
+BAH_VERSION = "v0.135 (build 15)"
 
 #linux {
     BAH_OS = "linux"
@@ -279,7 +279,7 @@ __bss_start:\n")
                 break
             }
         }
-        if i != -1 {
+        if i == -1 || fileName[i] != '.' {
             fileName += ".S"
         }
         
@@ -299,10 +299,10 @@ __bss_start:\n")
                 break
             }
         }
-        if i != -1 {
-            fileName += ".o"
-        }
         
+        if i == -1 || fileName[i] != '.' {
+            fileName += ".S"
+        }
 
         cmd = command("as -f -o "+fileName)
         cmd.input = (gen.data + gen.bss + gen.code).toStr()
