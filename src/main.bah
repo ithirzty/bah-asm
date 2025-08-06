@@ -11,7 +11,7 @@
 
 #define printDebugContext()
 
-BAH_VERSION = "v0.135 (build 15)"
+BAH_VERSION = "v0.135 (build 16)"
 
 #linux {
     BAH_OS = "linux"
@@ -301,7 +301,7 @@ __bss_start:\n")
         }
         
         if i == -1 || fileName[i] != '.' {
-            fileName += ".S"
+            fileName += ".o"
         }
 
         cmd = command("as -f -o "+fileName)

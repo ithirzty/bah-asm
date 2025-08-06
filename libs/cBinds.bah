@@ -137,10 +137,10 @@ const O_WRONLY	= 0x0001
 const O_RDWR	= 0x0002
 const O_ACCMODE	= 0x0003
 
-const S_IRWXU	= 0000700
-const S_IRUSR	= 0000400
-const S_IWUSR	= 0000200
-const S_IXUSR	= 0000100
+const S_IRWXU	= 448
+const S_IRUSR	= 256
+const S_IWUSR	= 128
+const S_IXUSR	= 64
 
 const PROT_NONE		= 0x00
 const PROT_READ		= 0x01
@@ -154,13 +154,13 @@ const MAP_ANONYMOUS	= 0x20
 const MAP_ANON		= MAP_ANONYMOUS
 const MAP_FAILED	= <ptr>-1
 
-const S_IFMT  = 0170000
-const S_IFREG = 0100000
-const S_IFBLK = 0060000
-const S_IFDIR = 0040000
-const S_IFCHR = 0020000
-const S_IFIFO = 0010000
-const S_ISUID = 0004000
+const S_IFMT  = 61440
+const S_IFREG = 32768
+const S_IFBLK = 24576
+const S_IFDIR = 16384
+const S_IFCHR = 8192
+const S_IFIFO = 4096
+const S_ISUID = 2048
 
 struct dirent {
     pad: buffer:280
