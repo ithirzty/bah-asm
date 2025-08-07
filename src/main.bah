@@ -11,8 +11,6 @@
 
 #define printDebugContext()
 
-BAH_VERSION = "v0.135 (build 16)"
-
 #linux {
     BAH_OS = "linux"
 }
@@ -25,32 +23,18 @@ BAH_VERSION = "v0.135 (build 16)"
     BAH_OS = "windows"
 }
 
-isObjectFile = false
-isImportFile = false
-isSilent = false
-compilerPath = ""
-
-const BAH_DIR = "/opt/bah-asm/"
-
-
 #import "./lexer.bah"
 #import "./gen_asm_linux_64.bah"
 
 //utils
-#include "./cache.bah"
-#include "./state.bah"
-#include "./types.bah"
-#include "./error.bah"
+#import "./cache.bah"
+#import "./state.bah"
+#import "./types.bah"
+#import "./error.bah"
 
-gen asmContext
-initFnGen asmContext
-globalFuncsGen asmContext
-initFnName = ".__Bah_init"
-compileWaitChannel channel*
-
-#include "./optimizer.bah"
-#include "./gen.bah"
-#include "./parser.bah"
+#import "./optimizer.bah"
+#import "./gen.bah"
+#import "./parser.bah"
 
 printDebugContext() {
     println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
@@ -148,6 +132,7 @@ main(args []str) int {
         gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
         if flags.isSet("noBuiltin") {
             gen.staticData = rope(".global _start
+.text
 _start:
 movq %rsp, %rbp
 call "+initFnName+"
@@ -155,10 +140,33 @@ movl (%rsp), %edi
 leaq 8(%rsp), %rsi
 leaq 16(%rsp,%rdi,8), %rdx
 call main
+.global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+jne .persistentmcpy_648
+leave
+ret
+.persistentmcpy_648:
+addq %rdi, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+popq %rbp
+ret
 .data\n")
             
         } else {
             gen.staticData = rope(".global _start
+.text
 _start:
 movq %rsp, %rbp
 call "+initFnName+"
@@ -170,6 +178,28 @@ movq %rax, %rdi
 call main
 movl %eax, %edi
 call _exit
+.global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+jne .persistentmcpy_648
+leave
+ret
+.persistentmcpy_648:
+addq %rdi, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+popq %rbp
+ret
 .data\n")
         }
         gen.data = rope("")
@@ -335,7 +365,6 @@ __bss_start:\n")
     }
 
     writeCache()
-
 
     cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
     err = cmd.run()

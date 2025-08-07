@@ -517,6 +517,7 @@ __Bah_panic(e str, loc str) {
             sa_flags: SA_SIGINFO
         }
         sigaction(SIGSEGV, &action, null)
+        sigaction(SIGFPE, &action, null)
 
         action = sigaction{
             sa_handler: __Bah_segint_handle

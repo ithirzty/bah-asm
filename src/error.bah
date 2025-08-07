@@ -1,3 +1,10 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "path.bah"
+
+#import "lexer.bah"
+#import "state.bah"
+
 const ASCII_RESET = "\033[0m"
 
 const ASCII_YELLOW = "\033[33m"

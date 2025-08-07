@@ -1,3 +1,15 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "dl.bah"
+#import "exec.bah"
+
+#import "lexer.bah"
+#import "types.bah"
+#import "state.bah"
+#import "error.bah"
+#import "optimizer.bah"
+#import "gen_asm_linux_64.bah"
+
 #define generateTypeConversion(val bahValue*, type bahType*) asmSymbol
 #define generateReflection(val bahValue*) asmSymbol
 #define generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol
@@ -671,7 +683,10 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             if parserCtx.variables[i].name == val.tok.cont {
                 sm = parserCtx.variables[i].sym
                 if val.isPointer {
-                    sm.level = -1
+                    sm.level--
+                    if sm.level < -1 {
+                        sm.level = -1
+                    }
                     sm.size = 8
                 }
                 return sm
@@ -1168,7 +1183,13 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
     r = asmSymbol{}
 
     if lval.isUnary {
-        sym = gen.generateDestDereference(generateBahLeftValueSymbol(lval.left))
+        sym asmSymbol
+        if lval.left.isByAddress {
+            sym = generateBahValueSymbol(lval.left.index, null)
+        } else {
+            sym = generateBahLeftValueSymbol(lval.left)
+        }
+        sym = gen.generateDestDereference(sym)
         sym.size = lval.left.type.child.size
 
         return sym

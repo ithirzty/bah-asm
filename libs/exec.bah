@@ -33,20 +33,17 @@ struct command {
     }
 
     read() str {
-        buff = memoryAllocSTR(1024)
-        response str = memoryAllocSTR(1)
+        buff = buffer 1024
+        response = ""
         res = <ptr>response
         i=0; for res != null, i++ {
-            memset(buff, 0, 1024)
             res = fgets(<ptr>buff, 1023, this.handle)
             if res == null || res == <ptr>-1 {
                 break
             }
-            response = memoryRealloc(response, (i+1)*1023)
-            ln int* = response
-            *ln = (i+1)*1023
-            memcpy(<ptr>(<int>response + strLenSize + i*1023), <ptr>(<uint>buff + strLenSize), 1024)
+            response += buffToStr(<char*>buff)
         }
+
         return response
     }
 
@@ -72,24 +69,20 @@ struct command {
             fputs(this.input, this.handle)
         }
         
-        buff = memoryAllocSTR(1024)
-        response str = memoryAllocSTR(1)
+        buff = buffer 1024
+        response = ""
         res = <ptr>response
         i=0; for res != null, i++ {
-            memset(buff, 0, 1024)
             res = fgets(<ptr>buff, 1023, this.handle)
             if res == null || res == <ptr>-1 {
                 break
             }
-            response = memoryRealloc(response, (i+1)*1023)
-            ln int* = response
-            *ln = (i+1)*1023
-            memcpy(<ptr>(<int>response + strLenSize + i*1023), <ptr>(<uint>buff + strLenSize), 1024)
+            response += buffToStr(<char*>buff)
         }
 
 
         this.status = pclose(this.handle)
-        return res
+        return response
     }
 
     //This runs the program and returns the output as an array of char.

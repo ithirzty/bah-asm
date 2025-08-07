@@ -1,3 +1,8 @@
+#import "iostream.bah"
+#import "object.bah"
+
+#import "state.bah"
+
 //The cache is used when using '#import' to compile the imported object as an object file.
 //This object file will then not be recompiled unless a file of the object has been edited since last compilation,
 //or a new version of the compiler is used.

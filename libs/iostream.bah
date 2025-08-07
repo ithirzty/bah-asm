@@ -1,46 +1,35 @@
 __Bah_iostream_stdinputBuffer = ""
-__Bah_iostream_stdinputBufferLength = 0
 
 //Returns the text inputed by the user inside the terminal.
 stdinput() str {
     response = ""
     nDataLength = 0
-    if __Bah_iostream_stdinputBufferLength > 0 {
+    if len(__Bah_iostream_stdinputBuffer) > 0 {
         response = __Bah_iostream_stdinputBuffer
-        nDataLength = __Bah_iostream_stdinputBufferLength
     } else {
         buff = buffer 1025
         nDataLength = read(0,<ptr>buff,1024)
-        if nDataLength < 1024 {
-            response += buffToStr(<char*>buff)
-        } else {
-            for nDataLength > 0 {
+        for nDataLength > 0 {
+            if nDataLength < 1024 {
+                buff[nDataLength-1] = <char>0
                 response += buffToStr(<char*>buff)
-                if nDataLength < 1024 {
-                    trimAmm = 1024 - nDataLength
-                    response = response[:len(response) - trimAmm]
-                    break
-                } else {
-                    nDataLength = read(0,<ptr>buff,1024)
-                }
+                break
             }
+            buff[nDataLength] = <char>0
+            response += buffToStr(<char*>buff)
+            nDataLength = read(0,<ptr>buff,1024)
         }
-    }
-    if response[nDataLength-1] == <char>10 {
-        response = response[:len(response) - 1]
     }
 
     i=0; for i < nDataLength, i++ {
         if response[i] == <char>10 {
-            __Bah_iostream_stdinputBuffer = response[i+1:]
-            __Bah_iostream_stdinputBufferLength = nDataLength - i
+            __Bah_iostream_stdinputBuffer = response[i+1:len(response)]
             return response[:i]
         }
     }
 
     __Bah_iostream_stdinputBuffer = ""
-    __Bah_iostream_stdinputBufferLength = 0
-
+ 
     return response
 }
 

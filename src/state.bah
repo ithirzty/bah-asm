@@ -1,3 +1,7 @@
+#import "./lexer.bah"
+#import "./gen_asm_linux_64.bah"
+
+
 const BAH_TYPE_BOOL         = 0
 const BAH_TYPE_INT          = 1
 const BAH_TYPE_UINT         = 2
@@ -202,13 +206,14 @@ struct bahLeftValue {
     left: bahLeftValue*
     right: bahLeftValue*
 
-    isVariable: bool //final symbol in the left-val tree
-    isArray:    bool //is only the array in which is the left-val
-    isStruct:   bool //same for struct
-    isBuffer:   bool
-    isMap:      bool
-    isUnary:    bool
-    isTuple:    bool
+    isVariable:  bool //final symbol in the left-val tree
+    isArray:     bool //is only the array in which is the left-val
+    isStruct:    bool //same for struct
+    isBuffer:    bool
+    isMap:       bool
+    isUnary:     bool
+    isTuple:     bool
+    isByAddress: bool //is a right value who's returning an address, right value is stored in index
 
 
     isArrayRecursive() bool {
@@ -386,3 +391,17 @@ hasScopeReturned(scope parserScope*) bool {
 
     return scope.hasReturned
 }
+
+gen asmContext
+initFnGen asmContext
+globalFuncsGen asmContext
+initFnName = ".__Bah_init"
+compileWaitChannel channel*
+
+isObjectFile = false
+isImportFile = false
+isSilent = false
+compilerPath = ""
+
+const BAH_DIR = "/opt/bah-asm/"
+BAH_VERSION = "v0.135 (build 17)"
