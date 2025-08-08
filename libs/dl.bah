@@ -102,6 +102,16 @@ struct Elf64_Rela {
     r_addend: int
 }
 
+struct Elf64_Rel {
+	r_offset: uint
+	r_info: uint
+}
+
+struct objectFileUserSym {
+    name: str
+    value: ptr
+}
+
 struct objectFile {
     fm: fileMap
     bytes: []byte
@@ -126,25 +136,27 @@ struct objectFile {
     }
 
     performRelocations(section Elf64_Shdr*) {
-        tOffset = 0
-        i=0; for i < len(this.sectionHeaders), i++ {
-            tsection = this.sectionHeaders[i]
-            name = this._getELFstr(tsection.sh_name)
-            
-            if name == ".text" {
-                tOffset = tsection.sh_offset
-                break
-            }
-        }
-
         j=0; for j * sizeof(Elf64_Rela) < section.sh_size, j++ {
             rel = <Elf64_Rela*>&this.bytes[section.sh_offset + j * sizeof(Elf64_Rela)]
             symbolNb = rel.r_info >> 32
+            sym = this.symbols[rel.r_info >> 32]
+            sectnb = sym.st_shndx
+            sect = this.sectionHeaders[sectnb]
             relType = <uint32>rel.r_info & 4294967295
-            if relType == 4 {
-                sym = this.symbols[rel.r_info >> 32]
-                addr = <uint32*>(this.textAddress + rel.r_offset)
-                *addr = sym.st_value + rel.r_addend - rel.r_offset // sym.st_value
+            addr = <uint32*>(this.textAddress + rel.r_offset)
+
+            if relType == 2 { //data(%rip)
+                tdo = <uint>&this.bytes[sect.sh_offset] - (<uint>this.textAddress + rel.r_offset)
+                *addr = tdo + sym.st_value + rel.r_addend
+            } else if relType == 4 { //func calls
+                fAddr = sym.st_value + rel.r_addend - rel.r_offset
+                //cannot be located above .text
+                if <int>fAddr < 0 {
+                    fnName = this._getELFsymName(sym.st_name)
+                    panic("unable to resolve symbol: "+fnName)
+                } else {
+                    *addr = fAddr
+                }
             }
         }
     }
@@ -204,27 +216,14 @@ struct objectFile {
         return true
     }
 
-    getSymbol(name str, type uint) ptr {
-        sectOffset = 0
-
-        if type == STT_FUNC {
-            i=0; for i < len(this.sectionHeaders), i++ {
-                section = this.sectionHeaders[i]
-                sectName = this._getELFstr(section.sh_name)
-                
-                if sectName == ".text" {
-                    sectOffset = section.sh_offset
-                    break
-                }
-
-            }
-        }
-
-
+    getSymbol(name str) ptr {
         i=0; for i < len(this.symbols), i++ {
-            lookupName = this._getELFsymName(this.symbols[i].st_name)
+            sym = this.symbols[i]
+            lookupName = this._getELFsymName(sym.st_name)
             if lookupName == name {
-                return <ptr>&this.bytes[this.symbols[i].st_value + sectOffset]
+                sectnb = sym.st_shndx
+                sect = this.sectionHeaders[sectnb]
+                return <ptr>&this.bytes[sym.st_value + sect.sh_offset]
             }
         }
         return null

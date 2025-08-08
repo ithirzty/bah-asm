@@ -3,3 +3,4 @@ main
 main2
 .vscode
 .tmp_bah
+*.S

@@ -127,11 +127,12 @@ main(args []str) int {
     }
 
     initFnCallRope = rope("")
+    programEntry = rope("")
 
     if isObjectFile == false {
         gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
         if flags.isSet("noBuiltin") {
-            gen.staticData = rope(".global _start
+            programEntry = rope(".global _start
 .text
 _start:
 movq %rsp, %rbp
@@ -140,6 +141,8 @@ movl (%rsp), %edi
 leaq 8(%rsp), %rsi
 leaq 16(%rsp,%rdi,8), %rdx
 call main
+movl %eax, %edi
+call _exit
 .global persistentmcpy
 persistentmcpy:
 pushq %rbp
@@ -162,10 +165,11 @@ jb .persistentmcpy_649
 .persistentmcpy_not_649:
 popq %rbp
 ret
-.data\n")
+")
+            gen.staticData = rope(".data\n")
             
         } else {
-            gen.staticData = rope(".global _start
+            programEntry = rope(".global _start
 .text
 _start:
 movq %rsp, %rbp
@@ -200,7 +204,8 @@ jb .persistentmcpy_649
 .persistentmcpy_not_649:
 popq %rbp
 ret
-.data\n")
+")
+            gen.staticData = rope(".data\n")
         }
         gen.data = rope("")
         gen.bss = rope(".bss
@@ -284,7 +289,7 @@ __bss_start:\n")
     if isObjectFile == false {
         initFnGen.generateFnEnd()
         gen.bss += rope(".global __bss_end\n__bss_end:\n")
-        gen.data = gen.staticData + gen.debugInfo + rope(".global __data_start\n__data_start:\n") + gen.data
+        gen.data = programEntry + gen.staticData + gen.debugInfo + rope(".global __data_start\n__data_start:\n") + gen.data
         gen.code += initFnGen.code + globalFuncsGen.code
     } else {
         gen.data = gen.staticData + gen.data

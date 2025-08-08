@@ -64,7 +64,7 @@ evalFunc(func bahFunction*, args bahValue*) asmSymbol {
         of.open(oFile)
         of.weakLinker()
 
-        func.call = of.getSymbol(func.name, STT_FUNC)
+        func.call = of.getSymbol(func.name)
 
         if func.call == null {
             func.type.toggleFlag(BAH_TYPE_FLAG_PURE)
@@ -133,15 +133,15 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
 
             if method != null {
                 if compatibleTypes(type, method.type.child) == false {
-                    throwError(tok, "Wrong type in call to "+method.name)
+                    throwErrorTok(tok, "Wrong type in call to "+method.name)
                 }
 
                 if compatibleTypes(type, method.type.child.next) == false {
-                    throwError(tok, "Wrong type in call to "+method.name)
+                    throwErrorTok(tok, "Wrong type in call to "+method.name)
                 }
 
                 if compatibleTypes(type, method.type.ret) == false {
-                    throwError(tok, method.name+"'s return type is not the same as its arguments.")
+                    throwErrorTok(tok, method.name+"'s return type is not the same as its arguments.")
                 }
 
                 gen.generateFnCallStart()
@@ -168,7 +168,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         }
 
         if opStr != "in" {
-            throwError(tok, "Invalid operation.")
+            throwErrorTok(tok, "Invalid operation.")
         }
     }
 
@@ -185,7 +185,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
     
     if opStr == "%" || opStr == "%=" {
         if tp == ASM_NUM_FLOAT {
-            throwError(tok, "Cannot do modulo operation on floats.")
+            throwErrorTok(tok, "Cannot do modulo operation on floats.")
         }
         return gen.generateOpMod(left, right, tp)
     }
@@ -301,7 +301,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp == ASM_NUM_UINT)
     }
 
-    throwError(tok, "Internal error: could not generate operation.")
+    throwErrorTok(tok, "Internal error: could not generate operation.")
 
     n = asmSymbol{}
     return n
@@ -353,6 +353,10 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 sym = asmSymbolStaticName("__bss_end")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
+            } else if val.left.tok.cont[1:] == "text" {
+                sym = asmSymbolStaticName("_start")
+                sym.level = -1
+                return gen.generateTmpSym(sym, 8)
             } else if val.left.tok.cont[1:] == "debug" {
                 sym = asmSymbolStaticName(".bah_debug_info")
                 sym.level = -1
@@ -371,7 +375,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
     }
 
     if val.value == BAH_VALUE_REG {
-        throwError(&val.tok, "Cannot use a register without casting it.")
+        throwError(val, "Cannot use a register without casting it.")
     }
 
     if val.value == BAH_VALUE_DECLARATION {
@@ -785,7 +789,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
 
         if val.left.type.isPtr && val.tok.cont != "==" && val.tok.cont != "!=" && val.left.type.child.type != BAH_TYPE_STRCT {
-            throwError(&val.tok, "Cannot perform operation on pointers.")
+            throwError(val, "Cannot perform operation on pointers.")
         }
 
         opStr = val.tok.cont
@@ -1174,7 +1178,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         return r
     }
 
-    throwError(&val.tok, "Internal error generating value asm symbol: "+toJson(val)+".")
+    throwError(val, "Internal error generating value asm symbol: "+toJson(val)+".")
 
     return r
 }
@@ -1288,7 +1292,7 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
         return lval.variable.sym
     }
 
-    throwError(&lval.tok, "Internal error generating left-value asm symbol.")
+    throwErrorTok(&lval.tok, "Internal error generating left-value asm symbol.")
 
     return r
 }
@@ -1543,7 +1547,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
     }
 
     if (type.isPtr || type.isNativePtr) && val.type.isNativePtr == false && val.type.isPtr == false && val.type.size != 8 && val.type.type != BAH_TYPE_BUFFER && val.type.type != BAH_TYPE_TUPLE {
-        throwError(&val.tok, "Cannot be converted to a pointer type.")
+        throwError(val, "Cannot be converted to a pointer type.")
     }
 
     if type.type == BAH_TYPE_INT || type.type == BAH_TYPE_UINT || type.type == BAH_TYPE_BOOL || val.type.type == BAH_TYPE_PTR || type.type == BAH_TYPE_PTR {
@@ -1553,7 +1557,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
         }
 
         if val.type.size > 8 && val.type.isNativePtr == false && val.type.type != BAH_TYPE_BUFFER {
-            throwError(&val.tok, "Invalid conversion, you may need to convert a pointer.")
+            throwError(val, "Invalid conversion, you may need to convert a pointer.")
         }
 
         r = generateBahValueSymbol(val, null)
@@ -1597,7 +1601,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
 
 
 
-    throwError(&val.tok, "Internal error generating conversion of asm symbol.")
+    throwError(val, "Internal error generating conversion of asm symbol.")
 
     r = asmSymbol{}
     return r
@@ -1606,7 +1610,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
 generateImmediateValues(val bahValue*, syms []asmSymbol) {
 
     if val.type.isPtr {
-        throwError(&val.tok, "Cannot (yet) use a pointer as a global value.")
+        throwError(val, "Cannot (yet) use a pointer as a global value.")
     }
 
     if val.tok.type == TOKEN_TYPE_INT {
@@ -1739,7 +1743,7 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
                 }
             }
         } else {
-            throwError(&val.tok, "Immediate value of this declaration is not yet implemented.")
+            throwError(val, "Immediate value of this declaration is not yet implemented.")
         }
 
         
@@ -1753,7 +1757,7 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
             size: val.sym.size
         }
     } else {
-        throwError(&val.tok, "Cannot use this value as a global value. (immediate value not yet implemented).")
+        throwError(val, "Cannot use this value as a global value. (immediate value not yet implemented).")
     }
 
 }

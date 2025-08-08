@@ -14,7 +14,7 @@ const ASCII_MAGENTA = "\033[35m"
 const ASCII_GREY = "\033[2m"
 const ASCII_RED = "\033[1;31m"
 
-throwError(t bahToken*, s str) {
+throwErrorTok(t bahToken*, s str) {
     codeLine = ""
 
 
@@ -46,17 +46,223 @@ throwError(t bahToken*, s str) {
     println(codeLine+"\033[1;37m")
     println(s+ASCII_RESET)
 
-    // println(toJson(t))
+    exit(1)
+}
+
+
+//TODO: bah value .isPointer = true
+//TODO: bah value .isSelfOp = true
+errorBahValueTokens(val bahValue*) [bahToken*, bahToken*] {
+
+    if val.value == BAH_VALUE_OP {
+        return [errorBahValueTokens(val.left)[0], errorBahValueTokens(val.right)[1]]
+    }
+
+    if val.value == BAH_VALUE_FUNC_SYM || val.value == BAH_VALUE_STRUCT {
+        if val.left == null {
+            return [&val.tok, &val.tok]
+        }
+
+        return [errorBahValueTokens(val.left)[0], errorBahValueTokens(val.right)[1]]
+    }
+
+    if val.value == BAH_VALUE_FUNC_CALL {
+        parTok = new bahToken {
+            cont: ")"
+            type: TOKEN_TYPE_ENCL
+        }
+
+        currArg = val.right
+        for currArg.right != null {
+            currArg = currArg.right
+        }
+
+        i = currArg.left.tok.pos
+
+        parTok.line = currArg.left.tok.line
+        for i < len(parserCtx.currentFile), i++ {
+            if parserCtx.currentFile[i] == ')' {
+                break
+            } else parserCtx.currentFile[i] == <char>10 {
+                parTok.line++
+            }
+        }
+        parTok.pos = i
+
+        return [errorBahValueTokens(val.left)[0], parTok]
+    }
+
+    if val.value == BAH_VALUE_UNARY || val.value == BAH_VALUE_CAST {
+        return [&val.tok, errorBahValueTokens(val.left)[1]]
+    }
+
+    if val.value == BAH_VALUE_INDEXED {
+        brackTok = new bahToken {
+            cont: "]"
+            type: TOKEN_TYPE_ENCL
+        }
+
+        lastTok = errorBahValueTokens(val.right)[1]
+        i = lastTok.pos
+
+        brackTok.line = lastTok.line
+        for i < len(parserCtx.currentFile), i++ {
+            if parserCtx.currentFile[i] == ']' {
+                break
+            }
+            
+            if parserCtx.currentFile[i] == <char>10 {
+                brackTok.line++
+            }
+        }
+        brackTok.pos = i
+
+        return [&val.tok, brackTok]
+    }
+
+    if val.value == BAH_VALUE_SPLIT {
+        brackTok = new bahToken {
+            cont: ")"
+            type: TOKEN_TYPE_ENCL
+        }
+
+        lastTok = errorBahValueTokens(val.right.right)[1]
+        i = lastTok.pos
+
+        brackTok.line = lastTok.line
+        for i < len(parserCtx.currentFile), i++ {
+            if parserCtx.currentFile[i] == ')' {
+                break
+            } 
+            
+            if parserCtx.currentFile[i] == <char>10 {
+                brackTok.line++
+            }
+        }
+        brackTok.pos = i
+
+        return [&val.tok, brackTok]
+    }
+
+    if val.value == BAH_VALUE_DECLARATION {
+
+        if val.type.type == BAH_TYPE_BUFFER {
+            return [&val.tok, &val.tok]
+        }
+
+        if val.type.type == BAH_TYPE_STRCT || val.type.type == BAH_TYPE_TUPLE || val.type.isPtr && val.type.child.type == BAH_TYPE_STRCT {
+            lastVal bahValue* = val
+            currVal = val.left
+            for currVal != null, currVal = currVal.left {
+                if len(currVal.right.tok.cont) != 0 {
+                    lastVal = currVal.right
+                }
+            }
+
+            endTok = new bahToken {
+                line: lastVal.tok.line
+            }
+
+            if val.type.type == BAH_TYPE_TUPLE {
+                endTok.cont = "]"
+            } else {
+                endTok.cont = "}"
+            }
+
+            i=lastVal.tok.pos; for i < len(parserCtx.currentFile), i++ {
+                if parserCtx.currentFile[i] == endTok.cont[0] {
+                    break
+                }
+
+                if parserCtx.currentFile[i] == <char>10 {
+                    endTok.line++
+                }
+            }
+
+            endTok.pos = i
+
+            return [&val.tok, endTok]
+        }
+
+        if val.type.type == BAH_TYPE_ARRAY {
+            parTok = new bahToken {
+                cont: "}"
+                type: TOKEN_TYPE_ENCL
+            }
+
+            currArg = val.right
+            for currArg.right != null {
+                currArg = currArg.right
+            }
+
+            i = currArg.left.tok.pos
+
+            parTok.line = currArg.left.tok.line
+            for i < len(parserCtx.currentFile), i++ {
+                if parserCtx.currentFile[i] == '}' {
+                    break
+                } else parserCtx.currentFile[i] == <char>10 {
+                    parTok.line++
+                }
+            }
+            parTok.pos = i
+
+            return [errorBahValueTokens(val.left)[0], parTok]
+        }
+
+
+
+    }
+
+    if val.value == BAH_VALUE_REFLECT {
+        return errorBahValueTokens(val.left)
+    }
 
     
+    return [&val.tok, &val.tok]
+}
 
+throwError(val bahValue*, err str) {
+
+    toks = errorBahValueTokens(val)
+
+    to = toks[1].pos + len(toks[1].cont)
+    lineNb = toks[0].line
     
+    from = toks[0].pos
+    valStr = parserCtx.currentFile[from:to]
+
+    filePath = absPath(parserCtx.currentFilePath)
+    lineStart uint = 0
+    lineEnd uint = 0
+
+    lineStart = from; for lineStart != -1, lineStart-- {
+        if parserCtx.currentFile[lineStart] == <char>10 {
+            lineStart++
+            break
+        }
+    }
+
+    lineEnd = to; for lineEnd < len(parserCtx.currentFile), lineEnd++ {
+        if parserCtx.currentFile[lineEnd] == <char>10 {
+            break
+        }
+    }
+
+    relPos = from - lineStart
+
+    codeLine = parserCtx.currentFile[lineStart:from] + ASCII_RED + valStr + ASCII_RESET + parserCtx.currentFile[to:lineEnd]
+    lineInfo = filePath+":"+uintToStr(lineNb)+":"+uintToStr(relPos)
+
+    println(ASCII_RED+"[ERROR]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
+    println(codeLine+"\033[1;37m")
+    println(err+ASCII_RESET)
 
     exit(1)
 }
 
 throwTypeError(val bahValue*, type bahType*) {
-    throwError(&val.tok, "Type error, cannot convert type '"+val.type.toStr()+"' to type '"+type.toStr()+"'.")
+    throwError(val, "Type error, cannot convert type '"+val.type.toStr()+"' to type '"+type.toStr()+"'.")
 }
 
 // throwWarning(t bahToken*, s str) {

@@ -1,71 +1,5 @@
 #import "./state.bah"
 
-reversableCompatibleTypes(a bahType*, b bahType*, isRev bool) bool {
-    //handle struct types, fn...
-    if a.type == BAH_TYPE_PTR && (b.isPtr || b.isNativePtr || b.type == BAH_TYPE_TUPLE) {
-        return true
-    }
-
-    if a.type == BAH_TYPE_UINT && b.type == BAH_TYPE_INT {
-        return true
-    }
-
-    if isRev == false {
-        return reversableCompatibleTypes(b, a, true)
-    }
-
-    return false
-}
-
-compatibleTypes(a bahType*, b bahType*) bool {
-    if a == null || b == null {
-        return false
-    }
-
-    for a.type == BAH_TYPE_CUSTOM_TYPE {
-        a = a.child
-    }
-
-    for b.type == BAH_TYPE_CUSTOM_TYPE {
-        b = b.child
-    }
-
-    if a.type == b.type {
-
-        if a.type == BAH_TYPE_FUNC {
-
-            if a.ret != null || b.ret != null {
-                if compatibleTypes(a.ret, b.ret) == false {
-                    return false
-                }
-            }
-
-
-            currType = a.child
-            bcurrType = b.child
-            for currType != null, currType = currType.next {                
-                if bcurrType == null {
-                    return false
-                }
-
-                if compatibleTypes(currType, bcurrType) == false {
-                    return false
-                }
-                bcurrType = bcurrType.next
-            }
-
-            if bcurrType != null {
-                return false
-            }
-        
-        }
-
-        return true
-    }
-
-    return reversableCompatibleTypes(a, b, false)
-}
-
 isSameType(a bahType*, b bahType*) bool {
     if a.type != b.type || a.size != b.size {
         return false
@@ -124,6 +58,86 @@ isSameType(a bahType*, b bahType*) bool {
     }
     
     return true
+}
+
+
+reversableCompatibleTypes(a bahType*, b bahType*, isRev bool) bool {
+    //handle struct types, fn...
+    if a.type == BAH_TYPE_PTR && (b.isPtr || b.isNativePtr || b.type == BAH_TYPE_TUPLE) {
+        return true
+    }
+
+    if a.type == BAH_TYPE_UINT && b.type == BAH_TYPE_INT {
+        return true
+    }
+
+    if isRev == false {
+        return reversableCompatibleTypes(b, a, true)
+    }
+
+    return false
+}
+
+compatibleTypes(a bahType*, b bahType*) bool {
+    if a == null || b == null {
+        return false
+    }
+
+    for a.type == BAH_TYPE_CUSTOM_TYPE {
+        a = a.child
+    }
+
+    for b.type == BAH_TYPE_CUSTOM_TYPE {
+        b = b.child
+    }
+
+
+    if a.type == b.type {
+
+        for a.isPtr {
+            a = a.child
+        }
+
+        for b.isPtr {
+            b = b.child
+        }
+
+        if a.type == BAH_TYPE_FUNC {
+
+            if a.ret != null || b.ret != null {
+                if compatibleTypes(a.ret, b.ret) == false {
+                    return false
+                }
+            }
+
+
+            currType = a.child
+            bcurrType = b.child
+            for currType != null, currType = currType.next {                
+                if bcurrType == null {
+                    return false
+                }
+
+                if compatibleTypes(currType, bcurrType) == false {
+                    return false
+                }
+                bcurrType = bcurrType.next
+            }
+
+            if bcurrType != null {
+                return false
+            }
+        
+        }
+
+        if a.type == BAH_TYPE_STRCT {
+            return a.child.name == b.child.name
+        }
+
+        return true
+    }
+
+    return reversableCompatibleTypes(a, b, false)
 }
 
 containsPtr(type bahType*) bool {
