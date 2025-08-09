@@ -3,9 +3,9 @@
 //This is usefull for large strings that are built using a lot of concatenations.
 struct rope {
     str: str
-    totalLen: int32
     left: rope*
     right: rope*
+    totalLen: int32
 
     //Returns true if the current node is concatenating straight :
     //child on the left and string on the right
@@ -16,11 +16,8 @@ struct rope {
         if this.right.left != null || this.right.right != null {
             return false
         }
-        if this.left.left == null || this.left.right == null {
-            return false
-        }
 
-        return true
+        return this.left.left != null && this.left.right != null
     }
 
     //Used to add the content of the node to a specified str.
@@ -130,10 +127,9 @@ ropeSet(r rope*, a str) int {
 
 //Used to initiate a rope with a str.
 rope(a str) rope* {
-    r = new rope {
+    return new rope {
         str: a
     }
-    return r
 }
 
 // Example

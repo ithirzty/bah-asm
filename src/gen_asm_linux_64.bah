@@ -390,7 +390,7 @@ struct asmContext {
                 b = c
             }
 
-            if a.address - a.size <= b.address && a.address >= b.address {
+            if a.address - a.size < b.address && a.address >= b.address {
                 return true
             }
 
@@ -468,11 +468,18 @@ struct asmContext {
             return arg.isReg && arg.address == ASM_reg_id_return
         }
 
-        if strHasPrefix(this.instructions[i].instruction, "div") == true {
+        if this.instructions[i].instruction == "cqto" || strHasPrefix(this.instructions[i].instruction, "div") == true {
             return arg.isReg && (arg.address == ASM_reg_id_return || arg.address == ASM_reg_id_op + 1 || arg.address == ASM_reg_id_args + 2)
         }
 
+        if arg.isReg && this.instructions[i].instruction == "call" {
+            return true
+        }
+
         if this.isSameArg(&this.instructions[i].arg2, arg) {
+            if this.instructions[i].arg2.isReg && this.instructions[i].arg2.level == 1 {
+                return false
+            }
             return true
         }
 
@@ -490,6 +497,10 @@ struct asmContext {
                 return true
             }
             return false
+        }
+
+        if this.instructions[i].instruction == "cqto" || strHasPrefix(this.instructions[i].instruction, "div") == true {
+            return arg.isReg && arg.address == ASM_reg_id_return
         }
 
         if arg.isTmp == false && this.instructions[i].instruction[0] == 'j' {
@@ -546,6 +557,32 @@ struct asmContext {
         }
 
         return false
+    }
+
+    getUsedInRange(arg asmSymbol*, from uint, end uint) int {
+        i = from; for i < end, i++ {
+            if this.instructions[i].instruction[0] == '#' {
+                continue
+            }
+
+            if arg.isTmp && strHasPrefix(this.instructions[i].instruction, ".loc") {
+                return -1
+            }
+
+            if this.isSet(arg, i) {
+                if arg.stack && arg.isTmp == false {
+                    return i
+                }
+                return -1
+            }
+            
+            if this.isUsed(arg, i) {
+                return i
+            }
+
+        }
+
+        return -1
     }
 
     removeStackAlloc(sym asmSymbol) {
@@ -613,6 +650,9 @@ struct asmContext {
     }
 
     optimizeInstructions() {
+
+        uses = []asmInstruction*
+
         i = this.startIndex; for i < len(this.instructions), i++ {
             istrct = &this.instructions[i]
 
@@ -659,11 +699,63 @@ struct asmContext {
 
                 if agnst.instruction[0] == 'm' { 
                     if this.isSameArgAndSize(&istrct.arg2, &agnst.arg1) && istrct.arg2.size == agnst.arg2.size && ((istrct.arg1.isReg && istrct.arg1.level == 0) || (agnst.arg2.isReg && agnst.arg2.level == 0)) {
-                        if this.isUsedInRange(&istrct.arg2, j+1, len(this.instructions)) || this.isSetInRange(&agnst.arg2, i+1, j) {
+                        // if this.isUsedInRange(&istrct.arg2, j+1, len(this.instructions)) || this.isSetInRange(&agnst.arg2, i+1, j) {
+                        if this.isSetInRange(&agnst.arg2, i+1, j) {
                             break
                         }
 
                         if agnst.arg2.isReg && agnst.arg2.address >= ASM_reg_id_floats || agnst.arg2.stack && agnst.arg2.isTmp == false && agnst.arg2.address < 0 || agnst.arg2.isReg == false && agnst.arg2.stack == false && agnst.arg2.isValue == false {
+                            break
+                        }
+
+                        nextUse = this.getUsedInRange(&istrct.arg2, j+1, len(this.instructions))
+                        if nextUse != -1 {
+
+                            if istrct.arg1.isReg == false {
+                                break
+                            }
+
+                            currUse = j+1
+                            wouldBreak = false
+                            clear(uses)
+                            uses[len(uses)] = agnst
+                            for nextUse != -1 && currUse < len(this.instructions) {
+                                if this.isSetInRange(&istrct.arg1, currUse, nextUse) || this.isSetInRange(&agnst.arg2, currUse, nextUse) {
+                                    wouldBreak = true
+                                    break
+                                }
+                                nu = &this.instructions[nextUse]
+
+                                if this.isSet(&istrct.arg2, nextUse) {
+                                    break
+                                }
+
+                                if nu.instruction[0] != 'j' && nu.instruction[0] != '.' {
+                                    uses[len(uses)] = nu
+                                }
+
+                                if this.isSetInRange(&istrct.arg2, currUse, nextUse) {
+                                    break
+                                }
+                                currUse = nextUse
+                                nextUse = this.getUsedInRange(&istrct.arg2, currUse+1, len(this.instructions))
+                            }
+
+                            if wouldBreak == false {
+                                istrct.instruction = "#"
+                                k=0; for k < len(uses), k++ {
+                                    argToReplace asmSymbol*
+                                    if this.isSameArg(&istrct.arg2, &uses[k].arg1) {
+                                        argToReplace = &uses[k].arg1
+                                    } else if this.isSameArg(&istrct.arg2, &uses[k].arg2) {
+                                        argToReplace = &uses[k].arg2
+                                    } else {
+                                        println("warning: weird optimizer behavior")
+                                        continue
+                                    }
+                                    *argToReplace = istrct.arg1
+                                }
+                            }
                             break
                         }
 
@@ -3239,15 +3331,14 @@ struct asmContext {
 
     generateSymOffset(sym asmSymbol, offset asmSymbol) asmSymbol {
         
+        if sym.isReg && sym.level == 0 && offset.isValue && offset.name == "$0" {
+            return sym
+        }
+
         if sym.stack && sym.isTmp == false && sym.level == -1 && offset.isValue {
             sym.address -= strToInt(offset.name[1:])
             return sym
         }
-
-        // if sym.isReg && offset.isValue && offset.name[0] == '$' {
-        //     sym.offset += strToInt(offset.name[1:])
-        //     return sym
-        // }
 
         regName = asmSymbolReg(ASM_reg_id_return, 8, 0)
         if sym.isReg && sym.level == 0 {
@@ -3268,6 +3359,10 @@ struct asmContext {
 
     generateDestSymOffset(sym asmSymbol, offset asmSymbol) asmSymbol {
         
+        if sym.isReg && sym.level == 0 && offset.isValue && offset.name == "$0" {
+            return sym
+        }
+
         if sym.stack && sym.isTmp == false && sym.level == -1 && offset.isValue {
             sym.address -= strToInt(offset.name[1:])
             return sym

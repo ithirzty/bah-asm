@@ -40,6 +40,41 @@ printDebugContext() {
     println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
 }
 
+const persistentmcpySource = ".global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+je .persistentmcpy_648
+addq %rdi, %rdx
+subq $31, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+vmovdqu (%rsi), %ymm1
+vmovdqu %ymm1, (%rdi)
+addq $32, %rsi
+addq $32, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+addq $31, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_650
+.persistentmcpy_650:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_650
+.persistentmcpy_not_650:
+popq %rbp
+ret
+.persistentmcpy_648:
+leave
+ret\n"
+
 main(args []str) int {
     if len(args) == 1 {
         return 0
@@ -142,30 +177,7 @@ leaq 8(%rsp), %rsi
 leaq 16(%rsp,%rdi,8), %rdx
 call main
 movl %eax, %edi
-call _exit
-.global persistentmcpy
-persistentmcpy:
-pushq %rbp
-movq %rsp, %rbp
-cmpq $0, %rdx
-jne .persistentmcpy_648
-leave
-ret
-.persistentmcpy_648:
-addq %rdi, %rdx
-cmpq %rdx, %rdi
-jnb .persistentmcpy_not_649
-.persistentmcpy_649:
-movb (%rsi), %al
-movb %al, (%rdi)
-addq $1, %rsi
-addq $1, %rdi
-cmpq %rdx, %rdi
-jb .persistentmcpy_649
-.persistentmcpy_not_649:
-popq %rbp
-ret
-")
+call _exit\n"+persistentmcpySource)
             gen.staticData = rope(".data\n")
             
         } else {
@@ -181,30 +193,7 @@ call "+argumentsToArrFunction+"
 movq %rax, %rdi
 call main
 movl %eax, %edi
-call _exit
-.global persistentmcpy
-persistentmcpy:
-pushq %rbp
-movq %rsp, %rbp
-cmpq $0, %rdx
-jne .persistentmcpy_648
-leave
-ret
-.persistentmcpy_648:
-addq %rdi, %rdx
-cmpq %rdx, %rdi
-jnb .persistentmcpy_not_649
-.persistentmcpy_649:
-movb (%rsi), %al
-movb %al, (%rdi)
-addq $1, %rsi
-addq $1, %rdi
-cmpq %rdx, %rdi
-jb .persistentmcpy_649
-.persistentmcpy_not_649:
-popq %rbp
-ret
-")
+call _exit\n"+persistentmcpySource)
             gen.staticData = rope(".data\n")
         }
         gen.data = rope("")
