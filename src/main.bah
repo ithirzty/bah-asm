@@ -228,7 +228,7 @@ __bss_start:\n")
     parserCtx.currentFilePath = absPath(file)
     parserCtx.currentFile = content
 
-    tokens = lexer(content)
+    tokens = lexer(content, true)
 
     gen.generateFileLocation(parserCtx.currentFilePath)
 
@@ -276,7 +276,7 @@ __bss_start:\n")
     generateRuntimeDebugInfo()
 
     if isObjectFile == false {
-        initFnGen.generateFnEnd()
+        initFnGen.generateFnEnd(null)
         gen.bss += rope(".global __bss_end\n__bss_end:\n")
         gen.data = programEntry + gen.staticData + gen.debugInfo + rope(".global __data_start\n__data_start:\n") + gen.data
         gen.code += initFnGen.code + globalFuncsGen.code

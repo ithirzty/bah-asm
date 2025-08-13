@@ -30,6 +30,7 @@ struct bahToken {
 }
 
 totalLines = 0
+lexerShouldAddToken = true
 
 const enclavers = []char{'(', ')', '{', '}', '[', ']'}
 const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
@@ -42,13 +43,18 @@ const keywords = []str{"if", "else", "for", "return", "new", "break", "continue"
             // -: not planned
 
 //Generates a token from all of its properties.
-makeToken(pos int, lineNb int, cont str, type tokenType) bahToken {
-    t = bahToken{
+makeToken(pos int, lineNb int, cont str, type tokenType, tokens []bahToken) bahToken* {
+    if lexerShouldAddToken == false {
+        return null
+    }
+    tokens[len(tokens)] = bahToken{
         cont: cont
         pos: pos
         line: lineNb
         type: type
     }
+
+    t = &tokens[len(tokens)-1]
 
     if type == TOKEN_TYPE_VAR && t.cont in keywords {
         t.type = TOKEN_TYPE_KEYWORD
@@ -71,8 +77,10 @@ lexerErr(line int, pos int, msg str) {
     exit(1)
 }
 
+#define throwWarning(t bahToken*, s str)
+
 //Takes a file as input, outputs an array of tokens.
-lexer(s str) []bahToken {
+lexer(s str, includeBodies bool) []bahToken {
     lexerStart = getTimeUnix()
     tokens = []bahToken
 
@@ -81,7 +89,7 @@ lexer(s str) []bahToken {
 
 
     lineNb = 1 //current line number (in source file)
-
+    nbEncl = 0
 
     i=0; for i < len(s), i++ {
         c = s[i]
@@ -150,9 +158,12 @@ lexer(s str) []bahToken {
                 }
                 memory.append(c)
             }
-            t = makeToken(pos, lineNb, memory.str(), TOKEN_TYPE_STR)
-            t.begLine = begLine
-            tokens[len(tokens)] = t
+            if lexerShouldAddToken {
+                t = makeToken(pos, lineNb, memory.str(), TOKEN_TYPE_STR, tokens)
+                if t != null {
+                    t.begLine = begLine
+                }
+            }
         } else if isNumber(c) || isMinus(c, nc) { //token is a number
             pos = i
             i++
@@ -182,7 +193,9 @@ lexer(s str) []bahToken {
                     }
                 }
             }
-            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
+            if lexerShouldAddToken {
+                makeToken(pos, lineNb, s[pos:i], currentType, tokens)
+            }
             i--
         } else if isAlphaNumeric(c) || c == '_' || c == '$' { //token is a var / keyword
             pos = i
@@ -203,13 +216,15 @@ lexer(s str) []bahToken {
                 }
             }
             currentType = TOKEN_TYPE_VAR
-            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], currentType)
+            if lexerShouldAddToken {
+                makeToken(pos, lineNb, s[pos:i], currentType, tokens)
+            }
             i--
         } else if c == <char>39 && i+2 < len(s) && s[i+2] == <char>39 { //is a character
             i += 2
-            t = makeToken(i-2, lineNb, intToStr(<int>nc), TOKEN_TYPE_CHAR)
-            t.cont = s[i-2:i+1]
-            tokens[len(tokens)] = t
+            if lexerShouldAddToken {
+                makeToken(i-2, lineNb, s[i-2:i+1], TOKEN_TYPE_CHAR, tokens)
+            }
         } else if c == <char>35 { //is a hash keyword
             pos = i
             i++
@@ -219,10 +234,14 @@ lexer(s str) []bahToken {
                     break
                 }
             }
-            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_KEYWORD)
+            if lexerShouldAddToken {
+                makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_KEYWORD, tokens)
+            }
             i--
         } else if c == '.' { //token is a separator
-            tokens[len(tokens)] = makeToken(i, lineNb, ".", TOKEN_TYPE_SEP)
+            if lexerShouldAddToken {
+                makeToken(i, lineNb, ".", TOKEN_TYPE_SEP, tokens)
+            }
         } else if c in syntaxes { //token is a syntax element
             if c == '<' {
                 pos = i
@@ -245,7 +264,9 @@ lexer(s str) []bahToken {
                     }
                 }
                 if isCast == true {
-                    tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i+1], TOKEN_TYPE_CAST)
+                    if lexerShouldAddToken {
+                        makeToken(pos, lineNb, s[pos:i+1], TOKEN_TYPE_CAST, tokens)
+                    }
                     continue
                 }
                 i = pos
@@ -279,10 +300,44 @@ lexer(s str) []bahToken {
                     }
                 }
             }
-            tokens[len(tokens)] = makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_SYNTAX)
+            if lexerShouldAddToken {
+                makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_SYNTAX, tokens)
+            }
             i--
         } else if c in enclavers { //token is enclaver
-            tokens[len(tokens)] = makeToken(i, lineNb, s[i:i+1], TOKEN_TYPE_ENCL)
+            if includeBodies == false {
+                if nbEncl == 0 {
+                    if c == '{' && tokens[len(tokens)-1].cont[0] != '#' && tokens[len(tokens) - 2].cont != "extend" && tokens[len(tokens)-2].cont != "struct" {
+                        found = false
+                        j=len(tokens)-1; for j != -1, j-- {
+                            if tokens[j].line != lineNb {
+                                break
+                            }
+                            if tokens[j].cont == ")" {
+                                found = true
+                                break
+                            }
+                        }
+                        if found {
+                            makeToken(i, lineNb, s[i:i+1], TOKEN_TYPE_ENCL, tokens)
+                            nbEncl++
+                            lexerShouldAddToken = false
+                            continue
+                        }
+                    }
+                } else if c == '{' {
+                    nbEncl++
+                } else if c == '}' {
+                    nbEncl--
+                    if nbEncl == 0 {
+                        lexerShouldAddToken = true
+                    }
+                }
+            }
+
+            if lexerShouldAddToken {
+                makeToken(i, lineNb, s[i:i+1], TOKEN_TYPE_ENCL, tokens)
+            }
         }
 
     }

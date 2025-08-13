@@ -264,7 +264,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         gen.generateVarSet(retSym, gen.staticInt("1"), true)
         gen.generateForBreak()
 
-        gen.generateEndIf()
+        gen.generateEndIf(false)
         gen.generateForEnd(true)
 
         retSym.size = 1
@@ -316,7 +316,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
     
     if val.type != null {
         for val.type.type == BAH_TYPE_CUSTOM_TYPE {
-            val.type = val.type.child
+            val.type = val.type.child.child
         }
     }
 
@@ -1069,7 +1069,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
             gen.generateFnCall(fnNameSym, 0, null, false)
 
-            gen.generateFnEnd()
+            gen.generateFnEnd(null)
             globalFuncsGen.code = gen.code
 
             gen = realGen
@@ -1320,7 +1320,7 @@ generateReflectionFromType(type bahType*, typesStack []_typeAndSymStack) asmSymb
     }
 
     for type.type == BAH_TYPE_CUSTOM_TYPE {
-        type = type.child
+        type = type.child.child
     }
 
     sym = gen.generateVarDecl("reflect_elem", REFLECT_TYPE_SIZE, false)
@@ -1543,7 +1543,7 @@ generateReflection(val bahValue*) asmSymbol {
 
 generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
     for type.type == BAH_TYPE_CUSTOM_TYPE {
-        type = type.child
+        type = type.child.child
     }
 
     if (type.isPtr || type.isNativePtr) && val.type.isNativePtr == false && val.type.isPtr == false && val.type.size != 8 && val.type.type != BAH_TYPE_BUFFER && val.type.type != BAH_TYPE_TUPLE {

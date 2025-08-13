@@ -171,3 +171,28 @@ optimizeBranchlessAND(val bahValue*) bahValue* {
 
     return val
 }
+
+//Unlikely conditions:
+// - variable null check
+
+optimizeIsCondNotLikely(cond bahValue*) bool {
+
+    if cond.value != BAH_VALUE_OP {
+        return false
+    }
+
+    if cond.tok.cont == "==" {
+
+        //ptrType == null
+        if cond.left.type.isNativePtr && cond.right.value == BAH_VALUE_VAR && cond.right.sym.isValue && cond.right.sym.name == "$0" {
+            return true
+        }
+
+        //null == ptrType
+        if cond.right.type.isNativePtr && cond.left.value == BAH_VALUE_VAR && cond.left.sym.isValue && cond.left.sym.name == "$0" {
+            return true
+        }
+    }
+
+    return false
+}

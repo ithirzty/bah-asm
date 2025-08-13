@@ -1,6 +1,8 @@
 #import "./state.bah"
 
 isSameType(a bahType*, b bahType*) bool {
+    return a.toStr() == b.toStr()
+
     if a.type != b.type || a.size != b.size {
         return false
     }
@@ -84,11 +86,11 @@ compatibleTypes(a bahType*, b bahType*) bool {
     }
 
     for a.type == BAH_TYPE_CUSTOM_TYPE {
-        a = a.child
+        a = a.child.child
     }
 
     for b.type == BAH_TYPE_CUSTOM_TYPE {
-        b = b.child
+        b = b.child.child
     }
 
 

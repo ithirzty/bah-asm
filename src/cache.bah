@@ -54,7 +54,6 @@ readCache()  {
     }
     if fs.getSize() > 0 {
         cache = <[]cacheFile*>fromObject(fs.readBytes())
-        // println(toJson(cache))
         fs.close()
     }
 }
@@ -130,6 +129,10 @@ writeCache() {
 
 //Used to decide weither a file should be recompiled or if its cached version is still good.
 isValidCacheFile(cf cacheFile*) bool {
+    if cf == null {
+        return false
+    }
+    
     if cf.last != getLastModified(cf.file) {
         return false
     }

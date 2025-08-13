@@ -1036,6 +1036,32 @@ struct asmContext {
         return r
     }
 
+    inverseJump(inst str) str {
+        r = ""
+        if inst == "je" {
+            r = "jne"
+        } else if inst == "jne" {
+            r = "je"
+        } else if inst == "jg" {
+            r = "jle"
+        } else if inst == "jl" {
+            r = "jge"
+        } else if inst == "jge" {
+            r = "jl"
+        } else if inst == "jle" {
+            r = "jg"
+        } else if inst == "jnb" {
+            r = "jb"
+        } else if inst == "jb" {
+            r = "jnb"
+        } else if inst == "jna" {
+            r = "ja"
+        } else if inst == "ja" {
+            r = "jna"
+        }
+        return r
+    }
+
     fileNb: uint = 0
     totalFileNb: uint = 0
     currentLine: uint
@@ -2339,7 +2365,7 @@ struct asmContext {
         }
     }
 
-    generateIf(cond asmSymbol) {
+    generateIf(cond asmSymbol) uint {
         // this.instructions[len(this.instructions)] = asmInstruction {
         //     "#scope", asmSymbolValue(uintToStr(this.stackOffset))
         // }
@@ -2366,7 +2392,7 @@ struct asmContext {
                         if this.isSameArg(&this.instructions[setInd+1].arg1, &al) {
                             this.instructions[setInd+1].instruction = "#"
                         }
-                        return
+                        return setInd
                     }
                 }
 
@@ -2385,12 +2411,17 @@ struct asmContext {
         this.instructions[len(this.instructions)] = asmInstruction {
             "je", asmSymbolValue(ifNotSym)
         }
+
+        return len(this.instructions) - 1
     }
 
-    generateEndIf() {
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "# else_if_placeholder"
+    generateEndIf(canBeChainned bool) {
+        if canBeChainned {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "# else_if_placeholder"
+            }
         }
+
         this.instructions[len(this.instructions)] = asmInstruction {
             <str>this.endSym.pop()+":"
         }
@@ -3522,9 +3553,12 @@ struct asmContext {
         }
     }
 
-    generateFnEnd() rope* {
+    generateFnEnd(endInstructions []asmInstruction) rope* {
         this.scope--
         if len(this.instructions) != 0 && this.instructions[len(this.instructions)-1].instruction == "ret" {
+            i=0; for i < len(endInstructions), i++ {
+                this.instructions[len(this.instructions)] = endInstructions[i]
+            }
             this.instructions[len(this.instructions)] = asmInstruction {
                 ".global ."+this.currentFn+"_end"
             }
@@ -3540,6 +3574,11 @@ struct asmContext {
         this.instructions[len(this.instructions)] = asmInstruction {
             "ret"
         }
+
+        i=0; for i < len(endInstructions), i++ {
+            this.instructions[len(this.instructions)] = endInstructions[i]
+        }
+
         this.instructions[len(this.instructions)] = asmInstruction {
             ".global ."+this.currentFn+"_end"
         }

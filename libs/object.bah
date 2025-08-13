@@ -9,7 +9,12 @@
 #define toObjectInner(e reflectElement, arr []byte)
 
 object_realocate_arr(arr Bah_Array_Type*, s uint) {
-    arr.realLength += s
+    //perfect use case for branchless
+    if arr.realLength < s {
+        arr.realLength += s
+    } else {
+        arr.realLength *= 2
+    }
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
 }
 
@@ -17,13 +22,12 @@ object_realocate_arr(arr Bah_Array_Type*, s uint) {
 
 object_int32toarr(i int32, arr Bah_Array_Type*) {
     const size = 4
-    if arr.length + size >= arr.realLength {
+    arr.length += size
+    if arr.length >= arr.realLength {
         object_realocate_arr(arr, size)
     }
 
-    p = <int32*>(<uint>arr.data + arr.length)
-    *p = i
-    arr.length += size
+    *(<int32*>(<uint>arr.data + (arr.length - size))) = i
 }
 
 object_int32toarrAt(i int32, index uint, arr Bah_Array_Type*) {
@@ -207,6 +211,9 @@ toObjectInner(e reflectElement, arr []byte) {
         object_int32toarr(1, arr)
         object_int32toarr(0, arr)
         arrT = <Bah_Array_Type*>value
+        if arrT.parent != null {
+            arrayDuplicate(arrT)
+        }
         dataSize = arrT.realLength * arrT.elemSize
         object_int32toarr(dataSize, arr)
 
