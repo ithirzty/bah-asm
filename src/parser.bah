@@ -1315,6 +1315,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     currArg = currArg.next
                 }
 
+
                 for i < end, i++ {
                     if tokens[i].cont == ")" {
                         break

@@ -133,7 +133,26 @@ compatibleTypes(a bahType*, b bahType*) bool {
         }
 
         if a.type == BAH_TYPE_STRCT {
-            return a.child.name == b.child.name
+            if a.child.name == b.child.name {
+                return true
+            }
+
+            extd = a.ret
+            for extd != null, extd = extd.ret {
+                if extd.child.name == b.child.name {
+                    return true
+                }
+            }
+
+            extd = b.ret
+            for extd != null, extd = extd.ret {
+                if extd.child.name == a.child.name {
+                    return true
+                }
+            }
+
+
+            return false
         }
 
         return true
