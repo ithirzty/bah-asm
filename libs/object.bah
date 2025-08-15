@@ -15,6 +15,7 @@ object_realocate_arr(arr Bah_Array_Type*, s uint) {
     } else {
         arr.realLength *= 2
     }
+    
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
 }
 

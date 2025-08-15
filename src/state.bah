@@ -13,7 +13,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.137 (build 20)"
+BAH_VERSION = "v0.138 (build 21)"
 
 
 const BAH_TYPE_BOOL         = 0
@@ -60,8 +60,6 @@ struct bahType {
     ret:   bahType*
     defaultValue: ptr
     flags: uint = 0
-
-    file: str
 
     type:   byte
     isPtr: bool
@@ -164,8 +162,6 @@ struct bahVariable {
 
     scope: uint
 
-    file: str
-
     sym: asmSymbol
     isConst: bool
 }
@@ -178,8 +174,6 @@ struct bahFunction {
     pureCalls: []bahFunction*
     endInstructions: []asmInstruction
     call: ptr
-
-    file: str
 
     declared: bool
 }
@@ -258,11 +252,16 @@ struct bahLeftValue {
 
 }
 
+
+const BAH_SCOPE_RETURNED = 1
+const BAH_SCOPE_EXITTED  = 2
+const BAH_SCOPE_REALLOC  = 4
+
 struct parserScope {
     isConditional: bool
-    hasReturned:   bool
-    hasExitted:    bool
-    hasRealloc:    bool
+    
+    state: uint
+
     needsReturn:   bool
     isIf: bool
     isElse: bool
@@ -270,6 +269,10 @@ struct parserScope {
     ifChainLabels: []uint
     scope: uint
 
+    isSingleVarSet: bool
+    moreThanSingleSet: bool
+    lVal: bahLeftValue*
+    rVal: bahValue*
 
     parent: parserScope*
     prev: parserScope*
@@ -277,6 +280,14 @@ struct parserScope {
     last: parserScope*
 
     currentFunction: bahFunction*
+
+    isState(state uint) bool {
+        return this.state & state != 0
+    }
+
+    setState(state uint) {
+        this.state = this.state | state
+    }
 }
 
 struct parserContext {
@@ -318,23 +329,17 @@ struct parserContext {
 
     startScope(scope parserScope*) {
         this.scope++
-        if this.scopeCtx != null {
-            scope.parent = this.scopeCtx
-            scope.prev = this.scopeCtx.last
-            this.scopeCtx.last = scope
-        }
+        scope.parent = this.scopeCtx
+        scope.prev = this.scopeCtx.last
+        this.scopeCtx.last = scope
         scope.scope = this.scope
         this.scopeCtx = scope
     }
 
     endScope() {
         this.scope--
-        
-        if this.scope == 0 {
-            this.scopeCtx = null
-        } else {
-            this.scopeCtx = this.scopeCtx.parent
-        }
+                
+        this.scopeCtx = this.scopeCtx.parent
 
         i=len(this.variables) - 1; for i != -1, i-- {
             if this.variables[i].scope > this.scope {
@@ -386,13 +391,17 @@ struct parserContext {
         }
         return null
     }
+
+    _init() {
+        this.scopeCtx = new parserScope
+    }
 }
 
 parserCtx parserContext
 
 //Returns true if a scope cannot do anything other than returning.
 hasScopeReturned(scope parserScope*) bool {
-    if scope.hasReturned {
+    if scope.isState(BAH_SCOPE_RETURNED) {
         return true
     }
     
@@ -421,7 +430,7 @@ hasScopeReturned(scope parserScope*) bool {
 
 //Returns true if a scope has a return statement at some point.
 hasScopeAreturn(scope parserScope*) bool {
-    if scope.hasReturned {
+    if scope.isState(BAH_SCOPE_RETURNED) {
         return true
     }
 
@@ -439,20 +448,20 @@ hasScopeAreturn(scope parserScope*) bool {
 //but it will not return true if a scope is supposed to return in the context of the program.
 //Thus, we cannot trust it to return false in hasScopeExitted() previous scope exitted (example with generateBahValue()).
 //If the function takes any chance to return before the exit call, then it is not obligated to exit even if it may in the program's context.
-hasScopeExitted(scope parserScope*) bool {
+hasScopeState(scope parserScope*, state uint) bool {
     child = scope.last
     for child != null, child = child.prev {
-        if child.isElse == false || hasScopeExitted(child) == false {
+        if child.isElse == false || hasScopeState(child, state) == false {
             continue
         }
         
         for child != null, child = child.prev {
-            if hasScopeExitted(child) == false {
+            if hasScopeState(child, state) == false {
                 break
             }
 
             if child.isIf {
-                if hasScopeExitted(child) {
+                if hasScopeState(child, state) {
                     returningChild = child
                     for returningChild != null, returningChild = returningChild.prev {
                         if hasScopeAreturn(returningChild) {
@@ -468,37 +477,5 @@ hasScopeExitted(scope parserScope*) bool {
         }
     }
 
-    return scope.hasExitted
-}
-
-hasScopeRealloc(scope parserScope*) bool {
-    child = scope.last
-    for child != null, child = child.prev {
-        if child.isElse == false || hasScopeRealloc(child) == false {
-            continue
-        }
-        
-        for child != null, child = child.prev {
-            if hasScopeRealloc(child) == false {
-                break
-            }
-
-            if child.isIf {
-                if hasScopeRealloc(child) {
-                    returningChild = child
-                    for returningChild != null, returningChild = returningChild.prev {
-                        if hasScopeAreturn(returningChild) {
-                            return false
-                        }
-                    }
-                    if returningChild == null {
-                        return true
-                    }
-                }
-                break
-            }
-        }
-    }
-
-    return scope.hasRealloc
+    return scope.isState(state)
 }

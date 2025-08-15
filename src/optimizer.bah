@@ -61,6 +61,22 @@ isValueSafe(val bahValue*) bool {
     return true
 }
 
+isLeftValueSafe(lval bahLeftValue*) bool {
+
+    if lval.isUnary || lval.isArray {
+        return false
+    }
+
+    if lval.isStruct {
+        if lval.left.type.isPtr {
+            return false
+        }
+        return isLeftValueSafe(lval.left)
+    }
+
+    return true
+}
+
 isValueInexpensive(val bahValue*) bool {
     for val.value == BAH_VALUE_CAST {
         val = val.left
@@ -74,6 +90,31 @@ isValueInexpensive(val bahValue*) bool {
     }
 
     return val.value != BAH_VALUE_OP && val.value != BAH_VALUE_FUNC_CALL && val.value != BAH_VALUE_INDEXED && val.value != BAH_VALUE_SPLIT && val.value != BAH_VALUE_DECLARATION
+}
+
+isValuePure(val bahValue*) bool {
+    for val.value == BAH_VALUE_CAST {
+        val = val.left
+    }
+
+    if val.value == BAH_VALUE_DECLARATION {
+        //more complex behavior
+        return false
+    }
+
+    if val.value == BAH_VALUE_UNARY {
+        return isValuePure(val.left)
+    }
+
+    if val.value == BAH_VALUE_STRUCT {
+        return isValuePure(val.left)
+    }
+
+    if val.value == BAH_VALUE_OP || val.value == BAH_VALUE_SPLIT || val.value == BAH_VALUE_INDEXED {
+        return isValuePure(val.left) && isValuePure(val.right)
+    }
+
+    return val.value != BAH_VALUE_FUNC_CALL
 }
 
 //branchless optimization for a || b

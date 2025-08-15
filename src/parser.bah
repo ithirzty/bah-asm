@@ -1,6 +1,5 @@
 #import "iostream.bah"
 #import "string.bah"
-// #import "dl.bah"
 #import "exec.bah"
 
 #import "lexer.bah"
@@ -9,8 +8,7 @@
 #import "state.bah"
 #import "error.bah"
 #import "gen.bah"
-// #import "optimizer.bah"
-// #import "gen_asm_linux_64.bah"
+
 
 const BAH_LINE_DECL_VAR   = 0
 const BAH_LINE_DECL_FN    = 1
@@ -1290,9 +1288,9 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 if parserCtx.scope != 0 {
                     if (fnSymVal.tok.cont == "exit" || fnSymVal.tok.cont == "panic" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_EXIT)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
-                        parserCtx.scopeCtx.hasExitted = true
+                        parserCtx.scopeCtx.setState(BAH_SCOPE_EXITTED)
                     } else if (fnSymVal.tok.cont == "memoryRealloc" || fnSymVal.tok.cont == "realloc" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_REALLOC)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
-                        parserCtx.scopeCtx.hasRealloc = true
+                        parserCtx.scopeCtx.setState(BAH_SCOPE_REALLOC)
                     } else 
                     if parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
                         if fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_PURE) == false {
@@ -1971,7 +1969,7 @@ parseReturn(tokens []bahToken, start uint, end uint) {
         throwTypeError(val, parserCtx.scopeCtx.currentFunction.type.ret)
     }
 
-    parserCtx.scopeCtx.hasReturned = true
+    parserCtx.scopeCtx.setState(BAH_SCOPE_RETURNED)
 
     valSym = generateBahValueSymbol(val, null)
 
@@ -2017,6 +2015,8 @@ parseIf(tokens []bahToken, start uint, end uint) {
         }
     }
 
+    condStartIndex = len(gen.instructions)
+
     condValCons = consumeValue(tokens, start+1, ifLineEnd, -1, 0)
     if condValCons[0] == null {
         throwErrorTok(&tokens[start+1], "Expected a condition in if statement.")
@@ -2043,44 +2043,92 @@ parseIf(tokens []bahToken, start uint, end uint) {
 
     gen.generateEndIf(isChainStart)
 
-    if gen.enableOptimizations && isChainStart == false && (optimizeIsCondNotLikely(condValCons[0]) || hasScopeExitted(ifScope) || hasScopeRealloc(ifScope)) {
-        newLabel = ".IF_UNLIKELY_"+uintToStr(asmRandId)
-        oldLabel = ""
-        asmRandId++
-        
-        i = instStartIndex
+    if gen.enableOptimizations && isChainStart == false {
+        //TODO: move optimizations to gen_asm_linux_64.bah
 
-        for i != -1, i-- {
-            if gen.instructions[i].instruction[0] == 'j' && gen.instructions[i].instruction[len(gen.instructions[i].instruction) - 1] != ':' {
-                gen.instructions[i].instruction = gen.inverseJump(gen.instructions[i].instruction)
-                oldLabel = gen.instructions[i].arg1.name
-                gen.instructions[i].arg1.name = newLabel
-                break
+        if ifScope.isSingleVarSet && isValuePure(ifScope.rVal) && isValueSafe(ifScope.rVal) && isLeftValueSafe(ifScope.lVal) {
+            //Optimization: if all the if scope is doing is setting a var value, try to do it branchless
+            if gen.instructions[len(gen.instructions) - 2].instruction[0] == 'm' {
+                condInsts = gen.instructions[condStartIndex:instStartIndex]
+                arrayDuplicate(condInsts)
+                movInst = gen.instructions[len(gen.instructions)-2]
+                
+                i = instStartIndex
+                for i != -1, i-- {
+                    if gen.instructions[i].instruction[0] == 'j' && gen.instructions[i].instruction[len(gen.instructions[i].instruction) - 1] != ':' {
+                        movInst.instruction = "cmov"+(gen.inverseJump(gen.instructions[i].instruction)[1:])
+                        break
+                    }
+                }
+                if i == -1 {
+                    panic("Error converting if condition")
+                }
+                i=instStartIndex+1
+                offset = (i - condStartIndex)
+                for i < len(gen.instructions)-2, i++ {
+                    gen.instructions[i - offset] = gen.instructions[i]
+                }
+                instsArr = <Bah_Array_Type*>gen.instructions
+                instsArr.length = i - offset
+
+                sym = gen.generateTmpSym(movInst.arg1, movInst.arg1.size)
+                i=0; for i < len(condInsts), i++ {
+                    gen.instructions[len(gen.instructions)] = condInsts[i]
+                }
+                
+                tmpReg = asmSymbolReg(ASM_reg_id_dest_addr, movInst.arg2.size, 0)
+                if gen.isSameArg(&tmpReg, &movInst.arg2) {
+                    tmpReg = asmSymbolReg(ASM_reg_id_op, movInst.arg2.size, 5)
+                }
+                gen.generateMoveValue(movInst.arg2, tmpReg)
+                gen.generateMoveValue(sym, asmSymbolReg(ASM_reg_id_return, sym.size, 0))
+                dest = movInst.arg2
+                movInst.arg1 = asmSymbolReg(ASM_reg_id_return, 8, 0)
+                movInst.arg2 = tmpReg
+                movInst.arg2.size = 8
+
+                gen.instructions[len(gen.instructions)] = movInst
+                gen.generateMoveValue(tmpReg, dest)
+            }
+        } else if (optimizeIsCondNotLikely(condValCons[0]) || hasScopeState(ifScope, BAH_SCOPE_EXITTED) || hasScopeState(ifScope, BAH_SCOPE_REALLOC)) {
+            //Optimization: if unlikely branch, make the branch predictor understand it is not likely
+            newLabel = ".IF_UNLIKELY_"+uintToStr(asmRandId)
+            oldLabel = ""
+            asmRandId++
+            
+            i = instStartIndex
+
+            for i != -1, i-- {
+                if gen.instructions[i].instruction[0] == 'j' && gen.instructions[i].instruction[len(gen.instructions[i].instruction) - 1] != ':' {
+                    gen.instructions[i].instruction = gen.inverseJump(gen.instructions[i].instruction)
+                    oldLabel = gen.instructions[i].arg1.name
+                    gen.instructions[i].arg1.name = newLabel
+                    break
+                }
+            }
+
+            if i == -1 {
+                panic("Error converting if condition")
+            }
+
+            i++
+
+            endInstructions = parserCtx.scopeCtx.currentFunction.endInstructions
+
+            endInstructions[len(endInstructions)] = asmInstruction {
+                newLabel+":"
+            }
+
+            for i < len(gen.instructions) - 1, i++ {
+                endInstructions[len(endInstructions)] = gen.instructions[i]
+                gen.instructions[i].instruction = "#"
+            }
+            endInstructions[len(endInstructions)] = asmInstruction {
+                "jmp", asmSymbolValue(oldLabel)
             }
         }
-
-        if i == -1 {
-            panic("Error converting if condition")
-        }
-
-        i++
-
-        endInstructions = parserCtx.scopeCtx.currentFunction.endInstructions
-
-        endInstructions[len(endInstructions)] = asmInstruction {
-            newLabel+":"
-        }
-
-        for i < len(gen.instructions) - 1, i++ {
-            endInstructions[len(endInstructions)] = gen.instructions[i]
-            gen.instructions[i].instruction = "#"
-            // println(gen.instructions[i].toStr())
-        }
-        endInstructions[len(endInstructions)] = asmInstruction {
-            "jmp", asmSymbolValue(oldLabel)
-        }
-        // gen.instructions[len(gen.instructions)-1].instruction = "#"
     }
+
 
     if isChainStart {
         parserCtx.scopeCtx.ifChainLabels[len(parserCtx.scopeCtx.ifChainLabels)] = len(gen.instructions) - 1
@@ -2495,7 +2543,6 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
 
     funcScope = new parserScope {
         isConditional: false
-        hasReturned: false
         needsReturn: hasRetType
 
         currentFunction: fn
@@ -2577,9 +2624,9 @@ parseFnBody(fn bahFunction*, tokens []bahToken, i uint, end uint) {
         asmRandId++
     }
 
-    if parserCtx.scopeCtx.hasExitted {
+    if parserCtx.scopeCtx.isState(BAH_SCOPE_EXITTED) {
         fn.type.toggleFlag(BAH_TYPE_FLAG_EXIT)
-    } else if parserCtx.scopeCtx.hasRealloc {
+    } else if parserCtx.scopeCtx.isState(BAH_SCOPE_REALLOC) {
         fn.type.toggleFlag(BAH_TYPE_FLAG_REALLOC)
     } 
 
@@ -2757,6 +2804,15 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
         }
     } else {
         //Generate var setting
+        if parserCtx.scopeCtx.isIf || parserCtx.scopeCtx.isElse {
+            if parserCtx.scopeCtx.lVal != null || parserCtx.scopeCtx.moreThanSingleSet {
+                parserCtx.scopeCtx.isSingleVarSet = false
+            } else {
+                parserCtx.scopeCtx.isSingleVarSet = true
+                parserCtx.scopeCtx.rVal = rVal
+                parserCtx.scopeCtx.lVal = lVal
+            }
+        }
 
         if lVal.isVariable == false && rVal.value == BAH_VALUE_FUNC_CALL && rVal.type.size > 16 {
             lValSym = generateBahLeftValueSymbol(lVal)
@@ -2922,22 +2978,30 @@ parseLine(tokens []bahToken, start uint, end uint) {
         if t.cont[0] == '#' {
             parseHashDirective(tokens, start, end)
         } else if t.cont == "return" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseReturn(tokens, start, end)
         } else if t.cont == "if" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseIf(tokens, start, end)
         } else if t.cont == "else" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseElse(tokens, start, end)
         } else if t.cont == "for" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseFor(tokens, start, end)
         } else if t.cont == "struct" {
             parseStruct(tokens, start, end)
         } else if t.cont == "const" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseConst(tokens, start, end)
         } else if t.cont == "continue" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseContinue(tokens, start, end)
         } else if t.cont == "break" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseBreak(tokens, start, end)
         } else if t.cont == "async" {
+            parserCtx.scopeCtx.moreThanSingleSet = true
             parseAsync(tokens, start, end)
         } else {
             throwErrorTok(&tokens[start], "Invalid keyword.")
@@ -2965,10 +3029,9 @@ parseLine(tokens []bahToken, start uint, end uint) {
             rValCons = consumeValue(tokens, i+1, end, -1, 0)
 
             parseVariableSet(tokens, start, end, eqlIndex, lValCons, rValCons)
-
-
         } else {
 
+            parserCtx.scopeCtx.moreThanSingleSet = true
             i=start+1
             //handle rvalue lines without setting a var
             if end - start >= 2 && tokens[start].type == TOKEN_TYPE_VAR {

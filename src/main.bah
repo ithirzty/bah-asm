@@ -40,7 +40,7 @@ printDebugContext() {
     println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
 }
 
-const persistentmcpySource = ".global persistentmcpy
+const persistentmcpySourceAVX = ".global persistentmcpy
 persistentmcpy:
 pushq %rbp
 movq %rsp, %rbp
@@ -59,6 +59,41 @@ cmpq %rdx, %rdi
 jb .persistentmcpy_649
 .persistentmcpy_not_649:
 addq $31, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_650
+.persistentmcpy_650:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_650
+.persistentmcpy_not_650:
+popq %rbp
+ret
+.persistentmcpy_648:
+leave
+ret\n"
+
+const persistentmcpySourceNoAVX = ".global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+je .persistentmcpy_648
+addq %rdi, %rdx
+subq $15, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+movdqu (%rsi), %xmm0
+movdqu %xmm0, (%rdi)
+addq $16, %rsi
+addq $16, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+addq $15, %rdx
 cmpq %rdx, %rdi
 jnb .persistentmcpy_not_650
 .persistentmcpy_650:
@@ -116,6 +151,7 @@ main(args []str) int {
     flags.addBool("noImports", "Redirects #import directive to #include.")
     flags.addBool("debug", "Includes in depth debug informations, useful for debugging. This also redirects imports to includes.")
     flags.addBool("noBuiltin", "Do not import Bah's runtime.")
+    flags.addBool("noAVX", "Do not use AVX instructions.")
 
     flags.parse(args)
 
@@ -125,9 +161,14 @@ main(args []str) int {
         return 0
     }
 
-    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug")
+    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX")
     parserCtx.debugEnabled = flags.isSet("debug")
     gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
+    GEN_AVXenabled = flags.isSet("noAVX") == false
+    
+    #avx! {
+        GEN_AVXenabled = false
+    }
 
     isObjectFile = flags.isSet("object")
     isSilent = flags.isSet("silent")
@@ -150,6 +191,10 @@ main(args []str) int {
     }
 
     BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#avx", GEN_AVXenabled
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
         "#debug", flags.isSet("debug")
     }
 
@@ -163,6 +208,12 @@ main(args []str) int {
 
     initFnCallRope = rope("")
     programEntry = rope("")
+
+    persistentmcpySource = persistentmcpySourceAVX
+    if GEN_AVXenabled == false {
+        GEN_disableAVX()
+        persistentmcpySource = persistentmcpySourceNoAVX
+    }
 
     if isObjectFile == false {
         gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")

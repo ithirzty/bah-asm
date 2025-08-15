@@ -77,6 +77,7 @@ const ASM_SELF_OP_ADD = 0
 const ASM_SELF_OP_SUB = 1
 
 
+const ASM_lea  = []str{"", "", "leal", "leaq"}
 const ASM_mov  = []str{"movb", "movw", "movl", "movq"}
 const ASM_push = []str{"", "", "", "pushq"}
 const ASM_pop  = []str{"", "", "", "popq"}
@@ -96,6 +97,13 @@ const ASM_sub_float  = []str{"", "", "subss", "subsd"}
 const ASM_div_float  = []str{"", "", "divss", "divsd"}
 const ASM_cond_mov_not_eq = "cmovne"
 const ASM_convert_oct = "cqto"
+
+GEN_AVXenabled = true
+ASM_vector_mov = "vmovdqu"
+
+GEN_disableAVX() {
+    ASM_vector_mov = "movdqu"
+}
 
 const ASM_NUM_INT   = 0
 const ASM_NUM_UINT  = 1
@@ -991,7 +999,7 @@ struct asmContext {
                     istrct.arg2.size = 8
                 } else {
                     if istrct.arg2.isFloat && istrct.arg2.isReg && istrct.arg2.address >= ASM_reg_id_floats {
-                        istrct.instruction = "vmovdqu"
+                        istrct.instruction = ASM_vector_mov
                     } else if istrct.instruction == "movq" {
                         istrct.instruction = ASM_mov_float[spos(8)]
                     } else if istrct.instruction == "movl" {
@@ -1139,13 +1147,16 @@ struct asmContext {
         }
         if sym.size > 8 {
             incrSize = 32
+            if GEN_AVXenabled == false {
+                incrSize = 16
+            }
             offset = 0
             lastIncr = 0
             regnNB = 0
 
             if sym.isReg && sym.size == 16 {
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "vmovdqu", sym, dest
+                    ASM_vector_mov, sym, dest
                 }
                 return
             }
@@ -1208,7 +1219,7 @@ struct asmContext {
                         destReg.level = dest.level
                     }
 
-                    inst = "vmovdqu"
+                    inst = ASM_vector_mov
                     if incrSize <= 2 {
                         inst = ASM_mov[spos(incrSize)]
                         trsfrReg = asmSymbolReg(ASM_reg_id_op, incrSize, this.regIndex)                    
@@ -1264,7 +1275,7 @@ struct asmContext {
                 }
 
 
-                inst = "vmovdqu"
+                inst = ASM_vector_mov
                 if incrSize <= 2 {
                     inst = ASM_mov[spos(incrSize)]
                     trsfrReg = asmSymbolReg(ASM_reg_id_op, incrSize, this.regIndex)                    
@@ -2568,18 +2579,20 @@ struct asmContext {
             }
 
             offset = r.address
-            for size >= 32, size -= 32 {
-                destAddr = asmSymbolStack(offset, 32)
-                this.instructions[len(this.instructions)] = asmInstruction {
-                    "vmovdqu", asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+            if GEN_AVXenabled {
+                for size >= 32, size -= 32 {
+                    destAddr = asmSymbolStack(offset, 32)
+                    this.instructions[len(this.instructions)] = asmInstruction {
+                        ASM_vector_mov, asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+                    }
+                    offset -= 32
                 }
-                offset -= 32
             }
             
             for size >= 16, size -= 16 {
                 destAddr = asmSymbolStack(offset, 16)
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "vmovdqu", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
+                    ASM_vector_mov, asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }
                 offset -= 16
             }
@@ -2625,18 +2638,20 @@ struct asmContext {
             }
             
             offset = r.address
-            for size >= 32, size -= 32 {
-                destAddr = asmSymbolStack(offset, 32)
-                this.instructions[len(this.instructions)] = asmInstruction {
-                    "vmovdqu", asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+            if GEN_AVXenabled {
+                for size >= 32, size -= 32 {
+                    destAddr = asmSymbolStack(offset, 32)
+                    this.instructions[len(this.instructions)] = asmInstruction {
+                        ASM_vector_mov, asmSymbolReg(ASM_reg_id_ymm, 32, 0), destAddr
+                    }
+                    offset -= 32
                 }
-                offset -= 32
             }
             
             for size >= 16, size -= 16 {
                 destAddr = asmSymbolStack(offset, 16)
                 this.instructions[len(this.instructions)] = asmInstruction {
-                    "vmovdqu", asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
+                    ASM_vector_mov, asmSymbolReg(ASM_reg_id_floats, 16, 0), destAddr
                 }
                 offset -= 16
             }
