@@ -24,11 +24,11 @@ const AF_INET		    = 2
 const SOCK_STREAM	    = 1
 const IPPROTO_TCP		= 6
 
-const SOL_SOCKET	  = 0xffff
+const SOL_SOCKET	  = 1
 
-const SO_ERROR	      = 0x1007
-const SO_REUSEADDR	  = 0x0004
-const SO_KEEPALIVE	  = 0x0008
+const SO_ERROR	      = 4
+const SO_REUSEADDR	  = 2
+const SO_KEEPALIVE	  = 9
 const SO_BINDTODEVICE = 25
 
 const SHUT_RDWR = 2
@@ -256,7 +256,7 @@ struct http_socket {
 
     //To check if a socket is opened.
     isOpened() bool {
-        return this.sockfd > 0
+        return this.sockfd >= 0
     }
 
     //To open a socket.
@@ -407,14 +407,14 @@ struct http_socket {
         saddr.s_addr = htonl(0)
         servaddr.sin_addr = saddr
         servaddr.sin_port = htons(port)
-        if bind(this.sockfd, &servaddr, 16) == -1 {
+        if bind(this.sockfd, &servaddr, 16) != 0 {
             return false
         }
         //listenning
-        if listen(this.sockfd,1024) < 0 {
+        if listen(this.sockfd,1024) != 0 {
             return false
         }
-        optVal = 1
+        
         return true
     }
 

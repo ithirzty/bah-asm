@@ -56,7 +56,6 @@ struct sigaction {
     sa_restorer: function() 
 }
 
-
 #define sigaction(signum int32, act sigaction*, oldact sigaction*) int32
 #define sigqueue(pid int32, sig int32, val ptr) int
 #define signal(signum int32, hdl function(int32)) function(int32)

@@ -18,8 +18,6 @@ const GC_max_ptr = 281474976710656
 #define itoa(i int) str
 #define syscall(nb int) int
 
-#define intToStr(i int) str
-#define println(s str)
 #define printInt(i int)
 #define backtrace(l uint)
 
@@ -34,6 +32,7 @@ struct BAH_GC_ptr {
 struct BAH_GC_thread {
     t: pthread_t
     sysid: uint
+    regs: buffer:184
 
     next: BAH_GC_thread*
 
@@ -142,6 +141,10 @@ struct BAH_GC_state_tag {
     mut: pthread_mutex_t*
     cond: pthread_cond_t*
     // scanMut: pthread_mutex_t*
+
+    countMut: pthread_mutex_t*
+    count: uint
+    collected: bool
 
     // scanChannel: BAH_GC_channel
 
@@ -322,9 +325,36 @@ GC_thread_wrapper(args ptr*) {
     }
     pthread_mutex_unlock(BAH_GC_state.mut)
 
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    BAH_GC_state.count--
+    pthread_cond_signal(BAH_GC_state.cond)
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
 }
 
-GC_thread_sig_handler(sig int) {
+#define GC_collect_out_of_context(regs ptr)
+
+GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
+    callerId = syscall(__NR_gettid)
+
+    if callerId == BAH_GC_state.mainThread {
+        GC_collect_out_of_context(<ptr>(<uint>ctx + 40))
+        return
+    }
+
+    t = BAH_GC_state.threads
+    for t != null, t = t.next {
+        if t.sysid == callerId {
+            break
+        }
+    }
+    memcpy(<ptr>t.regs, <ptr>(<uint>ctx + 40), 184)
+
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    BAH_GC_state.count--
+    pthread_cond_signal(BAH_GC_state.cond)
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
     pthread_mutex_lock(BAH_GC_state.mut)
     pthread_mutex_unlock(BAH_GC_state.mut)
 }
@@ -357,6 +387,46 @@ GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 
     return errNo
 }
 
+GC_thread_create_detached(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
+    t = <BAH_GC_thread*>malloc(sizeof(BAH_GC_thread))
+    if id == null {
+        id = &t.t
+    }
+
+    pthread_mutex_lock(BAH_GC_state.mut)
+    t.next = BAH_GC_state.threads
+    BAH_GC_state.threads = t
+    pthread_mutex_unlock(BAH_GC_state.mut)
+
+    agrsWrapper = <ptr*>malloc(sizeof(ptr) * 3)
+    
+    argsW = <ptr*>(<uint>agrsWrapper + sizeof(ptr))
+    fnW = <ptr*>(<uint>agrsWrapper + 2 * sizeof(ptr))
+
+    *agrsWrapper = t
+    *argsW = args
+    *fnW = func
+
+    realAttr pthread_attr_t
+
+    if attr != null {
+        realAttr = *attr
+    } else {
+        pthread_attr_init(&realAttr)
+    }
+
+    pthread_attr_setdetachstate(&realAttr, 1)
+
+    errNo = pthread_create(id, &realAttr, GC_thread_wrapper, agrsWrapper)
+
+    pthread_attr_destroy(&realAttr)
+
+    t.t = *id
+
+    return errNo
+}
+
+
 GC_thread_join(id pthread_t, ret ptr) int32 {
     return pthread_join(id, ret)
 }
@@ -371,20 +441,21 @@ GC_init() {
     BAH_GC_state.mainThread = syscall(__NR_gettid)
     BAH_GC_state.nextCollect = GC_min_collect
 
-    action sigaction
-    action.sa_flags = 268435460
-
-    memset(&action.sa_mask, 0, sizeof(sigset_t))
-    action.sa_handler = GC_thread_sig_handler
+    action = sigaction {
+        sa_handler: GC_thread_sig_handler
+        sa_flags: SA_SIGINFO | SA_NODEFER
+    }
     sigaction(SIGXCPU, &action, null)
 
     BAH_GC_state.mut = malloc(sizeof(pthread_mutex_t))
     BAH_GC_state.cond = malloc(sizeof(pthread_cond_t))
+    BAH_GC_state.countMut = malloc(sizeof(pthread_mutex_t))
     // BAH_GC_state.scanMut = malloc(sizeof(pthread_mutex_t))
 
 
     pthread_mutex_init(BAH_GC_state.mut, 0)
     pthread_cond_init(BAH_GC_state.cond, null)
+    pthread_mutex_init(BAH_GC_state.countMut, 0)
     // pthread_mutex_init(BAH_GC_state.scanMut, 0)
 
     BAH_GC_state.listLength = 0
@@ -462,15 +533,22 @@ GC_scanReversed(p uint, to uint, alignment uint) {
     }
 }
 
-GC_stopWorld() {
+GC_stopWorld() uint {
     t = BAH_GC_state.threads
     callerId = syscall(__NR_gettid)
+    BAH_GC_state.count = 0
+    nb = 0
     for t != null, t = t.next {
         if t.sysid == callerId {
             continue
         }
-        sigqueue(t.sysid, SIGXCPU, null)
+        pthread_mutex_lock(BAH_GC_state.countMut)
+        BAH_GC_state.count++
+        pthread_mutex_unlock(BAH_GC_state.countMut)
+        sigqueue(t.sysid, SIGXCPU, t)
+        nb++
     }
+    return nb
 }
 
 // GC_thread_worker() {
@@ -479,6 +557,125 @@ GC_stopWorld() {
 //         GC_scan(gcPtr.p, gcPtr.p + gcPtr.size - 7, 1)
 //     }
 // }
+
+GC_collect_out_of_context(regs ptr) {
+    pthread_mutex_lock(BAH_GC_state.mut)
+
+    #debug {
+        if VERBOSE_GC {
+            puts("[GC] Collecting (out of context).")
+        }
+        scanStart = getTimeUnix()
+    }
+
+    GC_stopWorld()
+    qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+
+    //check registers
+    GC_scan(<uint>regs, <uint>regs + 184, 8)
+    currBasePointer = *<uint*>(<uint>regs + 80)
+
+    //check .data and .bss
+    dataStart = <uint>$data
+    bssStart = <uint>$bss
+    bssEnd = <uint>$end
+
+    GC_scan(dataStart, bssStart, 1)
+    GC_scan(bssStart, bssEnd, 1)
+
+
+    //check stack
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
+
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    for BAH_GC_state.count != 0 {
+        pthread_cond_wait(BAH_GC_state.cond, BAH_GC_state.countMut)
+    }
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
+    //scan threads stacks
+    callerId = syscall(__NR_gettid)
+    BAH_GC_state.count = 0
+    ct = BAH_GC_state.threads
+    for ct != null, ct = ct.next {
+        s uint = 0
+        addr uint = 0
+        attr pthread_attr_t
+        pthread_getattr_np(ct.t, &attr)
+        pthread_attr_getstack(&attr, &addr, &s)
+        pthread_attr_destroy(&attr)
+        GC_scanReversed(<uint>addr + s - 8, addr, 8)
+        GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
+    }
+
+    freed=0
+    alive=0
+
+    additional=0
+    for BAH_GC_state.overflowQueue != null {
+        currQueue = BAH_GC_state.overflowQueue
+        BAH_GC_state.overflowQueue = null
+        for currQueue != null {
+            GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size - 7, 1)
+            prevQueue = currQueue
+            currQueue = currQueue.next
+            free(prevQueue)
+            additional++
+        }
+    }
+
+    l = BAH_GC_state.listLength
+    i=0; for i < l, i++ {
+        index = <BAH_GC_ptr*>(<uint>BAH_GC_state.list + i * sizeof(BAH_GC_ptr))
+        if index.p == 0 {
+            continue
+        }
+
+        if index.marked == false {
+            freed++
+            free(<ptr>index.p)
+            index.p = 0
+            BAH_GC_state.heapSize -= index.size
+            BAH_GC_state.listLength--
+            continue
+        }
+        alive++
+
+        index.marked = false
+    }
+
+    qsort(BAH_GC_state.list, l, sizeof(BAH_GC_ptr), GC_sort_pointers)
+
+    #debug {
+        if VERBOSE_GC {
+
+            nbPages = 0
+            currPage = BAH_GC_state.pages
+            for currPage != null, currPage = currPage.next {
+                nbPages++
+            }
+
+            puts("===COLLECT RESULTS===")
+            puts("freed: ")
+            printInt(freed)
+            puts("still allive: ")
+            printInt(alive)
+            puts("heap size:")
+            printInt(BAH_GC_state.heapSize)
+            puts("nb pages:")
+            printInt(nbPages)
+            puts("took (ms):")
+            printInt((getTimeUnix() - scanStart) / 1000000)
+            puts("=====================")
+        }
+    }
+
+    BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+    if BAH_GC_state.nextCollect < GC_min_collect {
+        BAH_GC_state.nextCollect = GC_min_collect
+    }
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
 
 GC_collect() {
     //save registers
@@ -497,14 +694,17 @@ GC_collect() {
     orax = <uint>$rax
     orbx = <uint>$rbx
 
+    BAH_GC_state.collected = false
+
     currBasePointer = <uint>$rbp + 8
 
     if syscall(__NR_gettid) != BAH_GC_state.mainThread {
         //TODO: siqueue main thread and call collect there
+        sigqueue(BAH_GC_state.mainThread, SIGXCPU, null)
         return  //only the main thread can pause the world
     }
 
-    GC_stopWorld()
+    qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
 
     #debug {
         if VERBOSE_GC {
@@ -513,12 +713,7 @@ GC_collect() {
         scanStart = getTimeUnix()
     }
 
-
-    qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
-
-    // puts("stack:")
-
-
+    GC_stopWorld()
 
     //check registers
     GC_markPtr(ordi)
@@ -547,11 +742,20 @@ GC_collect() {
 
     //check stack
     GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
+    
 
-    // puts("(threads)")
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    for BAH_GC_state.count != 0 {
+        printInt(BAH_GC_state.count)
+        pthread_cond_wait(BAH_GC_state.cond, BAH_GC_state.countMut)
+    }
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
     //scan threads stacks
+    callerId = syscall(__NR_gettid)
+    BAH_GC_state.count = 0
     ct = BAH_GC_state.threads
-    for ct != null, ct = ct.next {    
+    for ct != null, ct = ct.next {
         s uint = 0
         addr uint = 0
         attr pthread_attr_t
@@ -559,6 +763,7 @@ GC_collect() {
         pthread_attr_getstack(&attr, &addr, &s)
         pthread_attr_destroy(&attr)
         GC_scanReversed(<uint>addr + s - 8, addr, 8)
+        GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
     }
 
     freed=0

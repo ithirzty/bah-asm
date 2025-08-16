@@ -6,7 +6,7 @@ strCompareFunction = "__bah_compareStr"
 argumentsToArrFunction = "__bah_argsToArr"
 strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
-threadCreateFunction = "GC_thread_create"
+threadCreateFunction = "GC_thread_create_detached"
 
 tokToInt(s str) int {
     if len(s) > 2 && s[0] == '0' && s[1] == 'x' {
