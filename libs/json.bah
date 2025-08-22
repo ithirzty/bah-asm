@@ -269,7 +269,7 @@ json_scan_inner(thisp ptr, e reflectElement) {
 
     if type == "float32" {
         v = <float32*>value
-        *v = strToFloat(this.str())
+        *v = <float32>strToFloat(this.str())
         return
     }
 
@@ -709,6 +709,10 @@ toJsonRope(e reflectElement) rope* {
 
     if type == "float" {
         return rope(floatToStr(*(<float*>value)))
+    }
+
+    if type == "float32" {
+        return rope(floatToStr(*(<float32*>value)))
     }
 
     if type == "bool" {

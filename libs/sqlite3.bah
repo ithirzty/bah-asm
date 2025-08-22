@@ -388,14 +388,15 @@ struct db {
                 }
                 row.cols[len(row.cols)] = cStrToBah(cName)
 
-                if sqlite3_column_type(pstmt, i) >= SQLITE_TEXT  {
+                if sqlite3_column_type(pstmt, i) > SQLITE_TEXT  {
                     size = sqlite3_column_bytes(pstmt, i)
                     r = <uint32*>memoryAllocSTR(size + 5)
                     *r = size
                     memcpy(<ptr>(<uint>r + 4), sqlite3_column_blob(pstmt, i), size)
                     row.argv[len(row.argv)] = <str>r
                 } else {
-                    row.argv[len(row.argv)] = cStrToBah(sqlite3_column_text(pstmt, i))
+                    s = cStrToBah(sqlite3_column_text(pstmt, i))
+                    row.argv[len(row.argv)] = s
                 }
 
             }
@@ -468,7 +469,7 @@ struct db {
                 }
                 row.cols[len(row.cols)] = cStrToBah(cName)
 
-                if sqlite3_column_type(pstmt, i) >= SQLITE_TEXT  {
+                if sqlite3_column_type(pstmt, i) > SQLITE_TEXT  {
                     size = sqlite3_column_bytes(pstmt, i)
                     r = <uint32*>memoryAllocSTR(size + 5)
                     *r = size

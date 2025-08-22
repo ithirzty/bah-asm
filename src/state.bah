@@ -13,7 +13,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.138 (build 23)"
+BAH_VERSION = "v0.139 (build 24)"
 
 
 const BAH_TYPE_BOOL         = 0
@@ -195,6 +195,7 @@ const BAH_VALUE_DECLARATION = 14
 const BAH_VALUE_REFLECT     = 15
 // const BAH_VALUE_ASYNC       = 16
 const BAH_VALUE_SYM         = 17
+const BAH_VALUE_NOT         = 18
 
 struct bahValue {
     pemdas: uint

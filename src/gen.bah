@@ -592,7 +592,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         gen.generateFnCallArgument(lenSym)
         
         sym = gen.generateFnCall(fnSym, 8, null, false)
-        sym.size = val.type.size
+        sym.size = 8
         
         return sym
     }
@@ -652,6 +652,10 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         sym = generateBahValueSymbol(val.left, null)
         sym.size = val.left.type.child.size
         return gen.generateUnary(sym)
+    }
+
+    if val.value == BAH_VALUE_NOT {
+        return gen.generateInvBytes(generateBahValueSymbol(val.left, null))
     }
 
     if val.isStaticValue {
@@ -1532,7 +1536,7 @@ generateReflection(val bahValue*) asmSymbol {
     //value
     setSym.address = sym.address - 64
     valSym = generateBahValueSymbol(val, null)
-    if val.type.type == BAH_TYPE_TUPLE || val.type.isNativePtr == false {
+    if val.type.type == BAH_TYPE_TUPLE || val.type.type == BAH_TYPE_STR || val.type.isNativePtr == false {
         valSym.level = -1
         valSym.size = 8
     }
@@ -1569,11 +1573,13 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
             return gen.generateConvSizes(r, type.size, type.type == BAH_TYPE_UINT)
         }
 
+        r.size = type.size
+
         return r
 
     } else if type.type == BAH_TYPE_FLOAT {
 
-        if val.type.type == BAH_TYPE_INT {
+        if val.type.type == BAH_TYPE_INT || val.type.type == BAH_TYPE_UINT {
             return gen.generateConvIntToFloat(generateBahValueSymbol(val, null), type.size)
         }
 

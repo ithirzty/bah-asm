@@ -142,7 +142,7 @@ struct objectFile {
             sym = this.symbols[rel.r_info >> 32]
             sectnb = sym.st_shndx
             sect = this.sectionHeaders[sectnb]
-            relType = <uint32>rel.r_info & 4294967295
+            relType = <uint32>rel.r_info
             addr = <uint32*>(this.textAddress + rel.r_offset)
 
             if relType == 2 { //data(%rip)

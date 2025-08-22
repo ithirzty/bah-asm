@@ -96,7 +96,7 @@ struct htmlElement {
 //Returns true if the char is either a letter, '-' or '_'
 //*Note: this is an internal function.*
 isValidHTMLStringChar(c char) bool {
-    return isLetter(c) || c == '-' || c == '_' || c == '!' || isNumber(c)
+    return isLetter(c) || c == '-' || c == '_' || c == '!' || c == ':' || isNumber(c)
 }
 
 //Used for skipping white spaces inside the current char array.

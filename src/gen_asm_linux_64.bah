@@ -41,6 +41,7 @@ const ASM_set_parity = []str{"setnp", "setp"}
 const ASM_set_above_below_floats = []str{"", "", "seta", "seta", "setnb", "setnb"}
 const ASM_set_above_below_unsgined = []str{"sete", "setne", "setb", "setb", "setnb", "setnb"}
 
+const ASM_not = []str{"notb", "notw", "notl", "notq"}
 const ASM_or = []str{"orb", "orw", "orl", "orq"}
 const ASM_xor = []str{"xorb", "xorw", "xorl", "xorq"}
 const ASM_and = []str{"andb", "andw", "andl", "andq"}
@@ -1154,7 +1155,7 @@ struct asmContext {
             lastIncr = 0
             regnNB = 0
 
-            if sym.isReg && sym.size == 16 {
+            if sym.isReg && sym.level == 0 && sym.size == 16 {
                 this.instructions[len(this.instructions)] = asmInstruction {
                     ASM_vector_mov, sym, dest
                 }
@@ -2771,6 +2772,20 @@ struct asmContext {
         }
 
         this.generateMoveValue(b, a)
+    }
+
+    generateInvBytes(a asmSymbol) asmSymbol {
+        if a.isReg == false || a.level != 0 {
+            reg = asmSymbolReg(ASM_reg_id_return, a.size, 0)
+            this.generateMoveValue(a, reg)
+            a = reg
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ASM_not[spos(a.size)], a
+        }
+
+        return a
     }
 
     generateOpBitwise(a asmSymbol, b asmSymbol, operation uint, lossy bool) asmSymbol {

@@ -33,7 +33,7 @@ totalLines = 0
 lexerShouldAddToken = true
 
 const enclavers = []char{'(', ')', '{', '}', '[', ']'}
-const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^'}
+const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^', '~'}
                                     //&                                                    //;
 
 const keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
