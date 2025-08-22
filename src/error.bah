@@ -265,37 +265,39 @@ throwTypeError(val bahValue*, type bahType*) {
     throwError(val, "Type error, cannot convert type '"+val.type.toStr()+"' to type '"+type.toStr()+"'.")
 }
 
-throwWarning(t bahToken*, s str) {
-    codeLine = ""
+throwWarning(val bahValue*, err str) {
 
+    toks = errorBahValueTokens(val)
 
-    relPos uint
-    lineStart uint
-    lineEnd uint
-    filePath = absPath(parserCtx.currentFilePath)
+    to = toks[1].pos + len(toks[1].cont)
+    lineNb = toks[0].line
     
-    lineStart=t.pos; for lineStart != -1, lineStart-- {
+    from = toks[0].pos
+    valStr = parserCtx.currentFile[from:to]
+
+    filePath = absPath(parserCtx.currentFilePath)
+    lineStart uint = 0
+    lineEnd uint = 0
+
+    lineStart = from; for lineStart != -1, lineStart-- {
         if parserCtx.currentFile[lineStart] == <char>10 {
             lineStart++
             break
         }
     }
 
-
-    lineEnd = t.pos + len(t.cont); for lineEnd < len(parserCtx.currentFile), lineEnd++ {
+    lineEnd = to; for lineEnd < len(parserCtx.currentFile), lineEnd++ {
         if parserCtx.currentFile[lineEnd] == <char>10 {
             break
         }
     }
 
-    relPos = t.pos - lineStart
+    relPos = from - lineStart
 
-    codeLine = parserCtx.currentFile[lineStart:t.pos] + ASCII_RED + t.cont + ASCII_RESET + parserCtx.currentFile[t.pos + len(t.cont):lineEnd]
+    codeLine = parserCtx.currentFile[lineStart:from] + ASCII_YELLOW + valStr + ASCII_RESET + parserCtx.currentFile[to:lineEnd]
+    lineInfo = filePath+":"+uintToStr(lineNb)+":"+uintToStr(relPos)
 
-    lineInfo = filePath+":"+uintToStr(t.line)+":"+uintToStr(relPos)
-
-    println(ASCII_RED+"[WARNING]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
+    println(ASCII_YELLOW+"[ERROR]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
     println(codeLine+"\033[1;37m")
-    println(s+ASCII_RESET)
-
+    println(err+ASCII_RESET)
 }

@@ -92,6 +92,10 @@ deleteRange(arr Bah_Array_Type*, from uint, to uint) {
         return
     }
 
+    if to == arr.length-1 {
+        arr.length = from
+    }
+
 
     length = arr.length
     
@@ -555,18 +559,15 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
         arrayDuplicate(arr)
     }
 
+    
     if index >= arr.length {
         arr.length = index + 1
     }
 
+
     if index < arr.realLength {
         return
     }
-
-
-    // if index != arr.realLength {
-    //     puts("nope!")
-    // }
 
     orl = arr.realLength
 
@@ -575,7 +576,27 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
     } else {
         arr.realLength *= 2
     }
+    if arr.data == null {
+        arr.data = memoryAlloc_NZ(arr.realLength * arr.elemSize)
+        return
+    }
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
+}
+
+__Bah_realocate_arr_nonPointer(arr Bah_Array_Type*, index uint) {
+    if arr == null {
+        panic("Trying to set value of null array.")
+        return
+    }
+
+    if arr.data == null {
+        arr.realLength = 64
+        arr.length++
+        arr.data = memoryAllocSTR(arr.realLength * arr.elemSize)
+        return
+    }
+
+    __Bah_realocate_arr(arr, index)
 }
 
 //Used for pre-allocating a number of element to an array.

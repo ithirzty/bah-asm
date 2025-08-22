@@ -77,8 +77,6 @@ lexerErr(line int, pos int, msg str) {
     exit(1)
 }
 
-#define throwWarning(t bahToken*, s str)
-
 //Takes a file as input, outputs an array of tokens.
 lexer(s str, includeBodies bool) []bahToken {
     lexerStart = getTimeUnix()

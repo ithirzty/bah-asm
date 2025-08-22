@@ -109,6 +109,16 @@ evalFunc(func bahFunction*, args bahValue*) asmSymbol {
 }
 
 generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahType*) asmSymbol {
+    if type.type == BAH_TYPE_FLOAT {
+        if left.size > right.size {
+            right.isFloat = true
+            right = gen.generateConvSizes(right, left.size, false)
+        } else if right.size > left.size {
+            left.isFloat = true
+            left = gen.generateConvSizes(left, right.size, false)
+        }
+    }
+
     opStr = tok.cont
 
     tp = ASM_NUM_INT
@@ -740,6 +750,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 nSym = gen.generateSymOffset(sym, gen.staticInt(intToStr(0 - addr)))
                 if val.isPointer == false {
                     if isPackedInReg {
+                        printDebugContext()
                         panic("cannot yet unpack")
                     }
                     r = gen.generateDereference(nSym)
@@ -1000,7 +1011,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
                 if argVal.value == BAH_VALUE_REFLECT {
                     sym = generateReflection(argVal.left)
-                } else if argVal.left.type.size != argVal.type.size && (argVal.type.size > 8 || argVal.type.size < argVal.left.type.size) {
+                } else if argVal.left.type.size != argVal.type.size && (argVal.type.size > 8 || argVal.type.size < argVal.left.type.size || argVal.type.type == BAH_TYPE_FLOAT) {
                     sym = generateTypeConversion(argVal.left, argVal.type)
                 } else {
                     sym = generateBahValueSymbol(argVal.left, null)
@@ -1271,7 +1282,11 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
         gen.generateFnCallArgument(sym)
         gen.generateFnCallArgument(indexSym)
 
-        gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr"), 0, null, false)
+        if containsPtr(lval.left.type.child) == false {
+            gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr_nonPointer"), 0, null, false)
+        } else {
+            gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr"), 0, null, false)
+        }
 
         sym = gen.generateDestDereference(sym)
 
