@@ -3,7 +3,9 @@ cd $(git rev-parse --show-toplevel)
 
 git pull
 mkdir /opt/bah-asm
+mkdir /opt/bah-asm/compiler
 cp -r ./libs/* /opt/bah-asm/
+cp ./src/*.bah /opt/bah-asm/compiler/
 if cat /proc/cpuinfo | grep "avx" > /dev/null; then
     rm /opt/bah-asm/bah-noavx
 else

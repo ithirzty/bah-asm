@@ -847,11 +847,15 @@ struct asmContext {
                     }
 
                     if this.instructions[i].arg1.isTmp && this.instructions[i].arg1.address == sym.address {
+                        level = this.instructions[i].arg1.level
+                        reg.level = level
                         this.instructions[i].arg1 = reg
                         lastUse = i
                     }
 
                     if this.instructions[i].arg2.isTmp && this.instructions[i].arg2.address == sym.address {
+                        level = this.instructions[i].arg2.level
+                        reg.level = level
                         this.instructions[i].arg2 = reg
                         lastUse = i
                     }

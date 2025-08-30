@@ -2377,6 +2377,7 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 
     currParent = strctType.child
     currOffset = 0
+    largestElem = 0
 
     if tokens[start+2].cont == "extend" {
         if tokens[start+3].type != TOKEN_TYPE_VAR {
@@ -2399,6 +2400,9 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 
             if alignment > 8 {
                 alignment = 8
+            }
+            if alignment > largestElem {
+                largestElem = alignment
             }
 
             if currOffset % alignment != 0 {
@@ -2504,6 +2508,10 @@ parseStruct(tokens []bahToken, start uint, end uint) {
                 alignment = 8
             }
 
+            if alignment > largestElem {
+                largestElem = alignment
+            }
+
             if currOffset % alignment != 0 {
                 currOffset += alignment - (currOffset % alignment)
             }
@@ -2553,7 +2561,6 @@ parseStruct(tokens []bahToken, start uint, end uint) {
             currParent = currParent.next
 
         }
-        
 
         if i == end-1 {
             break
@@ -2565,6 +2572,9 @@ parseStruct(tokens []bahToken, start uint, end uint) {
         }
     }
 
+    // if strctType.size % largestElem != 0 {
+    //     strctType.size += largestElem - (strctType.size % largestElem)
+    // }
 
 
 }

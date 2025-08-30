@@ -294,6 +294,7 @@ GC_setHeapSize(size uint) {
 }
 
 #define GC_scan(from uint, to uint, alignment uint)
+#define real_pthread_exit(val ptr)
 
 GC_thread_wrapper(args ptr*) {
 
@@ -305,9 +306,10 @@ GC_thread_wrapper(args ptr*) {
 
     fn function(ptr) = *(<ptr*>(<uint>args + 16))
 
-    fn(*(<ptr*>(<uint>args + sizeof(ptr))))
-
+    fnArg = *(<ptr*>(<uint>args + sizeof(ptr)))
     free(args)
+
+    fn(fnArg)
 
     //remove the thread from the linked list
     pthread_mutex_lock(BAH_GC_state.mut)
@@ -329,6 +331,37 @@ GC_thread_wrapper(args ptr*) {
     BAH_GC_state.count--
     pthread_cond_signal(BAH_GC_state.cond)
     pthread_mutex_unlock(BAH_GC_state.countMut)
+}
+
+GC_removeCurrentThread(val ptr) {
+    //remove the thread from the linked list
+    callerId = syscall(__NR_gettid)
+
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.threads.sysid == callerId {
+        t = BAH_GC_state.threads
+        BAH_GC_state.threads = BAH_GC_state.threads.next
+        t.clean()
+    } else {
+        currT = BAH_GC_state.threads
+        for currT != null, currT = currT.next {
+            if currT.next.sysid == callerId {
+                t = currT.next
+                currT.next = t.next
+                t.clean()
+                break
+            }
+        }
+    }
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    BAH_GC_state.count--
+    pthread_cond_signal(BAH_GC_state.cond)
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
+    real_pthread_exit(val)
 
 }
 
@@ -536,18 +569,18 @@ GC_scanReversed(p uint, to uint, alignment uint) {
 GC_stopWorld() uint {
     t = BAH_GC_state.threads
     callerId = syscall(__NR_gettid)
+    pthread_mutex_lock(BAH_GC_state.countMut)
     BAH_GC_state.count = 0
     nb = 0
     for t != null, t = t.next {
         if t.sysid == callerId {
             continue
         }
-        pthread_mutex_lock(BAH_GC_state.countMut)
         BAH_GC_state.count++
-        pthread_mutex_unlock(BAH_GC_state.countMut)
         sigqueue(t.sysid, SIGXCPU, t)
         nb++
     }
+    pthread_mutex_unlock(BAH_GC_state.countMut)
     return nb
 }
 

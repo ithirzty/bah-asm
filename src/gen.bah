@@ -579,6 +579,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             if val.left.type.type == BAH_TYPE_STR {
                 sym.size = 4
                 lenSym = gen.generateDereference(sym)
+                sym.size = 8
             } else if val.left.type.type == BAH_TYPE_ARRAY {
                 lenSym = gen.generateSymOffset(sym, gen.staticInt(uintToStr(ARR_LENGTH_OFFSET)))
                 lenSym = gen.generateDereference(lenSym)
@@ -872,14 +873,19 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             return gen.generateBoolAndEnd(generateBahValueSymbol(val.right, null))
 
         }
+        
+        currPemdas = 3
+        if opStr != "-" {
+            currPemdas = 4
+        }
 
         //rearrange tree for position dependent operations
-        if (opStr[0] == '-' || opStr[0] == '/') && val.right.value == BAH_VALUE_OP && val.right.pemdas == val.pemdas {
+        if (opStr == "-" || opStr == "/") && val.right.value == BAH_VALUE_OP && val.right.pemdas == currPemdas {
             currVal = val.right
             prevVal = val
             currSym = generateBahValueSymbol(val.left, null)
 
-            for currVal.pemdas == val.pemdas, currVal = currVal.right {
+            for currVal.pemdas == currPemdas, currVal = currVal.right {
                 currSym = gen.generateTmpSym(currSym, currSym.size)
                 currSym = generateValueOperation(&prevVal.tok, currSym, generateBahValueSymbol(currVal.left, null), currVal.left.type)
 
@@ -891,7 +897,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 prevVal = currVal
             }
 
-            if currVal.value == BAH_VALUE_OP && currVal.pemdas != val.pemdas {
+            if currVal.value == BAH_VALUE_OP && currVal.pemdas != currPemdas {
                 currSym = gen.generateTmpSym(currSym, currSym.size)
                 currSym = generateValueOperation(&prevVal.tok, currSym, generateBahValueSymbol(currVal, null), currVal.type)
             }

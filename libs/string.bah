@@ -610,6 +610,37 @@ splitString(s string, sep str) []string {
     return r
 }
 
+//Used for splitting a string into multiple substrings delimited by the specified delimiter.
+strSplit(s str, sep str) []str {
+    sepInd = 0
+    start = 0
+    r = []str
+
+    i=0; for i < len(s), i++ {
+        c = s[i]
+        if c == sep[sepInd] {
+            sepInd++
+            if sepInd == len(sep) {
+                sepInd = 0
+                end = i-len(sep)+1
+                if start != end {
+                    r[len(r)] = s[start:end]
+                }
+                start = i+1
+            }
+        } else {
+            sepInd = 0
+        }
+    }
+
+    end = i-len(sep)+1
+    if start < end {
+        r[len(r)] = s[start:end]
+    }
+
+    return r
+}
+
 strJoin(arr []str, sep str) str {
     if len(arr) == 0 {
         return ""
