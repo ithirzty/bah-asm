@@ -292,6 +292,7 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 } else {
                     currTp.next = tp[0]
                 }
+
                 tp[0].offset = r.size
                 r.size += tp[0].size
 
@@ -1085,6 +1086,11 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                     *elemType = *(elemVal[0].type)
                     elemType.next = null
 
+                    size = elemType.size
+                    if elemType.isNativePtr {
+                        size = 8
+                    }
+
                     if currTp == val.type {
                         currTp.child = elemType
                     } else {
@@ -1094,7 +1100,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     //todo: alignment?
                     elemType.offset = val.type.size
-                    val.type.size += elemType.size
+                    val.type.size += size
 
                     currVal.left = new bahValue {
                         right: elemVal[0]

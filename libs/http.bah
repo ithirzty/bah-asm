@@ -469,7 +469,9 @@ struct http_socket {
             ioctl(this.sockfd, FIONBIO, &iMode)
         }
 
-        for 1 == 1 {
+        contentLength = 0
+
+        for true {
             if this.ssl != null {
                 nDataLength = SSL_read(this.ssl,<char*>buff,1024)
             } else {
@@ -479,10 +481,62 @@ struct http_socket {
                 break
             }
             if nDataLength <= 0 {
-                break
+                if contentLength == 0 {
+                    s = rep.str()
+                    i=0; for i < len(s), i++ {
+                        if s[i] == <char>10 {
+                            i++
+                            break
+                        }
+                    }
+
+                    for i < len(s) - 1, i++ {
+                        if s[i] == <char>13 && s[i+1] == <char>10 {
+                            break
+                        }
+
+                        start = i
+                        for i < len(s), i++ {
+                            if s[i] == ':' {
+                                break
+                            }
+                        }
+
+                        if strFindAtOffset(s, "Content-Length:", start, false) {
+                            for i < len(s), i++ {
+                                if isSpace(s[i]) == false {
+                                    break
+                                }
+                            }
+                            start = i
+                            for i < len(s), i++ {
+                                if s[i] == <char>10 {
+                                    break
+                                }
+                            }
+
+                            contentLength = strToUint(s[start:i])
+                            break
+                        }
+
+                        for i < len(s), i++ {
+                            if s[i] == <char>10 {
+                                break
+                            }
+                        }
+
+                    }
+                }
+
+                if contentLength == 0 || rep.length >= contentLength {
+                    break
+                } else {
+                    continue
+                }
             }
             rep.append(<char*>buff, nDataLength)
         }
+
         return rep
     }
 
@@ -921,6 +975,7 @@ makeRespFromBody(response response_buffer) http_response* {
 }
 
 
+
 //Used for making TLS requests.
 //*This is an internal function, you should know what you're doing if you decide to use it.*
 makeRawHttpsRequest(host str, message str, timeout int) response_buffer {
@@ -976,13 +1031,67 @@ makeRawHttpsRequest(host str, message str, timeout int) response_buffer {
     }
 
     buff = buffer 1025
+    contentLength = 0
+
     for true {
         size = BIO_read(bio, <char*>buff, 1025)
         if size <= 0 {
-            break
+            if contentLength == 0 {
+                s = resp.str()
+                i=0; for i < len(s), i++ {
+                    if s[i] == <char>10 {
+                        i++
+                        break
+                    }
+                }
+
+                for i < len(s) - 1, i++ {
+                    if s[i] == <char>13 && s[i+1] == <char>10 {
+                        break
+                    }
+
+                    start = i
+                    for i < len(s), i++ {
+                        if s[i] == ':' {
+                            break
+                        }
+                    }
+
+                    if strFindAtOffset(s, "Content-Length:", start, false) {
+                        for i < len(s), i++ {
+                            if isSpace(s[i]) == false {
+                                break
+                            }
+                        }
+                        start = i
+                        for i < len(s), i++ {
+                            if s[i] == <char>10 {
+                                break
+                            }
+                        }
+
+                        contentLength = strToUint(s[start:i])
+                        break
+                    }
+
+                    for i < len(s), i++ {
+                        if s[i] == <char>10 {
+                            break
+                        }
+                    }
+
+                }
+            }
+
+            if contentLength == 0 || resp.length >= contentLength {
+                break
+            } else {
+                continue
+            }
         }
         resp.append(<char*>buff, size)
     }
+
     SSL_CTX_free(ctx)
     BIO_free_all(bio)
     return resp

@@ -425,6 +425,9 @@ struct db {
         if rc != 0 {
             if VERBOSE_SQLITE3 {
                 println(cStrToBah(sqlite3_errmsg(this.DB)))
+                #debug {
+                    backtrace(0)
+                }
             }
             sqlite3_finalize(pstmt)
             return null
@@ -443,6 +446,9 @@ struct db {
                 if dbExec_bind_inner(pstmt, m, i+1) == false {
                     if VERBOSE_SQLITE3 {
                         println("Invalid binding nb "+uintToStr(i+1)+": "+cStrToBah(sqlite3_errmsg(this.DB)))
+                        #debug {
+                            backtrace(0)
+                        }
                     }
                     sqlite3_finalize(pstmt)
                     return null
@@ -452,6 +458,9 @@ struct db {
             if dbExec_bind_inner(pstmt, values, 1) == false {
                 if VERBOSE_SQLITE3 {
                     println("Invalid binding: "+cStrToBah(sqlite3_errmsg(this.DB)))
+                    #debug {
+                        backtrace(0)
+                    }
                 }
                 sqlite3_finalize(pstmt)
                 return null
@@ -486,6 +495,9 @@ struct db {
         if n != SQLITE_DONE {
             if VERBOSE_SQLITE3 {
                 println(cStrToBah(sqlite3_errmsg(this.DB)))
+                #debug {
+                    backtrace(0)
+                }
             }
             sqlite3_finalize(pstmt)
             return null

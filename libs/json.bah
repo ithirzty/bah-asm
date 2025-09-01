@@ -382,7 +382,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
                 }
 
                 if s[i] != ':' {
-                    jError = "json: expected : between key and value (got: "+intToStr(<int>s[i])+") (pos: "+uintToStr(i)+")"
+                    jError = "json: expected : between key and value (got: "+charToStr(s[i])+") (pos: "+uintToStr(i)+")"
                     return null
                 }
 
@@ -510,13 +510,17 @@ jsonEscapeStr(s str) str {
         if c == <char>34 {
             r.append(<char>92)
         } else if c == <char>10 {
-                r.append(<char>92)
-                r.append('n')
-                continue
+            r.append(<char>92)
+            r.append('n')
+            continue
         } else if c == <char>13 {
-                r.append(<char>92)
-                r.append('r')
-                continue
+            r.append(<char>92)
+            r.append('r')
+            continue
+        } else if c == <char>92 {
+            r.append(<char>92)
+            r.append(<char>92)
+            continue
         }
         if json_isPrintable(c) == false {
             if <byte>c == <byte>195 {

@@ -720,6 +720,38 @@ toLower(s string) string {
     return string(arrToStr(ns))
 }
 
+strFindAtOffset(from str, needle str, offset uint, caseSensitive bool) bool {
+    if len(needle) > len(from) - offset {
+        return false
+    }
+
+    if caseSensitive {
+        i=0; for i < len(needle), i++ {
+            if needle[i] != from[i + offset] {
+                return false
+            }
+        }
+    } else {
+        i=0; for i < len(needle), i++ {
+            cf = from[i + offset]
+            if isUpper(cf) {
+                cf += <char>32
+            }
+
+            cn = needle[i]
+            if isUpper(cn) {
+                cn += <char>32
+            }
+            if cn != cf {
+                return false
+            }
+        }
+    }
+
+
+    return true
+}
+
 //Use string(s).hasPrefix(prefix) instead.
 //This function has known bugs.
 strHasPrefix(s str, need str) bool {
