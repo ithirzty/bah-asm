@@ -145,6 +145,8 @@ struct BAH_GC_state_tag {
     countMut: pthread_mutex_t*
     count: uint
     collected: bool
+    needsFinalizer: bool
+    areThreadsFree: bool
 
     // scanChannel: BAH_GC_channel
 
@@ -388,8 +390,15 @@ GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
     pthread_cond_signal(BAH_GC_state.cond)
     pthread_mutex_unlock(BAH_GC_state.countMut)
 
-    pthread_mutex_lock(BAH_GC_state.mut)
-    pthread_mutex_unlock(BAH_GC_state.mut)
+
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    for BAH_GC_state.areThreadsFree == false {
+        pthread_cond_wait(BAH_GC_state.cond, BAH_GC_state.countMut)
+    }
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
+    // pthread_mutex_lock(BAH_GC_state.mut)
+    // pthread_mutex_unlock(BAH_GC_state.mut)
 }
 
 GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
@@ -476,7 +485,7 @@ GC_init() {
 
     action = sigaction {
         sa_handler: GC_thread_sig_handler
-        sa_flags: SA_SIGINFO | SA_NODEFER
+        sa_flags: SA_SIGINFO | SA_RESTART
     }
     sigaction(SIGXCPU, &action, null)
 
@@ -576,8 +585,9 @@ GC_stopWorld() uint {
         if t.sysid == callerId {
             continue
         }
-        BAH_GC_state.count++
-        sigqueue(t.sysid, SIGXCPU, t)
+        if sigqueue(t.sysid, SIGXCPU, t) == 0 {
+            BAH_GC_state.count++
+        }
         nb++
     }
     pthread_mutex_unlock(BAH_GC_state.countMut)
@@ -601,6 +611,7 @@ GC_collect_out_of_context(regs ptr) {
         scanStart = getTimeUnix()
     }
 
+    BAH_GC_state.areThreadsFree = false
     GC_stopWorld()
     qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
 
@@ -618,7 +629,7 @@ GC_collect_out_of_context(regs ptr) {
 
 
     //check stack
-    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer + 16, 8)
 
     pthread_mutex_lock(BAH_GC_state.countMut)
     for BAH_GC_state.count != 0 {
@@ -641,6 +652,31 @@ GC_collect_out_of_context(regs ptr) {
         GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
     }
 
+    BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+    if BAH_GC_state.nextCollect < GC_min_collect {
+        BAH_GC_state.nextCollect = GC_min_collect
+    }
+
+    BAH_GC_state.needsFinalizer = true
+
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    BAH_GC_state.areThreadsFree = true
+    pthread_cond_signal(BAH_GC_state.cond)
+    pthread_mutex_unlock(BAH_GC_state.countMut)
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
+//this calls free() that is not signal safe.
+//calling this from a signal handler (GC_collect_out_of_context) could cause
+//a dead lock because a c lib could use malloc when the world stops -> free could not
+//acquire lock until paused thread resumes but thrad would not resume until collection is finished
+
+//TODO: when stack overflows in GC_markPtr(), calls to malloc() and free() are made
+//      this is the same problem but it is quite rare...
+
+GC_finalize_out_of_context_collect() {
+    BAH_GC_state.needsFinalizer = false
     freed=0
     alive=0
 
@@ -697,17 +733,9 @@ GC_collect_out_of_context(regs ptr) {
             printInt(BAH_GC_state.heapSize)
             puts("nb pages:")
             printInt(nbPages)
-            puts("took (ms):")
-            printInt((getTimeUnix() - scanStart) / 1000000)
             puts("=====================")
         }
     }
-
-    BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
-    if BAH_GC_state.nextCollect < GC_min_collect {
-        BAH_GC_state.nextCollect = GC_min_collect
-    }
-    pthread_mutex_unlock(BAH_GC_state.mut)
 }
 
 GC_collect() {
@@ -746,6 +774,7 @@ GC_collect() {
         scanStart = getTimeUnix()
     }
 
+    BAH_GC_state.areThreadsFree = false
     GC_stopWorld()
 
     //check registers
@@ -779,7 +808,6 @@ GC_collect() {
 
     pthread_mutex_lock(BAH_GC_state.countMut)
     for BAH_GC_state.count != 0 {
-        printInt(BAH_GC_state.count)
         pthread_cond_wait(BAH_GC_state.cond, BAH_GC_state.countMut)
     }
     pthread_mutex_unlock(BAH_GC_state.countMut)
@@ -860,10 +888,18 @@ GC_collect() {
             puts("=====================")
         }
     }
+
+    pthread_mutex_lock(BAH_GC_state.countMut)
+    BAH_GC_state.areThreadsFree = true
+    pthread_cond_broadcast(BAH_GC_state.cond)
+    pthread_mutex_unlock(BAH_GC_state.countMut)
 }
 
 memoryAlloc(s uint) ptr {
     pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.needsFinalizer {
+        GC_finalize_out_of_context_collect()
+    }
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -882,6 +918,9 @@ memoryAlloc(s uint) ptr {
 
 memoryAlloc_NZ(s uint) ptr {
     pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.needsFinalizer {
+        GC_finalize_out_of_context_collect()
+    }
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -903,6 +942,9 @@ memoryRealloc(o ptr, s uint) ptr {
     }
 
     pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.needsFinalizer {
+        GC_finalize_out_of_context_collect()
+    }
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -949,6 +991,9 @@ memoryRealloc(o ptr, s uint) ptr {
 
 memoryAllocSTR(s uint) str {
     pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.needsFinalizer {
+        GC_finalize_out_of_context_collect()
+    }
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
@@ -966,6 +1011,9 @@ memoryAllocSTR(s uint) str {
 
 memoryAllocSTR_NZ(s uint) str {
     pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.needsFinalizer {
+        GC_finalize_out_of_context_collect()
+    }
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
         GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2

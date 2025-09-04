@@ -305,6 +305,10 @@ struct http_socket {
         }
 
         #linux {
+            if close(this.sockfd) == 0 { 
+                this.sockfd = -1
+                return true
+            }
             flags = fcntl(this.sockfd, F_GETFL, 0)
             fcntl(this.sockfd, F_SETFL, flags | FD_CLOEXEC)
             err = 0
