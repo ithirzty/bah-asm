@@ -710,7 +710,8 @@ strToArr(str str) []char {
     a Bah_Array_Type* = arr
     a.data = memoryAllocSTR_NZ(strLen+1)
     memcpy(a.data, <ptr>(<uint><ptr>str + strLenSize), strLen)
-    a.length = strLen    
+    a.length = strLen
+    a.realLength = strLen + 1
     return arr
 }
 

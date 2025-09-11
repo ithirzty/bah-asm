@@ -5,7 +5,7 @@
 #define sqlite3_ptr ptr
 
 
-#define sqlite3_open(filename char*, ppDb sqlite3_ptr*) int32
+#define sqlite3_open_v2(filename char*, ppDb sqlite3_ptr*, flags int32, zvfs ptr) int32
 #define sqlite3_close(ppDb sqlite3_ptr) int32
 
 #define sqlite3_exec(ppDb sqlite3_ptr, sql char*, callback ptr, data ptr, err char**) int32
@@ -348,13 +348,22 @@ dbExec_bind_inner(pstmt sqlite3_ptr, e reflectElement, n uint) bool {
     return false
 }
 
+const SQLITE_OPEN_READWRITE = 0x00000002
+const SQLITE_OPEN_CREATE = 0x00000004
+const SQLITE_OPEN_FULLMUTEX = 0x00010000
+
 //Wrapper for a sqlite3 database.
 struct db {
     DB: sqlite3_ptr
+    isSerialized: bool = false
     
     //Opens the database.
     open(fileName str) bool {
-        return sqlite3_open(fileName, &this.DB) == 0
+        flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
+        if this.isSerialized {
+            flags = flags | SQLITE_OPEN_FULLMUTEX
+        }
+        return sqlite3_open_v2(fileName, &this.DB, flags, null) == 0
     }
 
     //Closes the database.
