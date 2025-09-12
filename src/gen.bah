@@ -1080,6 +1080,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             for argVal != null, argVal = argVal.right {
                 setSym = gen.generateSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
                 setSym = gen.generateDereference(setSym)
+                setSym.size = argVal.type.size
                 gen.generateFnCallArgument(setSym)
                 offset += argVal.type.size
             }
