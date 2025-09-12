@@ -1026,6 +1026,11 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
                 setSym = gen.generateDestSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
                 setSym = gen.generateDestDereference(setSym)
+                if sym.size > 8 {
+                    setSym.size = sym.size
+                } else {
+                    setSym.size = 8
+                }
                 gen.generateVarSet(setSym, sym, argVal.type.type == BAH_TYPE_UINT)
                 offset += argVal.type.size
             }
