@@ -1590,8 +1590,11 @@ struct http_server {
     socket: http_socket
     socketTLS: http_socket
     error: http_serverError = HTTP_SERVER_NO_ERROR
-    maxRequestSize: int = 0
-
+    maxRequestSize: int
+    
+    threadPoolChannel: channel*
+    threadPoolEndChannel: channel*
+    threadPoolSize: uint
 
     linux_interface: str = ""
 
@@ -1625,8 +1628,34 @@ struct http_server {
         sock.close()
     }
 
+    threadPoolWorker() {
+        for true {
+            sock = <http_socket*>this.threadPoolChannel.receive()
+            if sock == null {
+                break
+            }
+            this.threadWorker(sock)
+        }
+
+        if this.threadPoolEndChannel == null {
+            println("http: thread pool is leaking")
+            return
+        }
+
+        this.threadPoolEndChannel.send(null)
+    }
+
     //To start the server.
     listenAndServe() {
+        if this.threadPoolSize != 0 {
+            if this.threadPoolChannel == null {
+                this.threadPoolChannel = channel()
+            }
+            i=0; for i < this.threadPoolSize, i++ {
+                async this.threadPoolWorker()
+            }
+        }
+
         this.error = HTTP_SERVER_NO_ERROR
         this.socket = http_socket{}
 
@@ -1691,14 +1720,40 @@ struct http_server {
                 sockfd: cli
             }
 
-            async this.threadWorker(sock)
+            if this.threadPoolSize != 0 {
+                this.threadPoolChannel.send(sock)
+            } else {
+                async this.threadWorker(sock)
+            }
         }
 
+        this.threadPoolEndChannel = channel()
+
+        i=0; for i < this.threadPoolSize, i++ {
+            this.threadPoolChannel.send(null)
+        }
+
+        i=0; for i < this.threadPoolSize, i++ {
+            this.threadPoolEndChannel.receive()
+        }
+
+        this.threadPoolChannel.destroy()
+        this.threadPoolEndChannel.destroy()
+        this.threadPoolChannel = null
         this.stop()
 
     }
 
     listenAndServeTLS(certFile str, keyFile str) {
+        if this.threadPoolSize != 0 {
+            if this.threadPoolChannel == null {
+                this.threadPoolChannel = channel()
+            }
+            i=0; for i < this.threadPoolSize, i++ {
+                async this.threadPoolWorker()
+            }
+        }
+
         this.error = HTTP_SERVER_NO_ERROR
 
         //Initialize SSL context
@@ -1794,9 +1849,26 @@ struct http_server {
             }
             SSL_set_fd(sock.ssl, sock.sockfd)
 
-            async this.threadWorker(sock)
+            if this.threadPoolSize != 0 {
+                this.threadPoolChannel.send(sock)
+            } else {
+                async this.threadWorker(sock)
+            }
         }
 
+        this.threadPoolEndChannel = channel()
+
+        i=0; for i < this.threadPoolSize, i++ {
+            this.threadPoolChannel.send(null)
+        }
+
+        i=0; for i < this.threadPoolSize, i++ {
+            this.threadPoolEndChannel.receive()
+        }
+
+        this.threadPoolChannel.destroy()
+        this.threadPoolEndChannel.destroy()
+        this.threadPoolChannel = null
         SSL_CTX_free(ctx)
         this.stop()
 

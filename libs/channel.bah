@@ -86,7 +86,9 @@ struct channel {
     //To get the length of the current channel.
     //Returns the number of pointers stored inside the channel.
     len() int {
+        pthread_mutex_lock(&this.m_mut)
         l = this.queue.length
+        pthread_mutex_unlock(&this.m_mut)
         return l
     }
 

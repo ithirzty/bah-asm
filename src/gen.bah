@@ -543,18 +543,14 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
             sym = gen.generateVarDecl("tuple_declare", val.type.size, false)
 
-            offset = 0
-
             for currVal != null, currVal = currVal.left {
                 setSym = sym
-                setSym.address -= offset
+                setSym.address -= currVal.type.offset
 
                 valSym = generateBahValueSymbol(currVal.right, null)
                 setSym.size = valSym.size
 
                 gen.generateVarSet(setSym, valSym, currVal.right.type.type == BAH_TYPE_UINT)
-
-                offset += currVal.right.type.size
             }
 
             return sym

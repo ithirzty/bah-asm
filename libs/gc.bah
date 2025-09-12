@@ -39,6 +39,7 @@ struct BAH_GC_thread {
     stackBase: uint
     regs: buffer:184
 
+
     next: BAH_GC_thread*
 
     clean() {
@@ -49,6 +50,7 @@ struct BAH_GC_thread {
 
 struct BAH_GC_page {
     page: uint
+    marked: bool
 
     next: BAH_GC_page*
 }
@@ -58,75 +60,6 @@ struct BAH_GC_channelNode {
     data: BAH_GC_ptr*
     next: BAH_GC_channelNode*
 }
-
-// struct BAH_GC_channel {
-//     m_mut: pthread_mutex_t
-
-//     w_cond: pthread_cond_t
-//     r_cond: pthread_cond_t
-
-//     w_waitting: int = 0
-//     r_waitting: int = 0
-
-//     queue: BAH_GC_channelNode*
-
-//     //To send data to the channel.
-//     send(data BAH_GC_ptr*) {
-//         pthread_mutex_lock(&this.m_mut)
-//         newNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
-//         newNode.next = this.queue
-//         newNode.data = data
-//         this.queue = newNode
-//         if this.r_waitting > 0 {
-//             pthread_cond_signal(&this.r_cond)
-//         }
-//         pthread_mutex_unlock(&this.m_mut)
-//     }
-
-//     //To receive data (a pointer) from the channel.
-//     //Note that this is a blockant operation.
-//     //If no data is available the function will pause the execution of the current thread.
-//     receive() BAH_GC_ptr* {
-//         pthread_mutex_lock(&this.m_mut)
-//         for this.queue == null {
-//             this.r_waitting++
-//             pthread_cond_wait(&this.r_cond, &this.m_mut)
-//             this.r_waitting--
-//         }
-
-//         node = this.queue
-//         this.queue = node.next
-//         data = node.data
-//         free(node)
-//         if this.w_waitting > 0 {
-//             pthread_cond_signal(&this.w_cond)
-//         }
-//         pthread_mutex_unlock(&this.m_mut)
-//         return data
-//     }
-
-//     waitForEmpty() {
-//         pthread_mutex_lock(&this.m_mut)
-//         for this.queue != null {
-//             pthread_cond_wait(&this.r_cond, &this.m_mut)
-//         }
-//         pthread_mutex_unlock(&this.m_mut)
-//     }
-
-//     //To destroy a channel after using it. Not destroying it could result in memory leaks.
-//     destroy() {
-//         pthread_mutex_destroy(&this.m_mut)
-//         pthread_cond_destroy(&this.w_cond)
-//         pthread_cond_destroy(&this.r_cond)
-//     }
-
-//     _init() {
-//         pthread_mutex_init(&this.m_mut, 0)
-//         pthread_cond_init(&this.w_cond, null)
-//         pthread_cond_init(&this.r_cond, null)
-//     }
-
-// }
 
 struct BAH_GC_state_tag {
     heapSize: uint
@@ -374,6 +307,9 @@ GC_removeCurrentThread(val ptr) {
 }
 
 #define GC_collect_out_of_context(regs ptr)
+#define GC_scanReversed(p uint, to uint, alignment uint)
+#define GC_scan(p uint, to uint, alignment uint)
+
 
 GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
     callerId = syscall(__NR_gettid)
@@ -389,6 +325,7 @@ GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
             break
         }
     }
+
     memcpy(<ptr>t.regs, <ptr>(<uint>ctx + 40), 184)
 
     pthread_mutex_lock(BAH_GC_state.countMut)
@@ -541,11 +478,14 @@ GC_markPtr(p uint) {
         return
     }
 
+    // pthread_mutex_lock(BAH_GC_state.scanMut)
     if gcPtr.marked {
+        // pthread_mutex_unlock(BAH_GC_state.scanMut)
         return
     }
 
     gcPtr.marked = true
+    // pthread_mutex_unlock(BAH_GC_state.scanMut)
 
     if gcPtr.notScannable == false {
         if BAH_GC_state.stackBase - <uint>$rbp >= 6000000 {
@@ -615,11 +555,12 @@ GC_collect_out_of_context(regs ptr) {
             write(1, "[GC] Collecting (out of context).\n", len("[GC] Collecting (out of context).\n"))
             // puts("[GC] Collecting (out of context).")
         }
+        scanStart = getTimeUnix()
     }
 
     BAH_GC_state.areThreadsFree = false
-    GC_stopWorld()
     qsort(BAH_GC_state.list, BAH_GC_state.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+    GC_stopWorld()
 
     //check registers
     GC_scan(<uint>regs, <uint>regs + 184, 8)
@@ -633,9 +574,8 @@ GC_collect_out_of_context(regs ptr) {
     GC_scan(dataStart, bssStart, 1)
     GC_scan(bssStart, bssEnd, 1)
 
-
     //check stack
-    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 1)
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
 
     pthread_mutex_lock(BAH_GC_state.countMut)
     for BAH_GC_state.count != 0 {
@@ -648,7 +588,7 @@ GC_collect_out_of_context(regs ptr) {
     BAH_GC_state.count = 0
     ct = BAH_GC_state.threads
     for ct != null, ct = ct.next {
-        GC_scanReversed(ct.stackBase, *<uint*>(<uint>ct.regs + 120), 1)
+        GC_scanReversed(ct.stackBase, *<uint*>(<uint>ct.regs + 120), 8)
         GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
     }
 
@@ -663,6 +603,13 @@ GC_collect_out_of_context(regs ptr) {
     BAH_GC_state.areThreadsFree = true
     pthread_cond_broadcast(BAH_GC_state.cond)
     pthread_mutex_unlock(BAH_GC_state.countMut)
+
+    #debug {
+        if VERBOSE_GC {
+            puts("Part A took:")
+            printInt((getTimeUnix() - scanStart) / 1000000)
+        }
+    }
 
     pthread_mutex_unlock(BAH_GC_state.mut)
 }
@@ -681,6 +628,7 @@ GC_finalize_out_of_context_collect() {
             write(1, "[GC] finalizing\n", len("[GC] finalizing\n"))
             // puts("[GC] Collecting (out of context).")
         }
+        scanStart = getTimeUnix()
     }
     BAH_GC_state.needsFinalizer = false
     freed=0
@@ -700,6 +648,7 @@ GC_finalize_out_of_context_collect() {
     }
 
     l = BAH_GC_state.listLength
+
     i=0; for i < l, i++ {
         index = <BAH_GC_ptr*>(<uint>BAH_GC_state.list + i * sizeof(BAH_GC_ptr))
         if index.p == 0 {
@@ -714,9 +663,35 @@ GC_finalize_out_of_context_collect() {
             BAH_GC_state.listLength--
             continue
         }
+
+        pageNb = <uint32>(index.p >> 24)
+        currPage = BAH_GC_state.pages
+        for currPage != null, currPage = currPage.next {
+            if pageNb == currPage.page {
+                currPage.marked = true
+                break
+            }
+        }
+
         alive++
 
         index.marked = false
+    }
+
+    currPage = BAH_GC_state.pages
+    lastPage = <BAH_GC_page*>null
+    for currPage != null, currPage = currPage.next {
+        if currPage.marked == false {
+            if lastPage == null {
+                BAH_GC_state.pages = currPage.next
+            } else {
+                lastPage.next = currPage.next
+            }
+            free(currPage)
+            continue
+        }
+        currPage.marked = false
+        lastPage = currPage
     }
 
     qsort(BAH_GC_state.list, l, sizeof(BAH_GC_ptr), GC_sort_pointers)
@@ -739,6 +714,8 @@ GC_finalize_out_of_context_collect() {
             printInt(BAH_GC_state.heapSize)
             puts("nb pages:")
             printInt(nbPages)
+            puts("Part B took:")
+            printInt((getTimeUnix() - scanStart) / 1000000)
             puts("=====================")
         }
     }
@@ -809,7 +786,7 @@ GC_collect() {
 
 
     //check stack
-    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 1)
+    GC_scanReversed(BAH_GC_state.stackBase, currBasePointer, 8)
     
 
     pthread_mutex_lock(BAH_GC_state.countMut)
@@ -823,7 +800,7 @@ GC_collect() {
     BAH_GC_state.count = 0
     ct = BAH_GC_state.threads
     for ct != null, ct = ct.next {
-        GC_scanReversed(ct.stackBase, *<uint*>(<uint>ct.regs + 120), 1)
+        GC_scanReversed(ct.stackBase, *<uint*>(<uint>ct.regs + 120), 8)
         GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
     }
 
