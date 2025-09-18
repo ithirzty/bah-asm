@@ -292,7 +292,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
     jError = ""
     i = *ip
 
-    for i < l, i++ {
+    for i < l-1, i++ {
         if isSpace(s[i]) == false {
             break
         }
@@ -308,7 +308,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
     if s[i] == '[' {
         j.type = JSON_TYPE_ARRAY
         i++
-        for i < l, i++ {
+        for i < l-1, i++ {
             if isSpace(s[i]) == false {
                 break
             }
@@ -320,7 +320,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
                     return null
                 }
                 j.children[len(j.children)] = child
-                for i < l, i++ {
+                for i < l-1, i++ {
                     if isSpace(s[i]) == false {
                         break
                     }
@@ -335,7 +335,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
                     break
                 }
 
-                for i < l, i++ {
+                for i < l-1, i++ {
                     if isSpace(s[i]) == false {
                         break
                     }
@@ -349,14 +349,14 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
     } else if s[i] == '{' {
         j.type = JSON_TYPE_MAP
         i++
-        for i < l, i++ {
+        for i < l-1, i++ {
             if isSpace(s[i]) == false {
                 break
             }
         }
         if s[i] != '}' {
             for i < l, i++ {
-                for i < l, i++ {
+                for i < l-1, i++ {
                     if isSpace(s[i]) == false {
                         break
                     }
@@ -375,7 +375,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
                 name = s[ns:i]
                 i++
 
-                for i < l, i++ {
+                for i < l-1, i++ {
                     if isSpace(s[i]) == false {
                         break
                     }
@@ -396,7 +396,7 @@ parseJson_inner(s str, ip uint*, l uint) jsonElement* {
                 child.key = name
                 j.children[len(j.children)] = child
                 
-                for i < l, i++ {
+                for i < l-1, i++ {
                     if isSpace(s[i]) == false {
                         break
                     }

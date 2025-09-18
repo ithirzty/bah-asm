@@ -9,6 +9,11 @@ const false = <bool>0
 
 const strLenSize = 4
 
+#define atomic_store(obj int*, val int)
+#define atomic_add(obj int*, val int)
+#define atomic_load(obj int*) int
+#define sched_yield()
+
 struct Bah_Array_Type {
 	data: ptr
 	length: uint
@@ -382,6 +387,8 @@ __Bah_panic(e str, loc str) {
         }
 
         print("===Memory Erorr (segfault)===\n")
+        print("At address: ")
+        printInt(*<uint*>(<uint>info + 16))
 
         if lineNb == 0 && fileNb == 0 {
             print("\t\033[32m<out of range>\033[m\n")

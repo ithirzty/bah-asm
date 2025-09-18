@@ -359,6 +359,11 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 sym = asmSymbolStaticName("__bss_start")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
+            } else if val.left.tok.cont[1:] == "stackBase" {
+                sym = asmSymbolStaticName("__stackBase")
+                sym.size = 8
+                sym.level = 0
+                return gen.generateTmpSym(sym, 8)
             } else if val.left.tok.cont[1:] == "end" {
                 sym = asmSymbolStaticName("__bss_end")
                 sym.level = -1
@@ -1738,6 +1743,7 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
 
             gen.generateVarSet(privArrSymData, arrSym, false)
 
+            initFnGen.stackOffset = gen.stackOffset
             realGen.data += gen.data
             realGen.staticData += gen.staticData
             realGen.bss += gen.bss

@@ -1548,17 +1548,6 @@ return http_requestSizeLimited(sock, 0)
 
 //web server
 
-#linux {
-    http_sigchld_handler(signo int) {
-        status int32
-        pid int32
-        pid = waitpid(-1, &status, 1)
-        for pid > 0 {
-            pid = waitpid(-1, &status, 1)
-        }
-    }
-}
-
 //A type difinning http server erros.
 #define http_serverError int
 
@@ -1682,11 +1671,6 @@ struct http_server {
         globalHTTPsockets[len(globalHTTPsockets)] = this.socket
 
         #linux {
-            saStop = sigaction{
-                sa_handler: http_sigchld_handler
-            }
-            sigaction(SIGSTOP, &saStop, null)
-
             saInt = sigaction{
                 sa_handler: http_quit_handler
             }
@@ -1809,11 +1793,6 @@ struct http_server {
         globalHTTPsockets[len(globalHTTPsockets)] = this.socketTLS
 
         #linux {
-            saStop = sigaction{
-                sa_handler: http_sigchld_handler
-            }
-            sigaction(SIGSTOP, &saStop, null)
-
             saInt = sigaction{
                 sa_handler: http_quit_handler
             }

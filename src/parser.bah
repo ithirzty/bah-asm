@@ -1972,6 +1972,7 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
 
         parseLine(tokens, start+1, end)
 
+        initFnGen.stackOffset = gen.stackOffset
         realGen.data += gen.data
         realGen.staticData += gen.staticData
         realGen.bss += gen.bss

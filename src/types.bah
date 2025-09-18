@@ -162,7 +162,7 @@ compatibleTypes(a bahType*, b bahType*) bool {
 }
 
 containsPtr(type bahType*) bool {
-    if type.isPtr || type.isNativePtr || type.type == BAH_TYPE_PTR {
+    if type.isPtr || type.isNativePtr || type.type == BAH_TYPE_STR || type.type == BAH_TYPE_PTR || type.type == BAH_TYPE_TUPLE || type.type == BAH_TYPE_ARRAY || type.type == BAH_TYPE_BUFFER {
         return true
     }
 

@@ -222,6 +222,7 @@ main(args []str) int {
 .text
 _start:
 movq %rsp, %rbp
+movq %rsp, __stackBase(%rip)
 call "+initFnName+"
 movl (%rsp), %edi
 leaq 8(%rsp), %rsi
@@ -229,13 +230,16 @@ leaq 16(%rsp,%rdi,8), %rdx
 call main
 movl %eax, %edi
 call _exit\n"+persistentmcpySource)
-            gen.staticData = rope(".data\n")
+            gen.staticData = rope(".data
+__stackBase:
+.quad 0\n")
             
         } else {
             programEntry = rope(".global _start
 .text
 _start:
 movq %rsp, %rbp
+movq %rsp, __stackBase(%rip)
 call "+initFnName+"
 movl (%rsp), %edi
 leaq 8(%rsp), %rsi
@@ -244,8 +248,21 @@ call "+argumentsToArrFunction+"
 movq %rax, %rdi
 call main
 movl %eax, %edi
-call _exit\n"+persistentmcpySource)
-            gen.staticData = rope(".data\n")
+call _exit
+atomic_store:
+movq %rsi, %rax
+xchgq (%rdi), %rax
+ret
+atomic_load:
+movq (%rdi), %rax
+ret
+atomic_add:
+lock addq %rsi, (%rdi)
+ret
+"+persistentmcpySource)
+            gen.staticData = rope(".data
+__stackBase:
+.quad 0\n")
         }
         gen.data = rope("")
         gen.bss = rope(".bss
@@ -274,7 +291,9 @@ __bss_start:\n")
     content = fs.readContent()
     fs.close()
 
-    readCache()
+    if parserCtx.noImports == false {
+        readCache()
+    }
 
     parserCtx.currentFilePath = absPath(file)
     parserCtx.currentFile = content
@@ -409,7 +428,9 @@ __bss_start:\n")
         parserCtx.currentCompileNb--
     }
 
-    writeCache()
+    if parserCtx.noImports == false {
+        writeCache()
+    }
 
     cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
     err = cmd.run()
