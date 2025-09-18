@@ -18,6 +18,8 @@ VERBOSE_GC = false
 GC_min_ptr = 16777216
 GC_max_ptr = 281474976710656
 
+const GC_max_unsorted_ptr = 64
+
 #define qsort(arr ptr, elementCount uint, elementSize uint, fn ptr)
 #define itoa(i int) str
 #define syscall(nb int) int
@@ -54,8 +56,6 @@ struct BAH_GC_page {
     listLength: uint
     listRealLength: uint
 
-    next: BAH_GC_page*
-
     addPtr(p uint) BAH_GC_ptr* {
         if this.listLength == this.listRealLength {
             this.listRealLength *= 2
@@ -84,29 +84,38 @@ struct BAH_GC_page {
     }
 
     find(p uint) BAH_GC_ptr* {
-        low = 0
-        high = this.listLength - 1
+        if this.listLength >= GC_max_unsorted_ptr {
+            low = 0
+            high = this.listLength - 1
 
-        for low <= high {
-            mid = (low + high) / 2
-            index = <BAH_GC_ptr*>(<uint>this.list + mid * sizeof(BAH_GC_ptr))
+            for low <= high {
+                mid = (low + high) / 2
+                index = <BAH_GC_ptr*>(<uint>this.list + mid * sizeof(BAH_GC_ptr))
 
-            if index.p == 0 {
-                panic("GC: corrupted ptr list.")
+                if index.p == 0 {
+                    panic("GC: corrupted ptr list.")
+                }
+
+                if index.p == p {
+                    return index
+                }
+
+                if index.p < p {
+                    high = mid - 1
+                } else {
+                    low = mid + 1
+                }
+
             }
 
+            return null
+        }
+        i=0; for i < this.listLength, i++ {
+            index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
             if index.p == p {
                 return index
             }
-
-            if index.p < p {
-                high = mid - 1
-            } else {
-                low = mid + 1
-            }
-
         }
-
         return null
     }
 }
@@ -121,7 +130,9 @@ struct BAH_GC_state_tag {
     heapSize: uint
     nextCollect: uint = GC_min_collect
 
-    pages: BAH_GC_page*
+    pages: BAH_GC_page**
+    pagesLength: uint
+    pagesCap:    uint
 
     stackBase: uint
     threads: BAH_GC_thread*
@@ -138,6 +149,36 @@ struct BAH_GC_state_tag {
 
     overflowQueue: BAH_GC_channelNode*
 
+    calcPageNb(p uint) uint {
+        return <uint32>(p >> 20) //block of 1MB
+    }
+
+    findPageIndex(p uint) uint {
+        low = 0
+        high = this.pagesLength - 1
+
+        for low <= high {
+            mid = (low + high) / 2
+            index = *<BAH_GC_page**>(<uint>this.pages + mid * sizeof(ptr))
+
+            if index == null {
+                panic("GC: corrupted page list.")
+            }
+
+            if index.page == p {
+                return mid
+            }
+
+            if index.page > p {
+                high = mid - 1
+            } else {
+                low = mid + 1
+            }
+        }
+
+        return low
+    }
+
     isPointerInBounds(p uint) BAH_GC_page * {
         if p < GC_min_ptr {
             return null
@@ -145,47 +186,62 @@ struct BAH_GC_state_tag {
         if p > GC_max_ptr {
             return null
         }
-        pageNb = <uint32>(p >> 21)
+        pageNb = this.calcPageNb(p)
 
-        currPage = this.pages
-        for currPage != null, currPage = currPage.next {
-            if pageNb == currPage.page {
-                return currPage
-            }
+        pageIndex = this.findPageIndex(pageNb)
+
+        if pageIndex == this.pagesLength {
+            return null
         }
 
-        return null
+        page = *<BAH_GC_page**>(<uint>this.pages + pageIndex * sizeof(ptr))
+
+        if page.page != pageNb {
+            return null
+        }
+
+        return page
     }
 
     updatePagesBounds(p uint) BAH_GC_page* {
-        pageNb = <uint32>(p >> 21)
+        pageNb = this.calcPageNb(p)
 
-        currPage = this.pages
-        for currPage != null, currPage = currPage.next {
-            if pageNb == currPage.page {
-                break
+        i = this.findPageIndex(pageNb)
+
+        if i < this.pagesLength {
+            page = *<BAH_GC_page**>(<uint>this.pages + i * sizeof(ptr))
+            if page.page == pageNb {
+                return page
             }
         }
 
-        if currPage == null {
-            currPage = malloc(sizeof(BAH_GC_page))
-            currPage.page = pageNb
-            currPage.next = this.pages
-            this.pages = currPage
 
-            currPage.listLength = 0
-            currPage.listRealLength = 4096
-            s = currPage.listRealLength * sizeof(BAH_GC_ptr)
-            currPage.list = malloc(s)
-            memset(currPage.list, 0, s)
+        if this.pagesLength == this.pagesCap {
+            this.pagesCap *= 2
+            this.pages = realloc(this.pages, this.pagesCap * sizeof(ptr))
+        }
 
-            if p < GC_min_ptr {
-                GC_min_ptr = p
-            }
+        if i != this.pagesLength {
+            memmove(<ptr>(<uint>this.pages + (i+1) * sizeof(ptr)), <ptr>(<uint>this.pages + i * sizeof(ptr)), (this.pagesLength - i) * sizeof(ptr))
+        }
 
-            if p > GC_max_ptr {
-                GC_max_ptr = p
-            }
+        currPage = <BAH_GC_page*>malloc(sizeof(BAH_GC_page))
+        *(<BAH_GC_page**>(<uint>this.pages + i * sizeof(ptr))) = currPage
+        currPage.page = pageNb
+        this.pagesLength++
+
+        currPage.listLength = 0
+        currPage.listRealLength = 4096
+        s = currPage.listRealLength * sizeof(BAH_GC_ptr)
+        currPage.list = malloc(s)
+        memset(currPage.list, 0, s)
+
+        if p < GC_min_ptr {
+            GC_min_ptr = p
+        }
+
+        if p > GC_max_ptr {
+            GC_max_ptr = p
         }
 
         return currPage
@@ -397,6 +453,10 @@ GC_init() {
     BAH_GC_state.threads.sysid = BAH_GC_state.mainThread
     BAH_GC_state.threads.stackBase = BAH_GC_state.stackBase
     BAH_GC_state.threads.t = pthread_self()
+
+
+    BAH_GC_state.pagesCap = 128
+    BAH_GC_state.pages = malloc(sizeof(ptr) * BAH_GC_state.pagesCap)
 }
 
 #init GC_setStackBase()
@@ -494,9 +554,11 @@ GC_collect() {
         scanStart = getTimeUnix()
     }
 
-    currPage = BAH_GC_state.pages
-    for currPage != null, currPage = currPage.next {
-        qsort(currPage.list, currPage.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+    i=0; for i < BAH_GC_state.pagesLength, i++ {
+        currPage = *<BAH_GC_page**>(<uint>BAH_GC_state.pages + i * sizeof(ptr))
+        if currPage.listLength >= GC_max_unsorted_ptr {
+            qsort(currPage.list, currPage.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+        }
     }
 
     callerId = syscall(__NR_gettid)
@@ -572,9 +634,10 @@ GC_collect() {
         }
     }
 
-    currPage = BAH_GC_state.pages
-    lastPage = <BAH_GC_page*>null
-    for currPage != null {
+    BAH_GC_state.heapSize = 0
+    j=0; for j < BAH_GC_state.pagesLength, j++ {
+        currPage = *<BAH_GC_page**>(<uint>BAH_GC_state.pages + j * sizeof(ptr))
+
         i=currPage.listLength - 1; for i != -1 , i-- {
             index = <BAH_GC_ptr*>(<uint>currPage.list + i * sizeof(BAH_GC_ptr))
             if index.p == 0 {
@@ -587,45 +650,38 @@ GC_collect() {
                 lastIndex = <BAH_GC_ptr*>(<uint>currPage.list + (currPage.listLength - 1) * sizeof(BAH_GC_ptr))
                 *index = *lastIndex
                 lastIndex.p = 0
-                BAH_GC_state.heapSize -= index.size
                 currPage.listLength--
                 continue
             }
 
             alive++
+            BAH_GC_state.heapSize += index.size
 
             index.marked = false
         }
 
         if currPage.listLength == 0 {
-            if lastPage == null {
-                BAH_GC_state.pages = currPage.next
-                next = currPage.next
-                free(currPage.list)
-                free(currPage)
-                currPage = next
-            } else {
-                lastPage.next = currPage.next
-                free(currPage.list)
-                free(currPage)
-                currPage = lastPage.next
+            free(currPage.list)
+            if j < BAH_GC_state.pagesLength - 1 {
+                memmove(<ptr>(<uint>BAH_GC_state.pages + j * sizeof(ptr)), <ptr>(<uint>BAH_GC_state.pages + (j+1) * sizeof(ptr)), (BAH_GC_state.pagesLength - (j+1)) * sizeof(ptr))
             }
+            free(currPage)
+
+            j--
+            BAH_GC_state.pagesLength--
             continue
         }
 
-        qsort(currPage.list, currPage.listLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
-        lastPage = currPage
-        currPage = currPage.next
+
+        if currPage.listLength >= GC_max_unsorted_ptr {
+            qsort(currPage.list, currPage.listLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+        }
     }
 
     #debug {
         if VERBOSE_GC {
 
-            nbPages = 0
-            currPage = BAH_GC_state.pages
-            for currPage != null, currPage = currPage.next {
-                nbPages++
-            }
+            nbPages = BAH_GC_state.pagesLength
 
             puts("===COLLECT RESULTS===")
             puts("freed: ")
@@ -704,14 +760,14 @@ memoryRealloc(o ptr, s uint) ptr {
         panic("GC: cannot reallocate memory that was not allocated by the garbage collector.")
     }
 
-    i=currPage.listRealLength-1; for i != -1, i-- {
+    i=0; for i < currPage.listLength, i++ {
         index = <BAH_GC_ptr*>(<uint>currPage.list + i * sizeof(BAH_GC_ptr))
         if index.p == <uint>o {
             break
         }
     }
 
-    if i == -1 {
+    if i == currPage.listLength {
         panic("GC: fatal error doing reallocation")
     }
 
@@ -728,15 +784,18 @@ memoryRealloc(o ptr, s uint) ptr {
 
     if r != <uint>o {
         index.p = r
-        newPage = BAH_GC_state.updatePagesBounds(r)
-        if newPage != currPage {
-            newIndex = newPage.addPtr(r)
-            newIndex.size = index.size
-            newIndex.notScannable = index.notScannable
+        newPageNb = BAH_GC_state.calcPageNb(r)
+        if newPageNb != currPage.page {
+            indexBackup = *index
             lastIndex = <BAH_GC_ptr*>(<uint>currPage.list + (currPage.listLength - 1) * sizeof(BAH_GC_ptr))
             *index = *lastIndex
             lastIndex.p = 0
             currPage.listLength--
+
+            newPage = BAH_GC_state.updatePagesBounds(r)
+            newIndex = newPage.addPtr(r)
+            newIndex.size = indexBackup.size
+            newIndex.notScannable = indexBackup.notScannable
         }
     }
 
