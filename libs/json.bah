@@ -289,6 +289,9 @@ jError = "" //Inner variable containing the last parsing error.
 
 //Internal function called by parseJson().
 parseJson_inner(s str, ip uint*, l uint) jsonElement* {
+    if l == 0 {
+        return null
+    }
     jError = ""
     i = *ip
 

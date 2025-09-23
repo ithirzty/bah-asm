@@ -1,47 +1,5 @@
 #import "string.bah"
 
-struct tm {
-    tm_sec: int32
-    tm_min: int32
-    tm_hour: int32
-    tm_mday: int32
-    tm_mon: int32
-    tm_year: int32
-    tm_wday: int32
-    tm_yday: int32
-    tm_isdst: int32
-    tm_gmtoff: int
-    tm_zone: char*
-}
-
-#define time(timer int) int
-#define localtime(timer int*) tm*
-#define strftime(buff char*, len uint, format char*, tp tm*) uint
-#define sleep(t uint)
-
-const TIME_UTC = 1
-
-#linux {
-    #define timespec_get(ts Ctimespec*, base int32) int32
-}
-#darwin {
-    //TODO: remove ulgy .h files...
-    // #include "<sys/time.h>"
-    // #include "<mach/clock.h>"
-
-    #define! clock_serv_t ptr
-    #define! mach_timespec_t ptr
-    #define! mach_host_self() ptr
-    #define! mach_task_self() ptr
-    #define! host_get_clock_service(mach ptr, type int, clock clock_serv_t*)
-    #define! clock_get_time(clock clock_serv_t, mts mach_timespec_t*)
-    #define! mach_port_deallocate(mach ptr, clock clock_serv_t)
-}
-
-#windows {
-    #define! clock_gettime(w int, t Ctimespec*) int
-}
-
 //A milisecond in nanoseconds.
 const TIME_MS  = 1000000
 //A second in nanoseconds.

@@ -2733,7 +2733,7 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
         fn = new bahFunction {
             name: tokens[start].cont
             type: fnType
-            declared: true
+            declared: parserCtx.declareMode == false
         }
         parserCtx.addFunc(fn)
     } else {
@@ -2742,7 +2742,7 @@ parseFnDecl(tokens []bahToken, start uint, end uint) {
         } else if compatibleTypes(fn.type, fnType) == false {
             throwErrorTok(&tokens[start], "Function declaration missmatch.")
         }
-        fn.declared = true
+        fn.declared = parserCtx.declareMode == false
         fn.type = fnType
     }
 

@@ -76,6 +76,33 @@ struct channel {
         return data
     }
 
+    //timeout in ns
+    receiveTimedout(timeout uint) ptr {
+        ts = Ctimespec{}
+        timespec_get(&ts, TIME_UTC)
+
+        pthread_mutex_lock(&this.m_mut)
+        for this.queue.length == 0 {
+            this.r_waitting++
+            if pthread_cond_timedwait(&this.r_cond, &this.m_mut, &ts) != 0 {
+                this.r_waitting--
+                pthread_mutex_unlock(&this.m_mut)
+                return null
+            }
+            this.r_waitting--
+        }
+        data = this.queue.pop()
+        if this.w_waitting > 0 {
+            pthread_cond_signal(&this.w_cond)
+        }
+        pthread_mutex_unlock(&this.m_mut)
+
+        // if data == null {
+        //     return this.receive()
+        // }
+        return data
+    }
+
     //To destroy a channel after using it. Not destroying it could result in memory leaks.
     destroy() {
         pthread_mutex_destroy(&this.m_mut)

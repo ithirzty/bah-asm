@@ -4,6 +4,7 @@ cd $(git rev-parse --show-toplevel)
 echo -n "Copying libraries... "
 cp /opt/bah-asm/* ./libs
 cp ./src/*.bah /opt/bah-asm/compiler/
+cp ./libs/compiler/* /opt/bah-asm/compiler/
 echo "Ok"
 
 echo "Compiling binary..."

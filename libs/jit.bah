@@ -1,0 +1,291 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "rand.bah"
+#import "dl.bah"
+
+#define printDebugContext()
+
+#linux {
+    BAH_OS = "linux"
+}
+
+#darwin {
+    BAH_OS = "darwin"
+}
+
+#windows {
+    BAH_OS = "windows"
+}
+
+//import the whole compiler
+
+#import "compiler/lexer.bah"
+#import "compiler/gen_asm_linux_64.bah"
+
+//utils
+#import "compiler/cache.bah"
+#import "compiler/state.bah"
+#import "compiler/types.bah"
+#import "compiler/error.bah"
+
+#import "compiler/optimizer.bah"
+#import "compiler/gen.bah"
+#import "compiler/parser.bah"
+
+//internal functions
+
+printDebugContext() {
+    println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
+}
+
+throwErrorTok(t bahToken*, s str) {
+    println("[jit] compilation error: " + s)
+    pthread_exit(null)
+}
+
+throwError(val bahValue*, err str) {
+    println("[jit] compilation error: " + err)
+    pthread_exit(null)
+}
+
+throwTypeError(val bahValue*, type bahType*) {
+    println("[jit] compilation error: " + val.type.toStr() + " != " + type.toStr())
+    pthread_exit(null)
+}
+
+throwWarning(val bahValue*, err str) {
+    println("[jit] compilation error: " + err)
+    pthread_exit(null)
+}
+
+makeJitFilenameToken() str {
+    n uint
+    fs = fileStream{}
+    fs.open("/dev/urandom", "r")
+    fs.readPtr(&n, 8)
+    fs.close()
+    
+    token = strBuilder{}
+    seedRandom(n)
+
+    i=0; for i < 16, i++ {
+        type = randomInRange(0, 4)
+
+        c char
+        if type == 1 {
+            c = <char>randomInRange(<int>'0', <int>'9')
+        } else if type == 2 {
+            c = <char>randomInRange(<int>'a', <int>'z')
+        } else {
+            c = <char>randomInRange(<int>'A', <int>'Z')
+        }
+        token.append(c)
+    }
+
+    return token.str()
+}
+
+struct jitObject {
+    of: objectFile
+    filePath: str
+    succeeded: bool = true
+    hasBuiltin: bool = true
+
+    getSymbol(name str) ptr {
+        return this.of.getSymbol(name)
+    }
+
+    close() {
+        this.of.close()
+        removeFile(this.filePath)
+    }
+}
+
+__jitCompile_asThread(jitObj jitObject*) {
+    code = parserCtx.currentFile
+    gen = asmContext{}
+    parserCtx = parserContext{}
+
+
+    initFnGen = asmContext{
+        code: rope("")
+        staticData: rope("")
+        data: rope("")
+        bss: rope("")
+        debugEnabled: false
+    }
+
+    globalFuncsGen = asmContext{
+        code: rope("")
+        staticData: rope("")
+        data: rope("")
+        bss: rope("")
+        debugEnabled: false
+    }
+
+    parserCtx.noImports = true
+
+    #avx! {
+        GEN_AVXenabled = false
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#linux", BAH_OS == "linux"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#darwin", BAH_OS == "darwin"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#windows", BAH_OS == "windows"
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#avx", GEN_AVXenabled
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#debug", false
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#static", false
+    }
+
+    BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+        "#dynamic", true
+    }
+
+    initFnCallRope = rope("")
+    programEntry = rope("")
+    
+    gen.debugEnabled = false
+    gen.debugInfo = rope("")
+    gen.staticData = rope(".data\n")
+    gen.data = rope("")
+    gen.bss = rope(".bss\n")
+    if GEN_AVXenabled {
+        gen.code = rope(".text\n"+persistentmcpySourceAVX)
+    } else {
+        gen.code = rope(".text\n"+persistentmcpySourceNoAVX)
+    }
+
+    parserCtx.currentFilePath = "<jit>"
+    parserCtx.currentFile = code
+
+    tokens = lexer(code, true)
+    gen.generateFileLocation(parserCtx.currentFilePath)
+
+    isObjectFile = true
+
+    if jitObj.hasBuiltin {
+        parserCtx.declareMode = true
+        includeFile(BAH_DIR + "builtin.bah")    
+        parserCtx.declareMode = false
+    }
+
+    parseLines(tokens, 0, len(tokens))
+
+    fileName = "/tmp/__bah_jitfile_"+makeJitFilenameToken()+".o"
+
+    gen.data = gen.staticData + gen.data
+    gen.code += globalFuncsGen.code
+
+    i=0; for i < len(evalTmpOFiles), i++ {
+        removeFile(evalTmpOFiles[i])
+    }
+
+    cmd = command("as -f -Z -o "+fileName+" > /dev/null")
+
+    cmd.input = (gen.data + gen.bss + gen.code).toStr()
+
+    stubbedSymbols = []str
+
+    i=0; for i < len(cmd.input), i++ {
+        //will skip first line but who cares
+        for i < len(cmd.input), i++ {
+            if cmd.input[i] == <char>10 {
+                i++
+                break
+            }
+        }
+
+        if i+5 >= len(cmd.input) {
+            break
+        }
+
+        if cmd.input[i] == 'c' && cmd.input[i+1] == 'a' && cmd.input[i+2] == 'l' && cmd.input[i+3] == 'l' {
+            i += 5
+
+            j=i; for j < len(cmd.input), j++ {
+                if cmd.input[j] == <char>10 {
+                    break
+                }
+            }
+
+            symName = cmd.input[i:j]
+
+            if symName == "persistentmcpy" {
+                continue
+            }
+
+            func = parserCtx.findFunc(symName)
+            if func != null && func.declared {
+                continue
+            }
+
+            cmd.input = cmd.input[:i] + symName + "_STUB" + cmd.input[j:]
+
+            if symName in stubbedSymbols == false {
+                stubbedSymbols[len(stubbedSymbols)] = symName
+
+                cmd.input += symName + "_STUB:\njmp *"+symName+"\n"
+            }
+        }
+    }
+
+    cmd.run()
+
+    jitObj.of.open(fileName)
+    jitObj.of.weakLinker()
+    jitObj.filePath = fileName
+}
+
+//Compiles the Bah code given in code argument.
+//Will return a jitObject form which can be fetched a symbol such as a function with jitObject.getSymbol().
+//The returned object needs to be closed : jitObject.close() even if the programs terminates anyways to remove temporary files.
+jitCompile(code str) jitObject {
+    obj = jitObject{}
+
+    parserCtx.currentFile = code
+
+    t = thread{
+        handle: __jitCompile_asThread
+    }
+
+    t.createWithArg(&obj)
+
+    t.wait()
+
+    return obj
+}
+
+//This is the same as jitCompile but it does not import the builtin.bah runtime.
+jitCompileNoBuiltin(code str) jitObject {
+    obj = jitObject{
+        hasBuiltin: false
+    }
+
+    parserCtx.currentFile = code
+
+    t = thread{
+        handle: __jitCompile_asThread
+    }
+
+    t.createWithArg(&obj)
+
+    t.wait()
+
+    return obj
+}

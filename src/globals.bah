@@ -8,6 +8,76 @@ strSplitFunction = "strSubstitute"
 arraySplitFunction = "arraySubstitute"
 threadCreateFunction = "GC_thread_create_detached"
 
+const persistentmcpySourceAVX = ".global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+je .persistentmcpy_648
+addq %rdi, %rdx
+subq $31, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+vmovdqu (%rsi), %ymm1
+vmovdqu %ymm1, (%rdi)
+addq $32, %rsi
+addq $32, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+addq $31, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_650
+.persistentmcpy_650:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_650
+.persistentmcpy_not_650:
+popq %rbp
+ret
+.persistentmcpy_648:
+leave
+ret\n"
+
+const persistentmcpySourceNoAVX = ".global persistentmcpy
+persistentmcpy:
+pushq %rbp
+movq %rsp, %rbp
+cmpq $0, %rdx
+je .persistentmcpy_648
+addq %rdi, %rdx
+subq $15, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_649
+.persistentmcpy_649:
+movdqu (%rsi), %xmm0
+movdqu %xmm0, (%rdi)
+addq $16, %rsi
+addq $16, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_649
+.persistentmcpy_not_649:
+addq $15, %rdx
+cmpq %rdx, %rdi
+jnb .persistentmcpy_not_650
+.persistentmcpy_650:
+movb (%rsi), %al
+movb %al, (%rdi)
+addq $1, %rsi
+addq $1, %rdi
+cmpq %rdx, %rdi
+jb .persistentmcpy_650
+.persistentmcpy_not_650:
+popq %rbp
+ret
+.persistentmcpy_648:
+leave
+ret\n"
+
 tokToInt(s str) int {
     if len(s) > 2 && s[0] == '0' && s[1] == 'x' {
         return hexToInt(s)

@@ -148,15 +148,41 @@ struct objectFile {
             if relType == 2 { //data(%rip)
                 tdo = <uint>&this.bytes[sect.sh_offset] - (<uint>this.textAddress + rel.r_offset)
                 *addr = tdo + sym.st_value + rel.r_addend
-            } else if relType == 4 { //func calls
+            } else if relType == 4 {
+                //function call of function declared inside the objectFile
                 fAddr = sym.st_value + rel.r_addend - rel.r_offset
                 //cannot be located above .text
-                if <int>fAddr < 0 {
+                if <uint>rel.r_offset + <uint>fAddr < 16 {
                     fnName = this._getELFsymName(sym.st_name)
                     panic("unable to resolve symbol: "+fnName)
                 } else {
                     *addr = fAddr
                 }
+            } else if relType == 11 {
+                //function call by ptr (useful for stubs)
+                fnName = this._getELFsymName(sym.st_name)
+                realFnAddress = 0
+                foundFunc = false
+
+                debugInfos = <uint*>$debug
+                for *debugInfos != 0 {
+                    realFnAddress = <uint>debugInfos
+                    debugInfos = <uint*>(<uint>debugInfos + 16)
+                    realFnName = <str>debugInfos
+
+                    if fnName == realFnName {
+                        foundFunc = true
+                        break
+                    }
+
+                    debugInfos = <uint*>(<uint>debugInfos + 5 + len(realFnName))
+                }
+
+                if foundFunc == false {
+                    panic("objectFile: could not link function "+fnName+". If you compiled with -trim, please add the symbol manually with objectFile.setSymbol().")
+                }
+
+                *addr = realFnAddress
             }
         }
     }

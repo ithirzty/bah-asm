@@ -1,0 +1,20 @@
+#import "iostream.bah"
+#import "string.bah"
+#import "path.bah"
+
+#import "lexer.bah"
+#import "state.bah"
+
+const ASCII_RESET = "\033[0m"
+
+const ASCII_YELLOW = "\033[33m"
+const ASCII_BLUE = "\033[36m"
+const ASCII_GREEN = "\033[32m"
+const ASCII_MAGENTA = "\033[35m"
+const ASCII_GREY = "\033[2m"
+const ASCII_RED = "\033[1;31m"
+
+#define throwErrorTok(t bahToken*, s str)
+#define throwError(val bahValue*, err str)
+#define throwTypeError(val bahValue*, type bahType*)
+#define throwWarning(val bahValue*, err str)

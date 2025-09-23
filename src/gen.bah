@@ -1805,14 +1805,24 @@ generateRuntimeDebugInfo() {
     gen.debugInfo += rope(".global .bah_debug_info\n.bah_debug_info:\n")
     if gen.debugEnabled {
         i=0; for i < len(parserCtx.functions), i++ {
-            if parserCtx.functions[i].declared == false {
-                continue
-            }
             fnName = parserCtx.functions[i].name
             fnPublicName = fnName
 
             if fnName == "__Bah_panic" {
                 fnPublicName = "panic"
+            }
+
+            if fnName == "len" || fnName == "sizeof" || fnName == "panic" {
+                continue
+            }
+
+            if parserCtx.functions[i].declared == false {
+                if parserCtx.findVar(fnName) != null {
+                    continue
+                }
+
+                gen.debugInfo += rope(".quad "+fnName+"\n.quad 0\n.int "+uintToStr(len(fnPublicName))+"\n.asciz \""+fnPublicName+"\"\n")
+                continue
             }
 
             gen.debugInfo += rope(".quad "+fnName+"\n.quad ."+fnName+"_end\n.int "+uintToStr(len(fnPublicName))+"\n.asciz \""+fnPublicName+"\"\n")

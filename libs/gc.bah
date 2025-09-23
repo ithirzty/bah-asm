@@ -21,7 +21,6 @@ GC_max_ptr = 281474976710656
 const GC_max_unsorted_ptr = 64
 
 #define qsort(arr ptr, elementCount uint, elementSize uint, fn ptr)
-#define itoa(i int) str
 #define syscall(nb int) int
 
 #define printInt(i int)
@@ -432,8 +431,6 @@ GC_thread_join(id pthread_t, ret ptr) int32 {
 GC_setStackBase() {
     BAH_GC_state.stackBase = <uint>$stackBase
 }
-
-#define GC_thread_worker()
 
 GC_init() {
     BAH_GC_state.mainThread = syscall(__NR_gettid)
