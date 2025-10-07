@@ -185,6 +185,10 @@ struct thread {
     wait() {
         __thread_join(this.id, null)
     }
+
+    waitOnValue(addr ptr) {
+        __thread_join(this.id, addr)
+    }
 }
 
 //This initiates a mutex and returns it.

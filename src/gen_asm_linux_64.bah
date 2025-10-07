@@ -7,13 +7,12 @@
 
 #define printDebugContext()
 
-
 const ASM_arguments_registers_64 = []str{"%rdi", "%rsi", "%rdx", "%rcx",  "%r8",  "%r9"}
 const ASM_arguments_registers_32 = []str{"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"}
 const ASM_arguments_registers_16 = []str{"%di", "%si", "%dx", "%cx", "%r8w", "%r9w"}
 const ASM_arguments_registers_8  = []str{"%dil", "%sil", "%dl", "%cl", "%r8b", "%r9b"}
 
-const ASM_arguments_registers = [][]str{ASM_arguments_registers_8, ASM_arguments_registers_16, ASM_arguments_registers_32, ASM_arguments_registers_64}
+ASM_arguments_registers = [][]str{ASM_arguments_registers_8, ASM_arguments_registers_16, ASM_arguments_registers_32, ASM_arguments_registers_64}
 
 const ASM_float_registers = []str{"%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6", "%xmm7", "%xmm8", "%xmm9", "%xmm10", "%xmm11", "%xmm12", "%xmm13", "%xmm14", "%xmm15"}
 
@@ -24,14 +23,14 @@ const ASM_syscall_registers_32 = []str{"%eax", "%ebx", "%ecx", "%edx"}
 const ASM_syscall_registers_16 = []str{"%eax", "%ebx", "%ecx", "%edx"}
 const ASM_syscall_registers_8  = []str{"%eax", "%ebx", "%ecx", "%edx"}
 
-const ASM_syscall_registers = [][]str{ASM_syscall_registers_8, ASM_syscall_registers_16, ASM_syscall_registers_32, ASM_syscall_registers_64}
+ASM_syscall_registers = [][]str{ASM_syscall_registers_8, ASM_syscall_registers_16, ASM_syscall_registers_32, ASM_syscall_registers_64}
 
 const ASM_op_registers_64 = []str{"%rbx", "%rdx",  "%r8",  "%r9",  "%r10",  "%r11",  "%r12",  "%r13",  "%r14",  "%r15"}
 const ASM_op_registers_32 = []str{"%ebx", "%edx", "%r8d", "%r9d", "%r10d", "%r11d", "%r12d", "%r13d", "%r14d", "%r15d"}
 const ASM_op_registers_16 = []str{ "%bx",  "%dx", "%r8w", "%r9w", "%r10w", "%r11w", "%r12w", "%r13w", "%r14w", "%r15w"}
 const ASM_op_registers_8  = []str{ "%bl",  "%dl", "%r8b", "%r9b", "%r10b", "%r11b", "%r12b", "%r13b", "%r14b", "%r15b"}
 
-const ASM_op_registers = [][]str{ASM_op_registers_8, ASM_op_registers_16, ASM_op_registers_32, ASM_op_registers_64}
+ASM_op_registers = [][]str{ASM_op_registers_8, ASM_op_registers_16, ASM_op_registers_32, ASM_op_registers_64}
 
 const ASM_return_register    = []str{"%al", "%ax", "%eax", "%rax"}
 const ASM_addr_dest_register = []str{"%dil", "%di", "%edi", "%rdi"}
@@ -48,7 +47,7 @@ const ASM_and = []str{"andb", "andw", "andl", "andq"}
 const ASM_shift_left = []str{"", "", "sall", "salq"}
 const ASM_shift_right = []str{"", "", "sarl", "sarq"}
 
-const ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
+ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
 
 const ASM_reg_id_return = 0
 const ASM_reg_id_dest_addr = 1
@@ -367,6 +366,38 @@ struct asmContext {
 
     strings: []asmStrLookup
 
+    generateDefaults(builtinEnabled bool, isEntryFile bool) rope* {
+        programEntry rope*
+        persistentmcpySource = persistentmcpySourceAVX
+        if GEN_AVXenabled == false {
+            GEN_disableAVX()
+            persistentmcpySource = persistentmcpySourceNoAVX
+        }
+        
+        if isEntryFile {
+            this.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
+            this.data = rope("")
+            this.bss = rope(".bss\n.global __bss_start\n__bss_start:\n")
+            this.code = rope(".text\n")
+            if builtinEnabled {
+                programEntry = rope(".global _start\n.text\n_start:\nmovq %rsp, %rbp\nmovq %rsp, __stackBase(%rip)\ncall "+initFnName+"\nmovl (%rsp), %edi\nleaq 8(%rsp), %rsi\nleaq 16(%rsp,%rdi,8), %rdx\ncall "+argumentsToArrFunction+"\nmovq %rax, %rdi\ncall main\nmovl %eax, %edi\ncall _exit\natomic_store:\nmovq %rsi, %rax\nxchgq (%rdi), %rax\nret\natomic_load:\nmovq (%rdi), %rax\nret\natomic_add:\nlock addq %rsi, (%rdi)\nret\n"+persistentmcpySource)
+                this.staticData = rope(".data\n__stackBase:\n.quad 0\n")
+            } else {
+                programEntry = rope(".global _start\n.text\n_start:\nmovq %rsp, %rbp\nmovq %rsp, __stackBase(%rip)\ncall "+initFnName+"\nmovl (%rsp), %edi\nleaq 8(%rsp), %rsi\nleaq 16(%rsp,%rdi,8), %rdx\ncall main\nmovl %eax, %edi\ncall _exit\n"+persistentmcpySource)
+                this.staticData = rope(".data\n__stackBase:\n.quad 0\n")
+            }
+        } else {
+            this.debugEnabled = false
+            this.debugInfo = rope("")
+            this.staticData = rope(".data\n")
+            this.data = rope("")
+            this.bss = rope(".bss\n")
+            this.code = rope(".text\n")
+        }
+
+        return programEntry
+    }
+
     isSameArg(a asmSymbol*, b asmSymbol*) bool {
         if a.active == false || b.active == false {
             return false
@@ -436,6 +467,10 @@ struct asmContext {
             }
 
             if b.address > ASM_reg_id_ymm && a.address > ASM_reg_id_floats && b.address - ASM_reg_id_floats == a.address {
+                return true
+            }
+
+            if a.address == ASM_reg_id_dest_addr && b.address == ASM_reg_id_args || b.address == ASM_reg_id_dest_addr && a.address == ASM_reg_id_args {
                 return true
             }
 
@@ -1592,6 +1627,10 @@ struct asmContext {
         }
 
         if sym.size < 4 {
+            if sym.isReg == false && sym.level != 0 {
+                this.generateMoveValue(sym, opReg)
+                sym = opReg
+            }
             insts = ["movsbl", "movswl"]
             if isUnsigned {
                 insts[0] = "movzbl"
@@ -3725,8 +3764,37 @@ struct asmContext {
         }
 
         rspOffset = 0
+        rspOffsetAlignment = 0
+        rspFinalOffset = 0
         floatNb = 0
+
+        if len(arguments) > 5 {
+            i=len(arguments)-1; for i > 5, i-- {
+                size = arguments[i].size
+                if size <= 8 {
+                    size = 8
+                } else {
+                    if size % 16 != 0 {
+                        size += (16 - size % 16)
+                    }
+                }
+                rspFinalOffset += size
+            }
+
+            if rspFinalOffset % 16 != 0 {
+                rspOffsetAlignment = (16 - rspFinalOffset % 16)
+            }
+        }
+        
+
         i=0; for i < len(arguments), i++ {
+
+            if i == 6 && rspOffsetAlignment != 0 {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "subq", asmSymbolValue("$"+uintToStr(rspOffsetAlignment + rspFinalOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+                }
+
+            }
 
             if arguments[i].isFloat && floatNb < 8 {
                 //TODO: handle 16bytes structs (also in fnstart)
@@ -3807,27 +3875,23 @@ struct asmContext {
 
             if i+offset > 5 {
                 arg = arguments[i]
-                inst = ASM_push[spos(arg.size)]
 
                 if arg.size < 8 {
-                    inst = "pushq"
                     tmpDest = asmSymbolReg(ASM_reg_id_return, arg.size, 0)
                     this.generateMoveValue(arg, tmpDest)
                     tmpDest.size = 8
                     arg = tmpDest
                 }
 
-                this.instructions[len(this.instructions)] = asmInstruction {
-                    inst, arg
-                }
+                this.generateMoveValue(arg, asmSymbolValue(uintToStr(rspOffset)+"(%rsp)"))
                 rspOffset += 8
             } else {
                 valueReg = asmSymbolReg(ASM_reg_id_args, arguments[i].size, i+offset)
                 this.generateMoveValue(arguments[i], valueReg)
                 if arguments[i].size < 4 {
-                    inst = "movsbl"
+                    inst = "movzbl"
                     if arguments[i].size == 2 {
-                        inst = "movswl"
+                        inst = "movzwl"
                     }
                     this.instructions[len(this.instructions)] = asmInstruction {
                         inst, valueReg, valueReg    
@@ -3841,9 +3905,9 @@ struct asmContext {
             "call", fnName
         }
 
-        if rspOffset != 0 {
+        if rspFinalOffset != 0 {
             this.instructions[len(this.instructions)] = asmInstruction {
-                "addq", asmSymbolValue("$"+uintToStr(rspOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+                "addq", asmSymbolValue("$"+uintToStr(rspFinalOffset + rspOffsetAlignment)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
             }
         }
 

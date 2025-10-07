@@ -700,7 +700,9 @@ urlDecode(s str) str {
 
 
 http_broken_pipe(signo int) {
-    println("http: warning, trying to send data to a closed socket.")
+    #debug {
+        println("http: warning, trying to send data to a closed socket.")
+    }
 }
 
 //To send a str through the specified socket.
@@ -722,6 +724,8 @@ const HTTP_ERROR = 500
 const HTTP_REDIRECT = 301
 //HTTP code 206 means content can be seeked up in a range
 const HTTP_PARTIAL_CONTENT = 206
+//HTTP code 101: connection upgrade
+const HTTP_SWITCHING_PROT = 101
 
 
 //This is the skeletton for http_request and http_response.
@@ -797,6 +801,8 @@ struct http_response extend http_transport {
                 s.append("301 Moved Permanently")
             } else if this.code == HTTP_PARTIAL_CONTENT {
                 s.append("206 Partial Content")
+            } else if this.code == HTTP_SWITCHING_PROT {
+                s.append("101 Switching Protocols")
             } else {
                 s.append(intToStr(this.code))
             }

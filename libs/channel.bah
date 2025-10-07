@@ -84,6 +84,8 @@ struct channel {
         pthread_mutex_lock(&this.m_mut)
         for this.queue.length == 0 {
             this.r_waitting++
+            ts.tv_nsec += (timeout % 1000000000)
+            ts.tv_sec += (timeout / 1000000000)
             if pthread_cond_timedwait(&this.r_cond, &this.m_mut, &ts) != 0 {
                 this.r_waitting--
                 pthread_mutex_unlock(&this.m_mut)

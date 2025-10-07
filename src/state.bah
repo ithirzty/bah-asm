@@ -4,7 +4,6 @@
 gen asmContext
 initFnGen asmContext
 globalFuncsGen asmContext
-initFnName = ".__Bah_init"
 compileWaitChannel channel*
 
 isObjectFile = false
@@ -13,7 +12,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.14 (build 32)"
+BAH_VERSION = "v0.15 (build 33)"
 
 
 const BAH_TYPE_BOOL         = 0
@@ -224,6 +223,8 @@ struct bahLeftValue {
     variable: bahVariable*
     left: bahLeftValue*
     right: bahLeftValue*
+
+    isConst: bool
 
     isVariable:  bool //final symbol in the left-val tree
     isArray:     bool //is only the array in which is the left-val

@@ -64,8 +64,6 @@ struct sigaction {
 const PROT_READ = 1
 const PROT_WRITE = 2
 const PROT_READWRITE = 3
-const MAP_SHARED = 1
-const MAP_ANONYMOUS = 32
 
 #define memcpy(dest ptr, src ptr, size uint) ptr
 #define memmove(dest ptr, src ptr, size uint) ptr
@@ -218,7 +216,7 @@ struct _IO_FILE {
 #define fopen(path char*, mode char*) FILE*
 #define fputs(s char*, handle FILE*)
 #define puts(s char*) uint32
-#define putchar(c char) int32
+#define putchar(c uint32) int32
 #define fflush(f FILE*) int32
 #define fgets(r char*, l int32, f FILE*) char*
 #define fwrite(w char*, s uint, n uint, hndl FILE*) uint
@@ -265,8 +263,8 @@ struct _IO_FILE {
 // #define! puts(s str)
 // #define! atoi(s str) int
 // #define! itoa(i int, s str, base int) str
-// #define! fork() int
+#define fork() int32
 
 
 // #define! access(fn str, m int) int
-// #define! getenv(s str) str
+#define getenv(s char*) char*

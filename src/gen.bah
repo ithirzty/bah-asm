@@ -8,7 +8,14 @@
 #import "state.bah"
 #import "error.bah"
 #import "optimizer.bah"
-#import "gen_asm_linux_64.bah"
+
+#x86 {
+    #import "gen_asm_linux_64.bah"
+}
+
+#arm {
+    #import "gen_asm_linux_arm64.bah"
+}
 
 #define generateTypeConversion(val bahValue*, type bahType*) asmSymbol
 #define generateReflection(val bahValue*) asmSymbol
@@ -651,11 +658,15 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
         if val.left.type.type == BAH_TYPE_TUPLE {
             sym = generateBahValueSymbol(val.left, null)
-            sym.level = -1
+            oLevel = sym.level
+            sym.level -= 1
+            if sym.level < -1 {
+                sym.level = -1
+            }
             sym.size = 8
             sym = gen.generateSymOffset(sym, gen.staticInt(uintToStr(val.type.offset)))
             sym.size = val.type.size
-            sym.level = 0
+            sym.level = oLevel
             return sym
         }
     }
@@ -1312,11 +1323,15 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
 
     if lval.isTuple {
         sym = generateBahLeftValueSymbol(lval.left)
+        oLevel = sym.level
         sym.size = 8
-        sym.level = -1
+        sym.level -= 1
+        if sym.level < -1 {
+            sym.level = -1
+        }
         sym = gen.generateDestSymOffset(sym, gen.staticInt(uintToStr(lval.type.offset)))
         sym.size = lval.type.size
-        sym.level = 0
+        sym.level = oLevel
         return sym
     }
 
@@ -1641,10 +1656,21 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
     return r
 }
 
-generateImmediateValues(val bahValue*, syms []asmSymbol) {
+generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
 
     if val.type.isPtr {
         throwError(val, "Cannot (yet) use a pointer as a global value.")
+    }
+
+    if val.value == BAH_VALUE_CAST {
+        if compatibleTypes(val.type, val.left.type) == false {
+            throwError(val, "Cannot make an immediate cast of this value.")
+        }
+
+        val.left.type.size = val.type.size
+        generateImmediateValues(val.left, syms, isConst)
+
+        return   
     }
 
     if val.tok.type == TOKEN_TYPE_INT {
@@ -1678,6 +1704,13 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
             size: 8
             name: sym.name
         }
+    } else if val.tok.type == TOKEN_TYPE_CHAR {
+        //todo: handle escaping
+        c uint = val.tok.cont[1]
+        syms[len(syms)] = asmSymbol {
+            size: val.type.size
+            name: uintToStr(c)
+        }
     } else if val.value == BAH_VALUE_DECLARATION {
         if val.type.type == BAH_TYPE_ARRAY {
 
@@ -1688,11 +1721,23 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
             }
 
             nSyms = []asmSymbol
+
+            arrDataName = "0"
+
+
             //data
             nSyms[len(nSyms)] = asmSymbol {
                 size: 8
-                name: "0"
+                name: arrDataName
+            }    
+            
+            if isConst {
+                arrDataName = ".VAR_ARRAY_DATA_"+uintToStr(asmRandId)
+                asmRandId++
+                nSyms[len(nSyms)-1].name = arrDataName
+                nSyms[len(nSyms)-1].level = -1
             }
+            
             //length
             nSyms[len(nSyms)] = asmSymbol {
                 size: 8
@@ -1714,6 +1759,15 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
                 name: "0"
             }
 
+            if isConst {
+                currVal = val.right
+                arrDataSyms = []asmSymbol
+                for currVal != null, currVal = currVal.right {
+                    generateImmediateValues(currVal.left, arrDataSyms, true)
+                }
+                gen.generatePrivateVarWithValue(arrDataName, 8, arrDataSyms)
+            }
+
             //to get ptr to value
             privArrName = ".VAR_ARRAY_"+uintToStr(asmRandId)
             privArrSym = asmSymbolStaticName(privArrName)
@@ -1727,27 +1781,29 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
                 name: sym.name
             }
 
-            realGen = gen
-            gen = initFnGen
-            gen.fileNb = realGen.fileNb
-            gen.totalFileNb = realGen.totalFileNb
+            if isConst == false {
+                realGen = gen
+                gen = initFnGen
+                gen.fileNb = realGen.fileNb
+                gen.totalFileNb = realGen.totalFileNb
 
-            arrSym = generateBahValueSymbol(val, null)
-            arrSym = gen.generateDereference(arrSym)
-            arrSym.size = 8
-            
+                arrSym = generateBahValueSymbol(val, null)
+                arrSym = gen.generateDereference(arrSym)
+                arrSym.size = 8
+                
 
-            privArrSymData = asmSymbolReg(ASM_reg_id_dest_addr, 8, 0)
-            gen.generateMoveValue(privArrSym, privArrSymData)
-            privArrSymData.level = 1
+                privArrSymData = asmSymbolReg(ASM_reg_id_dest_addr, 8, 0)
+                gen.generateMoveValue(privArrSym, privArrSymData)
+                privArrSymData.level = 1
 
-            gen.generateVarSet(privArrSymData, arrSym, false)
+                gen.generateVarSet(privArrSymData, arrSym, false)
 
-            initFnGen.stackOffset = gen.stackOffset
-            realGen.data += gen.data
-            realGen.staticData += gen.staticData
-            realGen.bss += gen.bss
-            gen = realGen
+                initFnGen.stackOffset = gen.stackOffset
+                realGen.data += gen.data
+                realGen.staticData += gen.staticData
+                realGen.bss += gen.bss
+                gen = realGen
+            }
         } else if val.type.type == BAH_TYPE_STRCT || val.type.isPtr && val.type.child.type == BAH_TYPE_STRCT {
             currTp = val.type.child
             for currTp != null, currTp = currTp.next {
@@ -1761,7 +1817,7 @@ generateImmediateValues(val bahValue*, syms []asmSymbol) {
 
                 if currVal != null {
                     currVal.right.type = currVal.type
-                    generateImmediateValues(currVal.right, syms)
+                    generateImmediateValues(currVal.right, syms, isConst)
                 } else {
                     //zero field
                     size = currTp.size

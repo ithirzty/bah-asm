@@ -543,9 +543,6 @@ __Bah_panic(e str, loc str) {
 
 }
 
-
-#define uintToStr(u uint) str
-
 arrayDuplicate(arr Bah_Array_Type*) {
     size = arr.length * arr.elemSize
     ndata = memoryAlloc(size)

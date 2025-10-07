@@ -1,12 +1,15 @@
-memoryAllocFunction = "memoryAlloc"
-memoryAllocFunction_NZ = "memoryAlloc_NZ"
-memoryAllocFunctionSTR = "memoryAllocSTR"
-memoryAllocFunctionSTR_NZ = "memoryAllocSTR_NZ"
-strCompareFunction = "__bah_compareStr"
-argumentsToArrFunction = "__bah_argsToArr"
-strSplitFunction = "strSubstitute"
-arraySplitFunction = "arraySubstitute"
-threadCreateFunction = "GC_thread_create_detached"
+#import "rand.bah"
+
+const memoryAllocFunction = "memoryAlloc"
+const memoryAllocFunction_NZ = "memoryAlloc_NZ"
+const memoryAllocFunctionSTR = "memoryAllocSTR"
+const memoryAllocFunctionSTR_NZ = "memoryAllocSTR_NZ"
+const strCompareFunction = "__bah_compareStr"
+const argumentsToArrFunction = "__bah_argsToArr"
+const strSplitFunction = "strSubstitute"
+const arraySplitFunction = "arraySubstitute"
+const threadCreateFunction = "GC_thread_create_detached"
+const initFnName = ".__Bah_init"
 
 const persistentmcpySourceAVX = ".global persistentmcpy
 persistentmcpy:
@@ -92,4 +95,31 @@ tokToUint(s str) uint {
     }
 
     return strToUint(s)
+}
+
+makeRandomFilename() str {
+    n uint
+    fs = fileStream{}
+    fs.open("/dev/urandom", "r")
+    fs.readPtr(&n, 8)
+    fs.close()
+    
+    token = strBuilder{}
+    seedRandom(n)
+
+    i=0; for i < 16, i++ {
+        type = randomInRange(0, 4)
+
+        c char
+        if type == 1 {
+            c = <char>randomInRange(<int>'0', <int>'9')
+        } else if type == 2 {
+            c = <char>randomInRange(<int>'a', <int>'z')
+        } else {
+            c = <char>randomInRange(<int>'A', <int>'Z')
+        }
+        token.append(c)
+    }
+
+    return token.str()
 }

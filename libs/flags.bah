@@ -22,6 +22,7 @@ struct flag {
 struct flags {
     flags: []flag*
     args: []str
+    skipedIndex: uint
 
     //To add a flag to be parsed as a str.
     addString(name str, help str) {
@@ -75,7 +76,7 @@ struct flags {
             print("    -")
             print(flag.name)
             if flag.type == FLAG_TYPE_str {
-                println(" (string)")
+                println(" (str)")
             } else if flag.type == FLAG_TYPE_BOOL {
                 println(" (bool)")
             } else if flag.type == FLAG_TYPE_INT {
@@ -92,31 +93,27 @@ struct flags {
 
     //To get the flag as a pointer to the flag.
     //This should normally not be used.
-    getFlag(name string) flag* {
-        i=0; for i < len(this.flags) {
+    getFlag(name str) flag* {
+        i=0; for i < len(this.flags), i++ {
             flag = this.flags[i]
-            if name.compare(flag.name) {
+            if name == flag.name {
                 return flag
             }
-            i++
         }
-        z = new flag
-        z.isSet = false
-        return z
+        return null
     }
 
     //To get the content of a flag as a str.
     //This works with all types of flags.
     //This is how you should get a string flag.
     get(name str) str {
-        flag = this.getFlag(string(name))
-        return flag.content
+        return this.getFlag(name).content
     }
 
     //To get the content of a flag as an int.
     //The requested flag must be of type int.
     getInt(name str) int {
-        flag = this.getFlag(string(name))
+        flag = this.getFlag(name)
         if flag.type != FLAG_TYPE_INT {
             panic("Flag '" + flag.name + "' is not int.")
         }
@@ -126,7 +123,7 @@ struct flags {
     //To get the content of a flag as a float.
     //The requested flag must be of type float.
     getFloat(name str) float {
-        flag = this.getFlag(string(name))
+        flag = this.getFlag(name)
         if flag.type != FLAG_TYPE_FLOAT {
             panic("Flag '" + flag.name + "' is not float.")
         }
@@ -136,8 +133,11 @@ struct flags {
     //Returns 1 if a flag has been set by the user.
     //This is how you should check for a bool flag.
     isSet(name str) bool {
-        flag = this.getFlag(string(name))
-        return flag.isSet
+        return this.getFlag(name).isSet
+    }
+
+    unused() uint {
+        return this.skipedIndex
     }
 
     //This will parse the flags with the specified arguments.
@@ -146,25 +146,25 @@ struct flags {
         currentFlag flag*
         isVal = false
         this.args = args
-        i=1; for i < len(args) {
-            argName = string(args[i])
+        i=1; for i < len(args), i++ {
+            argName = args[i]
             if isVal == true {
-                    currentFlag.content = argName.str()
+                    currentFlag.content = argName
                 if currentFlag.type == FLAG_TYPE_INT {
-                    currentFlag.cont_int = strToInt(argName.str())
+                    currentFlag.cont_int = strToInt(argName)
                 } else if currentFlag.type == FLAG_TYPE_FLOAT {
-                    currentFlag.cont_float = strToFloat(argName.str())
+                    currentFlag.cont_float = strToFloat(argName)
                 }
                 isVal = false
             } else {
-                if argName.charAt(0) != '-' {
-                    i++
+                if argName[0] != '-' {
+                    this.skipedIndex = i
                     continue
                 }
-                argName.trimLeft(1)
-                if argName.compare("help") {
+                argName = argName[1:]
+                if argName == "help" {
                     this.invalidate()
-                } else if argName.compare("h") {
+                } else if argName == "h" {
                     this.invalidate()
                 }
                 currentFlag = this.getFlag(argName)
@@ -176,7 +176,6 @@ struct flags {
                     isVal = true
                 }
             }
-            i++
         }
         if isVal == true {
             if currentFlag.type != FLAG_TYPE_BOOL {

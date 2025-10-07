@@ -720,6 +720,18 @@ toLower(s string) string {
     return string(arrToStr(ns))
 }
 
+strToLower(s str) str {
+    ns = strBuilder{}
+    i=0;for i < len(s), i++ {
+        if isUpper(s[i]) {
+            ns.append(s[i] + <char>32)
+            continue
+        }
+        ns.append(s[i])
+    }
+    return ns.str()
+}
+
 strFindAtOffset(from str, needle str, offset uint, caseSensitive bool) bool {
     if len(needle) > len(from) - offset {
         return false

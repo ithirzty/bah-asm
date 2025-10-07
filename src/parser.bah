@@ -186,13 +186,12 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 break
             }
 
-            if tokens[i].type != TOKEN_TYPE_VAR {
-                throwErrorTok(&tokens[i], "Expected argument name.")
-            }
-
             name = ""
-
             if isFuncDecl {
+                if tokens[i].type != TOKEN_TYPE_VAR {
+                    throwErrorTok(&tokens[i], "Expected argument name.")
+                }
+
                 name = tokens[i].cont
 
                 i++
@@ -1048,6 +1047,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         }
 
                         i = valCons[1]
+                        valCons[0].type = val.type.child
 
                         currVal.right = new bahValue {
                             left: valCons[0]
@@ -1978,7 +1978,9 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         realGen.bss += gen.bss
         gen = realGen
     } else {
-        throwErrorTok(&tokens[start], "Unknown directive.")
+        if tokens[start].cont != "#" || end - start == 1 || tokens[start+1].cont != "!" {
+            throwErrorTok(&tokens[start], "Unknown directive.")
+        }
     }
 
 }
@@ -2413,6 +2415,10 @@ parseStruct(tokens []bahToken, start uint, end uint) {
 
             alignment = memberCopy.size
 
+            if memberCopy.type == BAH_TYPE_BUFFER {
+                alignment = 1
+            }
+
             if alignment > 8 {
                 alignment = 8
             }
@@ -2473,7 +2479,7 @@ parseStruct(tokens []bahToken, start uint, end uint) {
             method = new bahFunction {
                 name: strctType.child.name+"."+tokens[nameInd].cont
                 type: methodTypeCons[0]
-                declared: true
+                declared: parserCtx.declareMode == false
             }
 
             tpThisInjct = strctType.getPtr()
@@ -2518,6 +2524,10 @@ parseStruct(tokens []bahToken, start uint, end uint) {
             fieldType.name = tokens[nameInd].cont
 
             alignment = fieldType.size
+
+            if fieldType.type == BAH_TYPE_BUFFER {
+                alignment = 1
+            }
 
             if alignment > 8 {
                 alignment = 8
@@ -2868,7 +2878,7 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
             lVal.variable.sym.size = typeSize
         } else {
             syms = []asmSymbol
-            generateImmediateValues(rVal, syms)
+            generateImmediateValues(rVal, syms, lVal.isConst)
             lVal.variable.sym = gen.generateGlobalVarDeclWithValue(lVal.variable.name, typeSize, syms)
         }
     } else {
@@ -2975,6 +2985,7 @@ parseConst(tokens []bahToken, start uint, end uint) {
 
             if found == false {
                 lValCons = consumeLeftValue(tokens, start+1, i)
+                lValCons[0].isConst = true
                 parseVariableSet(tokens, start+1, end, i, lValCons, rValCons)
                 lValCons[0].variable.isConst = true
                 return

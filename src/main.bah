@@ -82,6 +82,8 @@ main(args []str) int {
     flags.addBool("debug", "Includes in depth debug informations, useful for debugging. This also redirects imports to includes.")
     flags.addBool("noBuiltin", "Do not import Bah's runtime.")
     flags.addBool("noAVX", "Do not use AVX instructions.")
+    flags.addBool("run", "Run the program instead of outputting an executable. Useful in shebangs.")
+    flags.addBool("linkAndRun", "Use ld linker and run the program instead of outputting an executable. Use this instead of -run if you use #cLib to import external libraries.")
 
     flags.parse(args)
 
@@ -91,7 +93,9 @@ main(args []str) int {
         return 0
     }
 
-    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX")
+    isFullLink = flags.isSet("linkAndRun")
+    isRun = flags.isSet("run") || isFullLink
+    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX") || isRun
     parserCtx.debugEnabled = flags.isSet("debug")
     gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
     GEN_AVXenabled = flags.isSet("noAVX") == false
@@ -101,7 +105,7 @@ main(args []str) int {
     }
 
     isObjectFile = flags.isSet("object")
-    isSilent = flags.isSet("silent")
+    isSilent = flags.isSet("silent") || isRun
 
     if flags.isSet("disableOptimizations") {
         gen.enableOptimizations = false
@@ -136,80 +140,34 @@ main(args []str) int {
         "#dynamic", true
     }
 
+    #x86 {
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#x86", true
+        }
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#arm", false
+        }
+    }
+
+    #arm {
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#arm", true
+        }
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#x86", false
+        }
+    }
+
     initFnCallRope = rope("")
     programEntry = rope("")
 
-    persistentmcpySource = persistentmcpySourceAVX
-    if GEN_AVXenabled == false {
-        GEN_disableAVX()
-        persistentmcpySource = persistentmcpySourceNoAVX
-    }
+    programEntry = gen.generateDefaults(flags.isSet("noBuiltin") == false, isObjectFile == false)
 
     if isObjectFile == false {
-        gen.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
-        if flags.isSet("noBuiltin") {
-            programEntry = rope(".global _start
-.text
-_start:
-movq %rsp, %rbp
-movq %rsp, __stackBase(%rip)
-call "+initFnName+"
-movl (%rsp), %edi
-leaq 8(%rsp), %rsi
-leaq 16(%rsp,%rdi,8), %rdx
-call main
-movl %eax, %edi
-call _exit\n"+persistentmcpySource)
-            gen.staticData = rope(".data
-__stackBase:
-.quad 0\n")
-            
-        } else {
-            programEntry = rope(".global _start
-.text
-_start:
-movq %rsp, %rbp
-movq %rsp, __stackBase(%rip)
-call "+initFnName+"
-movl (%rsp), %edi
-leaq 8(%rsp), %rsi
-leaq 16(%rsp,%rdi,8), %rdx
-call "+argumentsToArrFunction+"
-movq %rax, %rdi
-call main
-movl %eax, %edi
-call _exit
-atomic_store:
-movq %rsi, %rax
-xchgq (%rdi), %rax
-ret
-atomic_load:
-movq (%rdi), %rax
-ret
-atomic_add:
-lock addq %rsi, (%rdi)
-ret
-"+persistentmcpySource)
-            gen.staticData = rope(".data
-__stackBase:
-.quad 0\n")
-        }
-        gen.data = rope("")
-        gen.bss = rope(".bss
-.global __bss_start
-__bss_start:\n")
-        gen.code = rope(".text\n")
         initFnGen.generateFnStart(initFnName, null, 0)
-    } else {
-        gen.debugEnabled = false
-        gen.debugInfo = rope("")
-        gen.staticData = rope(".data\n")
-        gen.data = rope("")
-        gen.bss = rope(".bss\n")
-        gen.code = rope(".text\n")
     }
 
-    file = args[1]
+    file = args[flags.unused()]
     fs = fileStream{}
     fs.open(file, "r")
 
@@ -233,7 +191,13 @@ __bss_start:\n")
     gen.generateFileLocation(parserCtx.currentFilePath)
 
     if absPath(BAH_DIR + "builtin.bah") != absPath(file) && flags.isSet("noBuiltin") == false {
+        if isRun && isFullLink == false {
+            parserCtx.declareMode = true            
+        }
         importFile(BAH_DIR + "builtin.bah")
+        if isRun && isFullLink == false {
+            parserCtx.declareMode = false
+        }
     }
 
 
@@ -270,6 +234,11 @@ __bss_start:\n")
     } else {
         fileName = file[:len(file)-4]
         fileNameNoExt = file[:len(file)-4]
+    }
+
+    if isRun {
+        fileNameNoExt = "/tmp/__bah_run_"+makeRandomFilename()
+        fileName = fileNameNoExt
     }
 
     gen.debugInfo += rope(".byte 0\n")
@@ -336,12 +305,84 @@ __bss_start:\n")
 
     cmd = command("as -f -o "+fileNameNoExt+".o")
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
+
+    if isRun && isFullLink == false {
+        stubbedSymbols = []str
+
+        i=0; for i < len(cmd.input), i++ {
+            //will skip first line but who cares
+            for i < len(cmd.input), i++ {
+                if cmd.input[i] == <char>10 {
+                    i++
+                    break
+                }
+            }
+
+            if i+5 >= len(cmd.input) {
+                break
+            }
+
+            if cmd.input[i] == 'c' && cmd.input[i+1] == 'a' && cmd.input[i+2] == 'l' && cmd.input[i+3] == 'l' {
+                i += 5
+
+                j=i; for j < len(cmd.input), j++ {
+                    if cmd.input[j] == <char>10 {
+                        break
+                    }
+                }
+
+                symName = cmd.input[i:j]
+
+                if symName == "persistentmcpy" {
+                    continue
+                }
+
+                func = parserCtx.findFunc(symName)
+
+                if func == null {
+                    continue
+                }
+
+                if func.declared {
+                    continue
+                }
+
+
+                cmd.input = cmd.input[:i] + symName + "_STUB" + cmd.input[j:]
+
+                if symName in stubbedSymbols == false {
+                    stubbedSymbols[len(stubbedSymbols)] = symName
+
+                    cmd.input += symName + "_STUB:\njmp *"+symName+"\n"
+                }
+            }
+        }
+    }
+
     err = cmd.run()
 
     if cmd.status != 0 {
         println("Error assembling program")
         println(err)
         return 1
+    }
+
+    if isRun && isFullLink == false {
+        of = objectFile{}
+        if of.open(fileNameNoExt+".o") == false {
+            panic("Error openning object file.")
+        }
+        of.weakLinker()
+
+        mainFn = <function([]str)int>of.getSymbol("main")
+
+        exCode = mainFn(args)
+
+        of.close()
+
+        removeFile(fileNameNoExt+".o")
+
+        return exCode
     }
 
     libraries = ""
@@ -371,6 +412,19 @@ __bss_start:\n")
         println(err)
         return 1
     }
+
+    if isRun {
+        runArgs = [fileName, null]
+        pid = fork()
+        if pid == 0 {
+            r = execvp(fileName, <ptr>&runArgs)
+        } else {
+            waitpid(pid, null, 0)
+            removeFile(fileName)
+        }
+        return 0
+    }
+
 
     if isSilent == false {
         println("\033[1;32mDone. (compiled in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms)\033[0m")

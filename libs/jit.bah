@@ -40,22 +40,21 @@ printDebugContext() {
 
 throwErrorTok(t bahToken*, s str) {
     println("[jit] compilation error: " + s)
-    pthread_exit(null)
+    pthread_exit(s)
 }
 
 throwError(val bahValue*, err str) {
     println("[jit] compilation error: " + err)
-    pthread_exit(null)
+    pthread_exit(err)
 }
 
 throwTypeError(val bahValue*, type bahType*) {
     println("[jit] compilation error: " + val.type.toStr() + " != " + type.toStr())
-    pthread_exit(null)
+    pthread_exit(val.type.toStr() + " != " + type.toStr())
 }
 
 throwWarning(val bahValue*, err str) {
-    println("[jit] compilation error: " + err)
-    pthread_exit(null)
+    println("[jit] compilation warning: " + err)
 }
 
 makeJitFilenameToken() str {
@@ -85,19 +84,106 @@ makeJitFilenameToken() str {
     return token.str()
 }
 
+struct jitContext {
+    includes: []str
+    wrapFunctions: []str
+}
+
 struct jitObject {
     of: objectFile
     filePath: str
+
+    ctx: jitContext
+
+    error: str
+    
     succeeded: bool = true
     hasBuiltin: bool = true
+    isMapped: bool
+
+    functions: []bahFunction*
 
     getSymbol(name str) ptr {
         return this.of.getSymbol(name)
     }
 
+    call(name str, argBuffer ptr) bool {
+        fn = <function(ptr)>this.getSymbol(".wrapped_"+name)
+        if fn == null {
+            return false
+        }
+        fn(argBuffer)
+        return true
+    }
+
+    dup() jitObject {
+        newObj = jitObject {
+            functions: this.functions
+            of: this.of
+            hasBuiltin: this.hasBuiltin
+            isMapped: true
+        }
+
+        newObj.of.bytes = <[]byte>new Bah_Array_Type {
+            elemSize: 1
+            length: len(this.of.bytes)
+            data: mmap(null, len(this.of.bytes), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+        }
+
+
+
+        GC_registerRoot(cArr(newObj.of.bytes), len(newObj.of.bytes))
+
+        memcpy(cArr(newObj.of.bytes), cArr(this.of.bytes), len(this.of.bytes))
+        
+        newObj.of.symbols = []Elf64_Sym*
+        newObj.of.sectionHeaders = []Elf64_Shdr*
+        newObj.of.ELFheader = <Elf64_Ehdr*>&newObj.of.bytes[0]
+        allocateArray(newObj.of.sectionHeaders, newObj.of.ELFheader.e_shnum)
+
+        i=0; for i < newObj.of.ELFheader.e_shnum, i++ {
+            section = <Elf64_Shdr*>&newObj.of.bytes[newObj.of.ELFheader.e_shentsize * i + newObj.of.ELFheader.e_shoff]
+            newObj.of.sectionHeaders[i] = section
+
+            if i == newObj.of.ELFheader.e_shstrndx && section.sh_type == SHT_STRTAB {
+                newObj.of.stringTable = &newObj.of.bytes[section.sh_offset]
+            }
+        }
+
+        i=0; for i < len(newObj.of.sectionHeaders), i++ {
+            section = newObj.of.sectionHeaders[i]
+            name = newObj.of._getELFstr(section.sh_name)
+            
+            if name == ".text" {
+                newObj.of.textAddress = <uint>&newObj.of.bytes[section.sh_offset]
+                newObj.of.textSize = section.sh_size
+
+            }
+
+            if name == ".strtab" {
+                newObj.of.symNameTable = &newObj.of.bytes[section.sh_offset]
+            }
+
+            if name == ".symtab" {
+                j=0; for j * sizeof(Elf64_Sym) < section.sh_size, j++ {
+                    newObj.of.symbols[j] = <Elf64_Sym*>&newObj.of.bytes[section.sh_offset + j * sizeof(Elf64_Sym)]
+                }
+            }
+        }
+
+        newObj.of.weakLinker()
+
+        return newObj
+    }
+
     close() {
-        this.of.close()
-        removeFile(this.filePath)
+        if this.isMapped {
+            GC_removeRoot(cArr(this.of.bytes))
+            munmap(cArr(this.of.bytes), len(this.of.bytes))
+        } else {
+            this.of.close()
+            removeFile(this.filePath)
+        }
     }
 }
 
@@ -166,9 +252,31 @@ __jitCompile_asThread(jitObj jitObject*) {
     gen.data = rope("")
     gen.bss = rope(".bss\n")
     if GEN_AVXenabled {
-        gen.code = rope(".text\n"+persistentmcpySourceAVX)
+        gen.code = rope(".text
+atomic_store:
+movq %rsi, %rax
+xchgq (%rdi), %rax
+ret
+atomic_load:
+movq (%rdi), %rax
+ret
+atomic_add:
+lock addq %rsi, (%rdi)
+ret
+"+persistentmcpySourceAVX+"")
     } else {
-        gen.code = rope(".text\n"+persistentmcpySourceNoAVX)
+        gen.code = rope(".text
+atomic_store:
+movq %rsi, %rax
+xchgq (%rdi), %rax
+ret
+atomic_load:
+movq (%rdi), %rax
+ret
+atomic_add:
+lock addq %rsi, (%rdi)
+ret
+"+persistentmcpySourceNoAVX+"")
     }
 
     parserCtx.currentFilePath = "<jit>"
@@ -179,24 +287,62 @@ __jitCompile_asThread(jitObj jitObject*) {
 
     isObjectFile = true
 
+    parserCtx.declareMode = true
     if jitObj.hasBuiltin {
-        parserCtx.declareMode = true
         includeFile(BAH_DIR + "builtin.bah")    
-        parserCtx.declareMode = false
     }
+    i=0; for i < len(jitObj.ctx.includes), i++ {
+        includeFile(jitObj.ctx.includes[i])    
+    }
+    parserCtx.declareMode = false
+
+    isObjectFile = false
 
     parseLines(tokens, 0, len(tokens))
+
+    i=0; for i < len(jitObj.ctx.wrapFunctions), i++ {
+        fn = parserCtx.findFunc(jitObj.ctx.wrapFunctions[i])
+        if fn == null {
+            continue
+        }
+
+        args = []asmSymbol {
+            gen.generateVarDecl("args", 8, false)
+        }
+
+        gen.generateFnStart(".wrapped_"+fn.name, args, 0)
+        gen.generateFnCallStart()
+        argsSym = asmSymbolStack(16, 8)
+        offset = 0
+
+        currArg = fn.type.child
+        for currArg != null, currArg = currArg.next {
+            setSym = gen.generateSymOffset(argsSym, gen.staticInt(uintToStr(offset)))
+            setSym = gen.generateDereference(setSym)
+            setSym.size = currArg.size
+            gen.generateFnCallArgument(setSym)
+            offset += currArg.size
+        }
+
+        gen.generateFnCall(asmSymbolValue(fn.name), 0, null, false)
+        gen.generateFnEnd(null)
+    }
+
 
     fileName = "/tmp/__bah_jitfile_"+makeJitFilenameToken()+".o"
 
     gen.data = gen.staticData + gen.data
     gen.code += globalFuncsGen.code
 
+    jitObj.functions = parserCtx.functions
+
     i=0; for i < len(evalTmpOFiles), i++ {
         removeFile(evalTmpOFiles[i])
     }
 
+
     cmd = command("as -f -Z -o "+fileName+" > /dev/null")
+
 
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
 
@@ -231,9 +377,15 @@ __jitCompile_asThread(jitObj jitObject*) {
             }
 
             func = parserCtx.findFunc(symName)
-            if func != null && func.declared {
+
+            if func == null {
                 continue
             }
+
+            if func.declared {
+                continue
+            }
+
 
             cmd.input = cmd.input[:i] + symName + "_STUB" + cmd.input[j:]
 
@@ -245,11 +397,14 @@ __jitCompile_asThread(jitObj jitObject*) {
         }
     }
 
-    cmd.run()
+    if jitObj.succeeded {
+        cmd.run()
 
-    jitObj.of.open(fileName)
-    jitObj.of.weakLinker()
-    jitObj.filePath = fileName
+        jitObj.of.open(fileName)
+        jitObj.of.weakLinker()
+        jitObj.filePath = fileName
+    }
+
 }
 
 //Compiles the Bah code given in code argument.
@@ -266,7 +421,39 @@ jitCompile(code str) jitObject {
 
     t.createWithArg(&obj)
 
-    t.wait()
+    err = ""
+
+    t.waitOnValue(&err)
+
+    if len(err) != 0 {
+        obj.succeeded = false
+        obj.error = err
+    }
+
+    return obj
+}
+
+jitCompileWithContext(code str, ctx jitContext) jitObject {
+    obj = jitObject{
+        ctx: ctx
+    }
+
+    parserCtx.currentFile = code
+
+    t = thread{
+        handle: __jitCompile_asThread
+    }
+
+    t.createWithArg(&obj)
+
+    err = ""
+
+    t.waitOnValue(&err)
+
+    if len(err) != 0 {
+        obj.succeeded = false
+        obj.error = err
+    }
 
     return obj
 }
@@ -285,7 +472,84 @@ jitCompileNoBuiltin(code str) jitObject {
 
     t.createWithArg(&obj)
 
-    t.wait()
+    err = ""
+
+    t.waitOnValue(&err)
+
+    if len(err) != 0 {
+        obj.succeeded = false
+        obj.error = err
+    }
+
 
     return obj
+}
+
+struct _jitTypeAndReflStack {
+    type: bahType*
+    elem: reflectElement*
+}
+
+__jitReflect_inner(type bahType*, typesStack []_jitTypeAndReflStack) reflectElement* {
+    elem = new reflectElement
+
+    i=0; for i < len(typesStack), i++ {
+        if isSameType(typesStack[i].type, type) {
+            return typesStack[i].elem
+        }
+    }
+
+    ogType = type
+
+    for type.isPtr {
+        if type.type == BAH_TYPE_PTR {
+            break
+        }
+        type = type.child
+    }
+
+    for type.type == BAH_TYPE_CUSTOM_TYPE {
+        type = type.child.child
+    }
+
+    typesStack[len(typesStack)] = _jitTypeAndReflStack {ogType, elem}
+
+    elem.type = ogType.toStr()
+
+    if type.type == BAH_TYPE_ARRAY {
+        elem.size = ARR_TYPE_SIZE
+        elem.isArray = true
+
+        elem.arrayElem = __jitReflect_inner(type.child, typesStack)
+    } else {
+        elem.size = type.size
+
+        if type.type == BAH_TYPE_STRCT {
+            elem.isStruct = true
+
+            currFieldType = type.child.next
+            for currFieldType != null, currFieldType = currFieldType.next {
+                fieldElem = __jitReflect_inner(currFieldType, typesStack)
+                fieldElem.offset = currFieldType.offset
+                fieldElem.name = currFieldType.name
+                elem.structLayout[len(elem.structLayout)] = *fieldElem
+            }
+
+
+        } else if type.type == BAH_TYPE_TUPLE {
+            currFieldType = type.child
+            for currFieldType != null, currFieldType = currFieldType.next {
+                fieldElem = __jitReflect_inner(currFieldType, typesStack)
+                fieldElem.offset = currFieldType.offset
+                elem.structLayout[len(elem.structLayout)] = *fieldElem
+            }
+        }
+    }
+
+    return elem
+}
+
+jitReflect(type bahType*) reflectElement* {
+    typesStack = []_jitTypeAndReflStack
+    return __jitReflect_inner(type, typesStack)
 }

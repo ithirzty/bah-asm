@@ -125,6 +125,12 @@ struct BAH_GC_channelNode {
     next: BAH_GC_channelNode*
 }
 
+struct BAH_GC_root {
+    data: ptr
+    size: uint
+    next: BAH_GC_root*
+}
+
 struct BAH_GC_state_tag {
     heapSize: uint
     nextCollect: uint = GC_min_collect
@@ -145,6 +151,8 @@ struct BAH_GC_state_tag {
 
     scanStackBase: uint
     scanRBP: uint
+
+    roots: BAH_GC_root*
 
     overflowQueue: BAH_GC_channelNode*
 
@@ -264,6 +272,33 @@ struct BAH_GC_state_tag {
         index.notScannable = notScannable
 
         return p
+    }
+
+    addRoot(p ptr, size uint) {
+        oldRoot = this.roots
+        this.roots = <BAH_GC_root*>malloc(sizeof(BAH_GC_root))
+        this.roots.data = p
+        this.roots.size = size
+        this.roots.next = oldRoot
+    }
+
+    removeRoot(p ptr) {
+        root = this.roots
+        prevRoot = <BAH_GC_root*>null
+        for root != null, root = root.next {
+
+            if root.data == p {
+                if prevRoot == null {
+                    this.roots = root.next
+                } else {
+                    prevRoot.next = root.next
+                }
+                free(root)
+                break
+            }
+
+            prevRoot = root
+        }
     }
 }
 
@@ -615,6 +650,11 @@ GC_collect() {
         GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
     }
 
+    root = BAH_GC_state.roots
+    for root != null, root = root.next {
+        GC_scan(<uint>root.data, <uint>root.data + root.size, 1)
+    }
+
     freed=0
     alive=0
 
@@ -833,4 +873,16 @@ memoryAllocSTR_NZ(s uint) str {
     *(<byte*>(r + s - 1)) = <byte>0
     pthread_mutex_unlock(BAH_GC_state.mut)
     return <ptr>r
+}
+
+GC_registerRoot(addr ptr, size uint) {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    BAH_GC_state.addRoot(addr, size)
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
+GC_removeRoot(addr ptr) {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    BAH_GC_state.removeRoot(addr)
+    pthread_mutex_unlock(BAH_GC_state.mut)
 }

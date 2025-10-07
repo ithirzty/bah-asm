@@ -1,0 +1,16 @@
+#import "rope.bah"
+#import "string.bah"
+#import "iostream.bah"
+#import "json.bah"
+
+#include "globals.bah"
+
+#define printDebugContext()
+
+const ASM_arguments_registers = []str{"r0", "r1", "r2", "r3",  "r4",  "r5", "r6", "r7"}
+
+const ASM_return_register = "r0"
+const ASM_stack_pointer_register = "sp"
+const ASM_data_register = "r3"
+
+//will maybe do later :skull:
