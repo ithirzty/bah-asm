@@ -59,8 +59,8 @@ isLower(c char) bool {
 }
 
 //Used to know if a char is a letter, will return 1 if true.
-isLetter(s char) bool {
-    return isLower(s) || isUpper(s)
+isLetter(c char) bool {
+    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 //Used to know if a char is a number, will return 1 if true.
@@ -70,8 +70,8 @@ isNumber(c char) bool {
 
 //Used to know if a char is alphanumeric, will return 1 if true.
 //Alphanumeric means letter or number.
-isAlphaNumeric(s char) bool {
-    return isLetter(s) || isNumber(s)
+isAlphaNumeric(c char) bool {
+    return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
 }
 
 //Used to know if a char is a space / new line character, will return 1 if true.
@@ -765,25 +765,20 @@ strFindAtOffset(from str, needle str, offset uint, caseSensitive bool) bool {
 }
 
 //Use string(s).hasPrefix(prefix) instead.
-//This function has known bugs.
 strHasPrefix(s str, need str) bool {
     i = 0
-    nl = len(need)
-    sl = len(s)
-    if sl < nl {
+    if len(s) < len(need) {
         return false
     }
-    for i < nl { 
+    for i < len(need), i++ { 
         if s[i] != need[i] {
             return false
         }
-        i++
     }
     return true
 }
 
 //Use string(s).hasSuffix(suffix) instead.
-//This function has known bugs.
 strHasSuffix(s str, need str) bool {
     sl = len(s)
     nl = len(need)

@@ -95,7 +95,7 @@ main(args []str) int {
 
     isFullLink = flags.isSet("linkAndRun")
     isRun = flags.isSet("run") || isFullLink
-    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX") || isRun
+    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX") || isRun && isFullLink == false
     parserCtx.debugEnabled = flags.isSet("debug")
     gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
     GEN_AVXenabled = flags.isSet("noAVX") == false
@@ -161,7 +161,7 @@ main(args []str) int {
     initFnCallRope = rope("")
     programEntry = rope("")
 
-    programEntry = gen.generateDefaults(flags.isSet("noBuiltin") == false, isObjectFile == false)
+    programEntry = gen.generateDefaults(flags.isSet("noBuiltin") == false, isObjectFile == false, parserCtx.noImports == false)
 
     if isObjectFile == false {
         initFnGen.generateFnStart(initFnName, null, 0)
@@ -255,7 +255,7 @@ main(args []str) int {
     }
 
     if isSilent == false {
-        println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms.\033[0m")
+        println("Parsed "+intToStr(totalLines)+" lines in "+intToStr((getTimeUnix() - startTime) / 1000000)+"ms (lexer: "+intToStr(totalLexerTime / 1000000)+"ms).\033[0m")
     }
 
     i=0; for i < len(evalTmpOFiles), i++ {

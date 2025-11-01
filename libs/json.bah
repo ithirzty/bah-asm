@@ -671,7 +671,6 @@ toJsonRope(e reflectElement) rope* {
                 r += rope(", ")
             }
         }
-
         return r + rope("]")
     }
 

@@ -1,3 +1,5 @@
+#import "channel.bah"
+
 #import "./lexer.bah"
 #import "./gen_asm_linux_64.bah"
 
@@ -12,7 +14,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.15 (build 33)"
+BAH_VERSION = "v0.15 (build 34)"
 
 
 const BAH_TYPE_BOOL         = 0

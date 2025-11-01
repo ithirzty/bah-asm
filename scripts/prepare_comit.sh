@@ -9,8 +9,8 @@ echo "Ok"
 
 echo "Compiling binary..."
 rm libs/bah
-src/main src/main.bah -o ./libs/bah -trim
-src/main src/main.bah -o ./libs/bah-noavx -trim -noAVX
+src/main src/main.bah -o ./libs/bah
+src/main src/main.bah -o ./libs/bah-noavx -noAVX
 cp -r ./libs/bah /opt/bah-asm/
 echo "Ok"
 

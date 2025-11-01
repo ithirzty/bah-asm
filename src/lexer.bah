@@ -19,6 +19,8 @@ const TOKEN_TYPE_SYNTAX =  <tokenType>10
 const TOKEN_TYPE_FUNC =    <tokenType>11
 const TOKEN_TYPE_CAST =    <tokenType>12
 
+totalLexerTime = 0
+
 //a token (the atomic unit for describing the inputed Bah file)
 struct bahToken {
     cont: str = ""
@@ -37,10 +39,6 @@ const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '
                                     //&                                                    //;
 
 const keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
-            //     x      x      x        x       x       x          x          x        x         x          x         x       x      x      x       x         x      x
-            // x: done
-            //  : not done
-            // -: not planned
 
 //Generates a token from all of its properties.
 makeToken(pos int, lineNb int, cont str, type tokenType, tokens []bahToken) bahToken* {
@@ -62,11 +60,6 @@ makeToken(pos int, lineNb int, cont str, type tokenType, tokens []bahToken) bahT
         t.isValue = true
     }
     return t
-}
-
-//If current char is a '-' and next char is a number, returns true.
-isMinus(c char, nc char) bool {
-    return c == '-' && isNumber(nc)
 }
 
 //We never want to have to throw this error as the file is not yet parsed, we have very little information.
@@ -162,7 +155,7 @@ lexer(s str, includeBodies bool) []bahToken {
                     t.begLine = begLine
                 }
             }
-        } else if isNumber(c) || isMinus(c, nc) { //token is a number
+        } else if isNumber(c) || c == '-' && isNumber(nc) { //token is a number
             pos = i
             i++
             currentType = TOKEN_TYPE_INT
@@ -341,6 +334,6 @@ lexer(s str, includeBodies bool) []bahToken {
     }
 
     totalLines += lineNb - 1
-    // totalLexerTime += (getTimeUnix() - lexerStart)
+    totalLexerTime += (getTimeUnix() - lexerStart)
     return tokens
 }

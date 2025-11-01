@@ -93,7 +93,7 @@ evalFunc(func bahFunction*, args bahValue*) asmSymbol {
 
     #debug {
         printDebugContext()
-        println("evaluating: "+func.name+" with arguments: "+toJson(values))
+        println("evaluating: "+func.name)
     }
     res = 0
     if len(values) == 1 {
@@ -662,6 +662,8 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             sym.level -= 1
             if sym.level < -1 {
                 sym.level = -1
+            } else if sym.isReg == false && sym.isValue == false && sym.stack == false {
+                oLevel = 1
             }
             sym.size = 8
             sym = gen.generateSymOffset(sym, gen.staticInt(uintToStr(val.type.offset)))
@@ -1136,6 +1138,9 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         if isMethodCall {
             parentSym = val.left.left.sym
             if val.left.left.type.isPtr == false {
+                if parentSym.isReg {
+                    parentSym = asmSymbolStack(gen.generateStackAlloc(parentSym), 8)
+                }
                 parentSym.level -= 1
             }
             parentSym.size = 8
@@ -1269,15 +1274,8 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
                     return gen.generateDestDereference(nSym)
                 }
                 break
-            // }
-
-            // if currVal.left.type.isPtr {
-            //     break
-            // }
         }
 
-
-        // r.stack = true
         r.address = addr
         r.active = true
         r.size = lval.type.size
@@ -1328,6 +1326,8 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
         sym.level -= 1
         if sym.level < -1 {
             sym.level = -1
+        } else if sym.isReg == false && sym.isValue == false && sym.stack == false {
+            oLevel = 1
         }
         sym = gen.generateDestSymOffset(sym, gen.staticInt(uintToStr(lval.type.offset)))
         sym.size = lval.type.size
@@ -1833,6 +1833,13 @@ generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
                     }
                 }
             }
+        } else if val.type.type == BAH_TYPE_TUPLE {
+            currVal = val.left
+
+            for currVal != null, currVal = currVal.left {
+                generateImmediateValues(currVal.right, syms, isConst)
+            }
+
         } else {
             throwError(val, "Immediate value of this declaration is not yet implemented.")
         }

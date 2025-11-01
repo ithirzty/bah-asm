@@ -38,11 +38,33 @@ __bah_arrayLength(a Bah_Array_Type*) uint {
 }
 
 __bah_compareStr(a str, b str) bool {
-    if len(a) != len(b) {
+    la = 0
+    lb = 0
+
+    if <ptr>a != null {
+        la = *<uint32*>a
+    }
+
+    if <ptr>b != null {
+        lb = *<uint32*>b
+    }
+
+    if la != lb {
         return false
     }
 
-    i=0; for i < len(a), i++ {
+    if la % 8 == 0 {
+        la += 4
+        i=4; for i < la, i += 8 {
+            if *<uint*>(<uint>a + i) != *<uint*>(<uint>b + i) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    i=0; for i < la, i++ {
         if a[i] != b[i] {
             return false
         }
@@ -115,8 +137,1102 @@ deleteRange(arr Bah_Array_Type*, from uint, to uint) {
     arr.length -= (to - from + 1)
 }
 
-#include "gc.bah"
-#include "channel.bah"
+#define memoryAlloc(s uint) ptr
+#define memoryRealloc(o ptr, s uint) ptr
+#define memoryAllocSTR(s uint) str
+
+#cLib "lpthread"
+
+#define pthread_t uint
+
+const PTHREAD_DETACHED            = 0x1
+const PTHREAD_SCOPE_SYSTEM        = 0x2
+const PTHREAD_INHERIT_SCHED       = 0x4
+const PTHREAD_NOFLOAT             = 0x8
+
+const PTHREAD_CREATE_DETACHED     = PTHREAD_DETACHED
+const PTHREAD_CREATE_JOINABLE     = 0
+
+struct pthread_cond_t {
+    size: buffer:48
+}
+
+struct pthread_mutex_t {
+    size: buffer:40
+}
+
+struct pthread_attr_t {
+    size: buffer:56
+}
+
+#define GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+#define GC_thread_join(id pthread_t, ret ptr) int32
+
+#define pthread_mutex_init(lock pthread_mutex_t*, m uint)
+#define pthread_mutex_lock(lock pthread_mutex_t*)
+#define pthread_mutex_unlock(lock pthread_mutex_t*)
+#define pthread_mutex_destroy(lock pthread_mutex_t*)
+#define pthread_cond_init(cond pthread_cond_t*, attr pthread_attr_t*) int32
+#define pthread_cond_signal(cond pthread_cond_t*) int32
+#define pthread_cond_broadcast(cond pthread_cond_t*) int32
+#define pthread_cond_destroy(cond pthread_cond_t*) int32
+#define pthread_cond_wait(cond pthread_cond_t*, mut pthread_mutex_t*) int32
+#define pthread_cond_timedwait(cond pthread_cond_t*, mut pthread_mutex_t*, absTime Ctimespec*) int32
+#define pthread_attr_init(attr pthread_attr_t *) int32
+#define pthread_attr_setstack(attr pthread_attr_t*, stck ptr, size uint) int32
+#define pthread_attr_getstack(attr pthread_attr_t*, stck ptr*, size uint*) int32
+#define pthread_attr_getstacksize(attr pthread_attr_t*, size uint*) int32
+#define pthread_self() pthread_t
+#define pthread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+#define pthread_join(id pthread_t, ret ptr) int32
+#define pthread_attr_destroy(attr pthread_attr_t*)
+#define pthread_getattr_np(t pthread_t, attr pthread_attr_t*) int32
+#define pthread_attr_setdetachstate(attr pthread_attr_t*, state int32) int32
+#define pthread_exit(retval ptr)
+
+#define __thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+#define __thread_join(id pthread_t, ret ptr) int32
+
+// #gc {
+//     #linux {
+//         #define GC_pthread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+//         #define GC_pthread_join(id pthread_t, ret ptr) int32
+//         const __thread_create = GC_pthread_create
+//         const __thread_join = GC_pthread_join
+//     }
+//     #darwin {
+//         #define GC_pthread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32
+//         #define GC_pthread_join(id pthread_t, ret ptr) int32
+//         const __thread_create = GC_pthread_create
+//         const __thread_join = GC_pthread_join
+//     }
+//     #windows {
+//         const __thread_create = pthread_create
+//         const __thread_join = pthread_join 
+//     }
+
+// }
+
+// #rcp {
+//     const __thread_create = pthread_create
+//     const __thread_join = pthread_join
+// }
+
+// #altMem {
+    const __thread_create = GC_thread_create
+    const __thread_join = GC_thread_join
+// }
+
+// __thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
+//     return 0
+// }
+
+// __thread_join(id pthread_t, ret ptr) int32 {
+//     return 0
+// }
+
+const currentThread = pthread_self
+
+//This structure implements a mutex.
+//A mutex is a thread safe lock.
+//*Note: the mutex needs to be initiated ans destroyed when you finished using it.*
+struct mutex {
+    id: pthread_mutex_t*
+
+    //This initiaties the mutex.
+    //You do not need to initiate the mutex when creating it with mutex().
+    init() {
+        this.id = memoryAlloc(sizeof(pthread_mutex_t))
+        pthread_mutex_init(this.id, 0)
+    }
+
+    //This locks the mutex.
+    //Every other thread trying to lock it will need to wait for it to be unlocked.
+    lock() {
+        pthread_mutex_lock(this.id)
+    }
+
+    //This unlocks the mutex.
+    unlock() {
+        pthread_mutex_unlock(this.id)
+    }
+
+    //This destroyes the mutex.
+    destroy() {
+        pthread_mutex_destroy(this.id)
+    }
+
+}
+
+//This is a condition that while not true blocks the calling thread.
+struct mutexCondition {
+    id: pthread_cond_t
+
+    //To initiate a condition.
+    //You do not need to initiate the condition when creating it with mutexCondition().
+    init() {
+        pthread_cond_init(&this.id, null)
+    }
+
+    //To wait for another thread to signal that the condition may be true.
+    //Usage:
+    //for condition {
+    // mutexCond.wait()
+    //}
+    wait(m mutex) {
+        mid = m.id
+        pthread_cond_wait(&this.id, mid)
+    }
+
+    //To signal a single thread that the condition may be true.
+    send() {
+        pthread_cond_signal(&this.id)
+    }
+
+    broadcast() {
+        pthread_cond_broadcast(&this.id)
+    }
+
+    //To destroy the condition.
+    destroy() {
+        pthread_cond_destroy(&this.id)
+    }
+
+}
+
+//Generates a mutexCondition and initiates it.
+mutexCondition() mutexCondition {
+    m = mutexCondition{}
+    m.init()
+    return m
+}
+
+//A wrapper for a thread.
+//Note that for less advanced operation, you can use the keyword async.
+struct thread {
+    id: pthread_t
+    
+    //This will need to ne set by the user.
+    //The specified function will be the entry point for the thread.
+    handle: function(ptr)
+
+    //This will launch the thread.
+    create() {
+        __thread_create(&this.id, null, this.handle, null)   
+    }
+
+    //This will launch the thread by passing to its entry point funtion an argument.
+    //The argument can only be a pointer.
+    createWithArg(arg ptr) {
+        __thread_create(&this.id, null, this.handle, arg) 
+    }
+
+    //This waits until the thread has finished executting.
+    wait() {
+        __thread_join(this.id, null)
+    }
+
+    waitOnValue(addr ptr) {
+        __thread_join(this.id, addr)
+    }
+}
+
+//This initiates a mutex and returns it.
+mutex() mutex {
+    m = mutex{}
+    m.init()
+    return m
+}
+
+#define GC_removeCurrentThread(val ptr)
+
+const real_pthread_exit = pthread_exit
+const pthread_exit = GC_removeCurrentThread
+
+const SIGGCSTOP = 34
+
+#define pthread_kill(t pthread_t, sig int32) int32
+
+#debug {
+    #define getTimeUnix() int
+}
+
+GC_min_collect = 128000000
+VERBOSE_GC = false
+
+GC_min_ptr = 16777216
+GC_max_ptr = 281474976710656
+
+const GC_max_unsorted_ptr = 64
+
+#define qsort(arr ptr, elementCount uint, elementSize uint, fn ptr)
+#define syscall(nb int) int
+
+#define printInt(i int)
+#define backtrace(l uint)
+
+
+struct BAH_GC_ptr {
+    size: uint
+    p: uint
+    marked: bool
+    notScannable: bool
+}
+
+struct BAH_GC_thread {
+    t: pthread_t
+    sysid: uint
+    stackBase: uint
+    regs: buffer:184
+
+
+    next: BAH_GC_thread*
+
+    clean() {
+        free(this)
+    }
+
+}
+
+struct BAH_GC_page {
+    page: uint
+    list: BAH_GC_ptr*
+    listLength: uint
+    listRealLength: uint
+
+    addPtr(p uint) BAH_GC_ptr* {
+        if this.listLength == this.listRealLength {
+            this.listRealLength *= 2
+            this.list = realloc(this.list, sizeof(BAH_GC_ptr) * this.listRealLength)
+            sizeDiff = (this.listRealLength / 2) * sizeof(BAH_GC_ptr)
+            memset(<ptr>(<uint>this.list + sizeDiff), 0, sizeDiff)
+        }
+
+        index BAH_GC_ptr*
+        this.listLength++
+
+        i = this.listLength - 1
+        for i != -1, i-- {
+            index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
+            if index.p == 0 {
+                break
+            }
+        }
+
+        if i == -1 {
+            panic("GC: fatal error")
+        }
+
+        index.p = p
+        return index
+    }
+
+    find(p uint) BAH_GC_ptr* {
+        if this.listLength >= GC_max_unsorted_ptr {
+            low = 0
+            high = this.listLength - 1
+
+            for low <= high {
+                mid = (low + high) / 2
+                index = <BAH_GC_ptr*>(<uint>this.list + mid * sizeof(BAH_GC_ptr))
+
+                if index.p == 0 {
+                    panic("GC: corrupted ptr list.")
+                }
+
+                if index.p == p {
+                    return index
+                }
+
+                if index.p < p {
+                    high = mid - 1
+                } else {
+                    low = mid + 1
+                }
+
+            }
+
+            return null
+        }
+        i=0; for i < this.listLength, i++ {
+            index = <BAH_GC_ptr*>(<uint>this.list + i * sizeof(BAH_GC_ptr))
+            if index.p == p {
+                return index
+            }
+        }
+        return null
+    }
+}
+
+
+struct BAH_GC_channelNode {
+    data: BAH_GC_ptr*
+    next: BAH_GC_channelNode*
+}
+
+struct BAH_GC_root {
+    data: ptr
+    size: uint
+    next: BAH_GC_root*
+}
+
+struct BAH_GC_state_tag {
+    heapSize: uint
+    nextCollect: uint = GC_min_collect
+
+    pages: BAH_GC_page**
+    pagesLength: uint
+    pagesCap:    uint
+
+    stackBase: uint
+    threads: BAH_GC_thread*
+    
+    mainThread: int
+
+    mut: pthread_mutex_t*
+
+    atomicThreadCount: uint
+    atomicResume:      int
+
+    scanStackBase: uint
+    scanRBP: uint
+
+    roots: BAH_GC_root*
+
+    overflowQueue: BAH_GC_channelNode*
+
+    calcPageNb(p uint) uint {
+        return <uint32>(p >> 20) //block of 1MB
+    }
+
+    findPageIndex(p uint) uint {
+        low = 0
+        high = this.pagesLength - 1
+
+        for low <= high {
+            mid = (low + high) / 2
+            index = *<BAH_GC_page**>(<uint>this.pages + mid * sizeof(ptr))
+
+            if index == null {
+                panic("GC: corrupted page list.")
+            }
+
+            if index.page == p {
+                return mid
+            }
+
+            if index.page > p {
+                high = mid - 1
+            } else {
+                low = mid + 1
+            }
+        }
+
+        return low
+    }
+
+    isPointerInBounds(p uint) BAH_GC_page * {
+        if p < GC_min_ptr {
+            return null
+        }
+        if p > GC_max_ptr {
+            return null
+        }
+        pageNb = this.calcPageNb(p)
+
+        pageIndex = this.findPageIndex(pageNb)
+
+        if pageIndex == this.pagesLength {
+            return null
+        }
+
+        page = *<BAH_GC_page**>(<uint>this.pages + pageIndex * sizeof(ptr))
+
+        if page.page != pageNb {
+            return null
+        }
+
+        return page
+    }
+
+    updatePagesBounds(p uint) BAH_GC_page* {
+        pageNb = this.calcPageNb(p)
+
+        i = this.findPageIndex(pageNb)
+
+        if i < this.pagesLength {
+            page = *<BAH_GC_page**>(<uint>this.pages + i * sizeof(ptr))
+            if page.page == pageNb {
+                return page
+            }
+        }
+
+
+        if this.pagesLength == this.pagesCap {
+            this.pagesCap *= 2
+            this.pages = realloc(this.pages, this.pagesCap * sizeof(ptr))
+        }
+
+        if i != this.pagesLength {
+            memmove(<ptr>(<uint>this.pages + (i+1) * sizeof(ptr)), <ptr>(<uint>this.pages + i * sizeof(ptr)), (this.pagesLength - i) * sizeof(ptr))
+        }
+
+        currPage = <BAH_GC_page*>malloc(sizeof(BAH_GC_page))
+        *(<BAH_GC_page**>(<uint>this.pages + i * sizeof(ptr))) = currPage
+        currPage.page = pageNb
+        this.pagesLength++
+
+        currPage.listLength = 0
+        currPage.listRealLength = 4096
+        s = currPage.listRealLength * sizeof(BAH_GC_ptr)
+        currPage.list = malloc(s)
+        memset(currPage.list, 0, s)
+
+        if p < GC_min_ptr {
+            GC_min_ptr = p
+        }
+
+        if p > GC_max_ptr {
+            GC_max_ptr = p
+        }
+
+        return currPage
+    }
+
+    allocate(s uint, notScannable bool) uint {
+        p = <uint>malloc(s)
+
+        if p == 0 {
+            panic("GC: could not allocate memory.")
+        }
+
+
+        this.heapSize += s
+
+        ptrPage = this.updatePagesBounds(p)
+
+        index = ptrPage.addPtr(p)
+
+        index.size = s
+        index.notScannable = notScannable
+
+        return p
+    }
+
+    addRoot(p ptr, size uint) {
+        oldRoot = this.roots
+        this.roots = <BAH_GC_root*>malloc(sizeof(BAH_GC_root))
+        this.roots.data = p
+        this.roots.size = size
+        this.roots.next = oldRoot
+    }
+
+    removeRoot(p ptr) {
+        root = this.roots
+        prevRoot = <BAH_GC_root*>null
+        for root != null, root = root.next {
+
+            if root.data == p {
+                if prevRoot == null {
+                    this.roots = root.next
+                } else {
+                    prevRoot.next = root.next
+                }
+                free(root)
+                break
+            }
+
+            prevRoot = root
+        }
+    }
+}
+
+
+GC_sort_pointers(a BAH_GC_ptr*, b BAH_GC_ptr*) int {
+    if a.p < b.p {
+        return 1
+    }
+
+    return -1
+}
+
+BAH_GC_state BAH_GC_state_tag
+
+GC_setHeapSize(size uint) {
+    GC_min_collect = size
+    BAH_GC_state.nextCollect = size
+}
+
+#define GC_scan(from uint, to uint, alignment uint)
+#define real_pthread_exit(val ptr)
+
+GC_thread_wrapper(args ptr*) {
+
+    t = <BAH_GC_thread*>*args
+
+    pthread_mutex_lock(BAH_GC_state.mut)
+    t.stackBase = <uint>$rbp
+    t.next = BAH_GC_state.threads
+    t.t = pthread_self()
+    t.sysid = syscall(__NR_gettid)
+    BAH_GC_state.threads = t
+    pthread_mutex_unlock(BAH_GC_state.mut)
+
+    fn function(ptr) = *(<ptr*>(<uint>args + 16))
+
+    fnArg = *(<ptr*>(<uint>args + sizeof(ptr)))
+    free(args)
+
+    fn(fnArg)
+
+    //remove the thread from the linked list
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if t == BAH_GC_state.threads {
+        BAH_GC_state.threads = t.next
+        t.clean()
+    } else {
+        ct = BAH_GC_state.threads; for ct != null, ct = ct.next {
+            if ct.next == t {
+                ct.next = t.next
+                t.clean()
+                break
+            }
+        }
+    }
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
+GC_removeCurrentThread(val ptr) {
+    //remove the thread from the linked list
+    callerId = syscall(__NR_gettid)
+
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.threads.sysid == callerId {
+        t = BAH_GC_state.threads
+        BAH_GC_state.threads = BAH_GC_state.threads.next
+        t.clean()
+    } else {
+        currT = BAH_GC_state.threads
+        for currT != null, currT = currT.next {
+            if currT.next.sysid == callerId {
+                t = currT.next
+                currT.next = t.next
+                t.clean()
+                break
+            }
+        }
+    }
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    real_pthread_exit(val)
+}
+
+#define GC_scanReversed(p uint, to uint, alignment uint)
+#define GC_scan(p uint, to uint, alignment uint)
+
+
+GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
+    callerId = syscall(__NR_gettid)
+
+    t = BAH_GC_state.threads
+    for t != null, t = t.next {
+        if t.sysid == callerId {
+            break
+        }
+    }
+
+    memcpy(<ptr>t.regs, <ptr>(<uint>ctx + 40), 184)
+
+    atomic_add(&BAH_GC_state.atomicThreadCount, 1)
+
+    for atomic_load(&BAH_GC_state.atomicResume) == 0 {
+        sched_yield()
+    }
+}
+
+GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
+    t = <BAH_GC_thread*>malloc(sizeof(BAH_GC_thread))
+    if id == null {
+        id = &t.t
+    }
+
+    agrsWrapper = <ptr*>malloc(sizeof(ptr) * 3)
+    
+    argsW = <ptr*>(<uint>agrsWrapper + sizeof(ptr))
+    fnW = <ptr*>(<uint>agrsWrapper + 2 * sizeof(ptr))
+
+    *agrsWrapper = t
+    *argsW = args
+    *fnW = func
+
+    errNo = pthread_create(id, attr, GC_thread_wrapper, agrsWrapper)
+
+    return errNo
+}
+
+GC_thread_create_detached(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
+    t = <BAH_GC_thread*>malloc(sizeof(BAH_GC_thread))
+    if id == null {
+        id = &t.t
+    }
+
+    agrsWrapper = <ptr*>malloc(sizeof(ptr) * 3)
+    
+    argsW = <ptr*>(<uint>agrsWrapper + sizeof(ptr))
+    fnW = <ptr*>(<uint>agrsWrapper + 2 * sizeof(ptr))
+
+    *agrsWrapper = t
+    *argsW = args
+    *fnW = func
+
+    realAttr pthread_attr_t
+
+    if attr != null {
+        realAttr = *attr
+    } else {
+        pthread_attr_init(&realAttr)
+    }
+
+    pthread_attr_setdetachstate(&realAttr, 1)
+
+    errNo = pthread_create(id, &realAttr, GC_thread_wrapper, agrsWrapper)
+
+    pthread_attr_destroy(&realAttr)
+
+
+    return errNo
+}
+
+
+GC_thread_join(id pthread_t, ret ptr) int32 {
+    return pthread_join(id, ret)
+}
+
+GC_setStackBase() {
+    BAH_GC_state.stackBase = <uint>$stackBase
+}
+
+GC_init() {
+    BAH_GC_state.mainThread = syscall(__NR_gettid)
+    BAH_GC_state.nextCollect = GC_min_collect
+
+    action = sigaction {
+        sa_handler: GC_thread_sig_handler
+        sa_flags: SA_SIGINFO | SA_RESTART
+    }
+    sigaction(SIGGCSTOP, &action, null)
+
+    BAH_GC_state.mut = malloc(sizeof(pthread_mutex_t))
+
+    pthread_mutex_init(BAH_GC_state.mut, 0)
+
+    BAH_GC_state.threads = malloc(sizeof(BAH_GC_thread))
+    BAH_GC_state.threads.sysid = BAH_GC_state.mainThread
+    BAH_GC_state.threads.stackBase = BAH_GC_state.stackBase
+    BAH_GC_state.threads.t = pthread_self()
+
+
+    BAH_GC_state.pagesCap = 128
+    BAH_GC_state.pages = malloc(sizeof(ptr) * BAH_GC_state.pagesCap)
+}
+
+#init GC_setStackBase()
+#init GC_init()
+
+
+GC_markPtr(p uint) {
+    if p == 0 {
+        return
+    }
+
+
+    ptrPage = BAH_GC_state.isPointerInBounds(p)
+
+    if ptrPage == null {
+        return
+    }
+
+    gcPtr = ptrPage.find(p)
+
+    if gcPtr == null {
+        return
+    }
+    if gcPtr.marked {
+        return
+    }
+
+
+    gcPtr.marked = true
+    if gcPtr.notScannable == false {
+        if BAH_GC_state.scanStackBase - BAH_GC_state.scanRBP >= 6000000 {
+            overflowNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
+            overflowNode.data = gcPtr
+            overflowNode.next = BAH_GC_state.overflowQueue
+            BAH_GC_state.overflowQueue = overflowNode
+            return
+        }
+        GC_scan(p, p + gcPtr.size, 1)
+    }
+}
+
+
+GC_scan(p uint, to uint, alignment uint) {
+    for p < to - 7, p = p + alignment {
+        GC_markPtr(*<uint*>p)
+    }
+}
+
+GC_scanReversed(p uint, to uint, alignment uint) {
+    for p >= to, p = p - alignment {
+        GC_markPtr(*<uint*>p)
+    }
+}
+
+GC_stopWorld(callerId uint) uint {
+    t = BAH_GC_state.threads
+
+    nb = 0
+    for t != null, t = t.next {
+        if t.sysid == callerId {
+            continue
+        }
+        if pthread_kill(t.t, SIGGCSTOP) < 0 {
+            continue
+        }
+        nb++
+    }
+
+    return nb
+}
+
+GC_collect() {
+    //save registers
+    ordi = <uint>$rdi
+    orsi = <uint>$rsi
+    ordx = <uint>$rdx
+    orcx = <uint>$rcx
+    or8 = <uint>$r8
+    or9 = <uint>$r9
+    or10 = <uint>$r10
+    or11 = <uint>$r11
+    or12 = <uint>$r12
+    or13 = <uint>$r13
+    or14 = <uint>$r14
+    or15 = <uint>$r15
+    orax = <uint>$rax
+    orbx = <uint>$rbx
+
+    currBasePointer = <uint>$rbp
+
+    #debug {
+        if VERBOSE_GC {
+            puts("[GC] Collecting.")
+        }
+        scanStart = getTimeUnix()
+    }
+
+    i=0; for i < BAH_GC_state.pagesLength, i++ {
+        currPage = *<BAH_GC_page**>(<uint>BAH_GC_state.pages + i * sizeof(ptr))
+        if currPage.listLength >= GC_max_unsorted_ptr {
+            qsort(currPage.list, currPage.listRealLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+        }
+    }
+
+    callerId = syscall(__NR_gettid)
+
+    currThread = BAH_GC_state.threads
+    for currThread != null, currThread = currThread.next {
+        if currThread.sysid == callerId {
+            break
+        }
+    }
+
+    BAH_GC_state.scanStackBase = currThread.stackBase
+    BAH_GC_state.scanRBP = currBasePointer
+
+    atomic_store(&BAH_GC_state.atomicResume, 0)
+    atomic_store(&BAH_GC_state.atomicThreadCount, 0)
+
+    nbThreads = GC_stopWorld(callerId)
+
+    //check registers
+    GC_markPtr(ordi)
+    GC_markPtr(orsi)
+    GC_markPtr(ordx)
+    GC_markPtr(orcx)
+    GC_markPtr(or8)
+    GC_markPtr(or9)
+    GC_markPtr(or10)
+    GC_markPtr(or11)
+    GC_markPtr(or12)
+    GC_markPtr(or13)
+    GC_markPtr(or14)
+    GC_markPtr(or15)
+    GC_markPtr(orax)
+    GC_markPtr(orbx)
+
+    //check .data and .bss
+    dataStart = <uint>$data
+    bssStart = <uint>$bss
+    bssEnd = <uint>$end
+
+    GC_scan(dataStart, bssStart, 1)
+    GC_scan(bssStart, bssEnd, 1)
+
+    //check stack
+    GC_scanReversed(currThread.stackBase, currBasePointer, 8)
+
+    for atomic_load(&BAH_GC_state.atomicThreadCount) != nbThreads {
+        sched_yield()
+    }
+
+    ct = BAH_GC_state.threads
+    for ct != null, ct = ct.next {
+        if ct.sysid == callerId {
+            continue
+        }
+        GC_scanReversed(ct.stackBase, (*<uint*>(<uint>ct.regs + 120)), 8)
+        GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
+    }
+
+    root = BAH_GC_state.roots
+    for root != null, root = root.next {
+        GC_scan(<uint>root.data, <uint>root.data + root.size, 1)
+    }
+
+    freed=0
+    alive=0
+
+    additional=0
+    for BAH_GC_state.overflowQueue != null {
+        currQueue = BAH_GC_state.overflowQueue
+        BAH_GC_state.overflowQueue = null
+        for currQueue != null {
+            GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size, 1)
+            prevQueue = currQueue
+            currQueue = currQueue.next
+            free(prevQueue)
+            additional++
+        }
+    }
+
+    BAH_GC_state.heapSize = 0
+    j=0; for j < BAH_GC_state.pagesLength, j++ {
+        currPage = *<BAH_GC_page**>(<uint>BAH_GC_state.pages + j * sizeof(ptr))
+
+        i=currPage.listLength - 1; for i != -1 , i-- {
+            index = <BAH_GC_ptr*>(<uint>currPage.list + i * sizeof(BAH_GC_ptr))
+            if index.p == 0 {
+                continue
+            }
+
+            if index.marked == false {
+                freed++
+                free(<ptr>index.p)
+                lastIndex = <BAH_GC_ptr*>(<uint>currPage.list + (currPage.listLength - 1) * sizeof(BAH_GC_ptr))
+                *index = *lastIndex
+                lastIndex.p = 0
+                currPage.listLength--
+                continue
+            }
+
+            alive++
+            BAH_GC_state.heapSize += index.size
+
+            index.marked = false
+        }
+
+        if currPage.listLength == 0 {
+            free(currPage.list)
+            if j < BAH_GC_state.pagesLength - 1 {
+                memmove(<ptr>(<uint>BAH_GC_state.pages + j * sizeof(ptr)), <ptr>(<uint>BAH_GC_state.pages + (j+1) * sizeof(ptr)), (BAH_GC_state.pagesLength - (j+1)) * sizeof(ptr))
+            }
+            free(currPage)
+
+            j--
+            BAH_GC_state.pagesLength--
+            continue
+        }
+
+
+        if currPage.listLength >= GC_max_unsorted_ptr {
+            qsort(currPage.list, currPage.listLength, sizeof(BAH_GC_ptr), GC_sort_pointers)
+        }
+    }
+
+    #debug {
+        if VERBOSE_GC {
+
+            nbPages = BAH_GC_state.pagesLength
+
+            puts("===COLLECT RESULTS===")
+            puts("freed: ")
+            printInt(freed)
+            puts("still allive: ")
+            printInt(alive)
+            puts("heap size:")
+            printInt(BAH_GC_state.heapSize)
+            puts("nb pages:")
+            printInt(nbPages)
+            puts("took (ms):")
+            printInt((getTimeUnix() - scanStart) / 1000000)
+            puts("=====================")
+        }
+    }
+
+    atomic_store(&BAH_GC_state.atomicResume, 1)
+}
+
+memoryAlloc(s uint) ptr {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+    r = BAH_GC_state.allocate(s, false)
+    memset(<ptr>r, 0, s)
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
+}
+
+memoryAlloc_NZ(s uint) ptr {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+    r = BAH_GC_state.allocate(s, false)
+
+    *(<byte*>(r + s - 1)) = <byte>0
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
+}
+
+memoryRealloc(o ptr, s uint) ptr {
+    if o == null {
+        return memoryAlloc(s)
+    }
+
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+    
+    index BAH_GC_ptr*
+    currPage = BAH_GC_state.isPointerInBounds(<uint>o)
+
+    if currPage == null {
+        panic("GC: cannot reallocate memory that was not allocated by the garbage collector.")
+    }
+
+    i=0; for i < currPage.listLength, i++ {
+        index = <BAH_GC_ptr*>(<uint>currPage.list + i * sizeof(BAH_GC_ptr))
+        if index.p == <uint>o {
+            break
+        }
+    }
+
+    if i == currPage.listLength {
+        panic("GC: fatal error doing reallocation")
+    }
+
+    r = <uint>realloc(o, s)
+
+    if r == 0 {
+        panic("GC: could not reallocate memory.")
+    }
+
+    memset(<ptr>(<uint>r + index.size), 0, s - index.size)
+
+    BAH_GC_state.heapSize += s - index.size
+    index.size = s
+
+    if r != <uint>o {
+        index.p = r
+        newPageNb = BAH_GC_state.calcPageNb(r)
+        if newPageNb != currPage.page {
+            indexBackup = *index
+            lastIndex = <BAH_GC_ptr*>(<uint>currPage.list + (currPage.listLength - 1) * sizeof(BAH_GC_ptr))
+            *index = *lastIndex
+            lastIndex.p = 0
+            currPage.listLength--
+
+            newPage = BAH_GC_state.updatePagesBounds(r)
+            newIndex = newPage.addPtr(r)
+            newIndex.size = indexBackup.size
+            newIndex.notScannable = indexBackup.notScannable
+        }
+    }
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
+}
+
+
+memoryAllocSTR(s uint) str {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+    r = BAH_GC_state.allocate(s, true)
+    memset(<ptr>r, 0, s)
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
+}
+
+memoryAllocSTR_NZ(s uint) str {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
+        GC_collect()
+        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
+        if BAH_GC_state.nextCollect < GC_min_collect {
+            BAH_GC_state.nextCollect = GC_min_collect
+        }
+    }
+
+
+    r = BAH_GC_state.allocate(s, true)
+    *(<byte*>(r + s - 1)) = <byte>0
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <ptr>r
+}
+
+GC_registerRoot(addr ptr, size uint) {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    BAH_GC_state.addRoot(addr, size)
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
+GC_removeRoot(addr ptr) {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    BAH_GC_state.removeRoot(addr)
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
+
 
 print(s str) {
     write(1, s, len(s))
@@ -753,9 +1869,6 @@ struct strBuilder {
     }
 
 }
-
-//need to find wtf is hapening here
-// #init putchar(<char>0) //fixes bug where libc not initialized if not called from main thread.
 
 #debug {
     #include "time.bah"
