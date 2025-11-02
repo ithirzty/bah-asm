@@ -1351,8 +1351,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                         parserCtx.scopeCtx.setState(BAH_SCOPE_EXITTED)
                     } else if (fnSymVal.tok.cont == "memoryRealloc" || fnSymVal.tok.cont == "realloc" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_REALLOC)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
                         parserCtx.scopeCtx.setState(BAH_SCOPE_REALLOC)
-                    } else 
-                    if parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
+                    } else if parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
                         if fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_PURE) == false {
                             parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
                         } else {

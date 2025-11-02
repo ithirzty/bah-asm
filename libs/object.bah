@@ -306,6 +306,11 @@ fromObjectInner(obj Bah_Array_Type*, offset uint) [ptr, uint] {
 
 toObject(e reflectElement) []byte {
     arr = []byte
+    
+    at = <Bah_Array_Type*>arr
+    at.realLength = 64
+    at.data = memoryAllocSTR_NZ(at.realLength)
+
     toObjectInner(e, arr)
     return arr
 }

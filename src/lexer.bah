@@ -3,7 +3,7 @@
 #import "time.bah"
 
 //tokens types
-#define tokenType int
+#define tokenType byte
 
 const TOKEN_NO_TYPE =      <tokenType>-1
 const TOKEN_TYPE_INT =     <tokenType>0
@@ -24,10 +24,10 @@ totalLexerTime = 0
 //a token (the atomic unit for describing the inputed Bah file)
 struct bahToken {
     cont: str = ""
+    pos: uint32 = 0
+    line: uint32 = 1
+    begLine: uint32 = 1
     type: tokenType = TOKEN_NO_TYPE
-    pos: uint = 0
-    line: uint = 1
-    begLine: uint = 1
     isValue: bool
 }
 
