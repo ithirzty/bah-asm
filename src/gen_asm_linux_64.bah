@@ -359,6 +359,11 @@ struct asmStrLookup {
     symbolName: str
 }
 
+struct asmCacheUnref {
+    instructions: [uint,uint]
+    arg: asmSymbol
+}
+
 struct asmContext {
     // symbols: []asmSymbol
 
@@ -536,7 +541,7 @@ struct asmContext {
     isSet(arg asmSymbol*, i uint) bool {
         inst = &this.instructions[i]
 
-        if *<uint*>inst.instruction == ASM_instruction_id_call && arg.isReg {
+        if *<uint*>inst.instruction == ASM_instruction_id_call && arg.isReg && (arg.address < ASM_reg_id_op + 6 || arg.address >= ASM_reg_id_floats) {
             return true
         }
         
@@ -566,7 +571,7 @@ struct asmContext {
             return arg.isTmp == false
         }
 
-        if *<uint*>inst.instruction == ASM_instruction_id_call && arg.isReg {
+        if *<uint*>inst.instruction == ASM_instruction_id_call && arg.isReg && (arg.address < ASM_reg_id_op + 6 || arg.address >= ASM_reg_id_floats) {
             return true
         }
 
@@ -716,8 +721,11 @@ struct asmContext {
         clear(this.discardedArgs)
     }
 
+    //First pass: (before tmp symbols generation)
+    //- remove null operations (add 0, sub 0...)
+    //- remove un-necessary mov a -> a
+    //- propagate and reduce mov operations
     optimizeInstructions() {
-
         uses = []asmInstruction*
 
         i = this.startIndex; for i < len(this.instructions), i++ {
@@ -857,11 +865,191 @@ struct asmContext {
 
         }
     }
+
+    //Second pass: (after tmp symbols generation)
+    //- store variable dereferenced multiple times
+    optimizeFinalInsutrctions() {
+
+        cachedUnrefs = []asmCacheUnref
+
+        i = this.startIndex; for i < len(this.instructions), i++ {
+            inst = &this.instructions[i]
+
+            if inst.instruction[0] != 'm' || inst.instruction[1] != 'o' {
+                continue
+            }
+
+            if inst.arg2.isReg == false || inst.arg2.address != ASM_reg_id_return || inst.arg1.stack == false {
+                continue
+            }
+
+            start = i
+            lastUnref = 0
+
+            i++
+            
+            // println("first: "+inst.toStr())
+
+            for i < len(this.instructions), i++ {
+                agnst = &this.instructions[i]
+
+                if agnst.instruction[0] != 'm' || agnst.instruction[1] != 'o' {
+                    continue
+                }
+
+                if agnst.arg1.isReg && agnst.arg1.address == ASM_reg_id_return && agnst.arg1.level == 1 {
+                    // println("\tunref: "+agnst.toStr())
+                    lastUnref = i
+                    continue
+                }
+
+                if (agnst.arg2.isReg == false || agnst.arg2.address != ASM_reg_id_return) && agnst.arg1.isReg && agnst.arg1.address == ASM_reg_id_return {
+                    // println("\tend: "+agnst.toStr())
+                    break
+                }
+            }
+
+            if i == len(this.instructions) {
+                break
+            }
+
+            if lastUnref == 0 || i - start < 2 {
+                continue
+            }
+
+            k=0; for k < len(cachedUnrefs), k++ {
+                unref = &cachedUnrefs[k]
+
+                if unref.instructions[1] - unref.instructions[0] != i - start {
+                    continue
+                }
+
+                // println("potential: ["+uintToStr(k)+"]")
+
+                j=start; for j < i, j++ {
+                    agnst = &this.instructions[unref.instructions[0] + j - start]
+                    inst = &this.instructions[j]
+
+                    if inst.instruction != agnst.instruction {
+                        break
+                    }
+
+                    if inst.instruction[0] == '#' {
+                        continue
+                    }
+
+                    if this.isSameArgAndSize(&inst.arg1, &agnst.arg1) == false || this.isSameArgAndSize(&inst.arg2, &agnst.arg2) == false {
+                        break
+                    }
+                }
+
+                if j == i {
+                    isValid = true
+
+                    if this.isSetInRange(&unref.arg, unref.instructions[1]+1, start) {
+                        isValid = false
+                        break
+                    }
+                    
+                    j=unref.instructions[1]+1; for j < start, j++ {
+                        inst = &this.instructions[j]
+
+                        if strHasPrefix(inst.instruction, ".IF_") || strHasPrefix(inst.instruction, ".ELSE_") {
+                            isValid = false
+                            break
+                        }
+                    }
+
+                    if isValid {
+                        j=start; for j < i, j++ {
+                            inst = &this.instructions[j]
+
+                            
+                            if inst.arg1.isReg == false || inst.arg1.address != ASM_reg_id_return {
+                                if this.isSetInRange(&inst.arg1, unref.instructions[1]+1, start) {
+                                    isValid = false
+                                    break
+                                }
+                            }
+
+                            if inst.arg2.isReg == false || inst.arg2.address != ASM_reg_id_return {
+                                if this.isSetInRange(&inst.arg2, unref.instructions[1]+1, start) {
+                                    isValid = false
+                                    break
+                                }
+                            }
+
+                        }
+                    }
+
+                    if isValid == false {
+                        delete(cachedUnrefs, k)
+                    } else {
+
+                        if unref.arg.isReg == false && this.instructions[i].arg2.isReg == false {
+
+                            j=start; for j < i-1, j++ {
+                                inst = &this.instructions[j]
+                                inst.instruction = "#"
+                            }
+
+                            this.instructions[i-1].arg1 = unref.arg
+                        } else {
+                            j=start; for j < i, j++ {
+                                inst = &this.instructions[j]
+                                inst.instruction = "#"
+                            }
+
+                            if this.isSameArgAndSize(&unref.arg, &this.instructions[i].arg2) {
+                                this.instructions[i].instruction = "#"
+                            } else {
+                                this.instructions[i].arg1 = unref.arg
+                            }
+                        }
+
+
+                    }
+
+                    break
+                }
+            }
+
+            if k == len(cachedUnrefs) {
+                inst = &this.instructions[start]
+
+                cachedUnrefs[len(cachedUnrefs)] = asmCacheUnref {
+                    instructions: [start,i]
+                    arg: this.instructions[i].arg2
+                }
+            }
+
+        }
+    }
     
     generateSymFromTmp(sym asmSymbol, i uint) uint {
         lastUse = 0
         regNotBreaking = true
         regsUsed = [false, false, false, false]
+
+        lastOccurence = len(this.instructions)
+
+        k=i; for k < len(this.instructions), k++ {
+            if this.instructions[k].instruction[0] == '#' {
+                continue
+            }
+
+            if strHasPrefix(this.instructions[k].instruction, ".loc") {
+                break
+            }
+
+            if this.instructions[k].arg1.isTmp && this.instructions[k].arg1.address == sym.address {
+                lastOccurence = k
+            }
+
+            if this.instructions[k].arg2.isTmp && this.instructions[k].arg2.address == sym.address {
+                lastOccurence = k
+            }
+        }
 
         k=i; for k < len(this.instructions), k++ {
             if this.instructions[k].instruction[0] == '#' {
@@ -879,24 +1067,42 @@ struct asmContext {
 
             if this.instructions[k].arg1.isReg {
                 addr = this.instructions[k].arg1.address
+                if addr >= ASM_reg_id_args + 4 && addr < ASM_reg_id_args + 6 {
+                    addr += ASM_reg_id_op + 2 - (ASM_reg_id_args + 4)
+                }
                 if addr > ASM_reg_id_op + 1 && addr < ASM_reg_id_op + 6 {
                     num = addr - (ASM_reg_id_op + 2)
                     _asmSetBitfield(&regsUsed, num)
                 }
             } else if this.instructions[k].arg2.isReg {
                 addr = this.instructions[k].arg2.address
+                if addr >= ASM_reg_id_args + 4 && addr < ASM_reg_id_args + 6 {
+                    addr += ASM_reg_id_op + 2 - (ASM_reg_id_args + 4)
+                }
                 if addr > ASM_reg_id_op + 1 && addr < ASM_reg_id_op + 6 {
                     num = addr - (ASM_reg_id_op + 2)
                     _asmSetBitfield(&regsUsed, num)
                 }
             }
 
-            if *<uint*>this.instructions[k].instruction == ASM_instruction_id_call {
+            if k <= lastOccurence && this.instructions[k].instruction[0] == 'j' {
+                l=k+1; for l < lastOccurence, l++ {
+                    if strHasPrefix(this.instructions[l].instruction, this.instructions[k].arg1.name) {
+                        break
+                    }
+                }
+                if l == lastOccurence {
+                    regNotBreaking = false
+                    break
+                }
+            }
+
+            if *<uint*>this.instructions[k].instruction == ASM_instruction_id_call && k <= lastOccurence {
                 regNotBreaking = false
                 break
             }
 
-            if *<uint*>this.instructions[k].instruction == ASM_instruction_id_leaq && this.isSameArg(&this.instructions[k].arg1, &sym) {
+            if *<uint*>this.instructions[k].instruction == ASM_instruction_id_leaq && k <= lastOccurence && this.isSameArg(&this.instructions[k].arg1, &sym) {
                 regNotBreaking = false
                 break
             }
@@ -1054,6 +1260,10 @@ struct asmContext {
             } else if this.stackOffset == 0 {
                 this.stackOffset = 16
             }
+        }
+
+        if this.enableOptimizations {
+            this.optimizeFinalInsutrctions()
         }
 
 

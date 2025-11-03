@@ -375,7 +375,6 @@ const GC_max_unsorted_ptr = 64
 struct BAH_GC_ptr {
     size: uint
     p: uint
-    alignment: uint32
     marked: bool
     notScannable: bool
 }
@@ -600,7 +599,7 @@ struct BAH_GC_state_tag {
         return currPage
     }
 
-    allocate(s uint, notScannable bool, alignment uint32) uint {
+    allocate(s uint, notScannable bool) uint {
         p = <uint>malloc(s)
 
         if p == 0 {
@@ -616,7 +615,6 @@ struct BAH_GC_state_tag {
 
         index.size = s
         index.notScannable = notScannable
-        index.alignment = alignment
 
         return p
     }
@@ -874,27 +872,12 @@ GC_markPtr(p uint) {
             return
         }
 
-        GC_scan(p, p + gcPtr.size, gcPtr.alignment)
+        GC_scan(p, p + gcPtr.size, 1)
     }
 }
 
 
 GC_scan(p uint, to uint, alignment uint) {
-    if alignment > 8 {
-        to -= 7
-        for p < to, p += alignment {
-            op = p
-            for op < p + alignment, op += 8 {
-                GC_markPtr(*<uint*>op)
-            }
-        }
-        return
-    }
-
-    if alignment == 0 {
-        alignment = 8
-    }
-
     to -= 7
     for p < to, p += alignment {
         GC_markPtr(*<uint*>p)
@@ -1112,27 +1095,9 @@ memoryAlloc(s uint) ptr {
         }
     }
 
-    r = BAH_GC_state.allocate(s, false, 0)
+    r = BAH_GC_state.allocate(s, false)
     memset(<ptr>r, 0, s)
 
-    pthread_mutex_unlock(BAH_GC_state.mut)
-    return <ptr>r
-}
-
-memoryAllocAligned(s uint, alignment uint32) ptr {
-    pthread_mutex_lock(BAH_GC_state.mut)
-    if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
-        BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
-        if BAH_GC_state.nextCollect < GC_min_collect {
-            BAH_GC_state.nextCollect = GC_min_collect
-        }
-    }
-
-
-    r = BAH_GC_state.allocate(s, false, alignment)
-
-    *(<byte*>(r + s - 1)) = <byte>0
     pthread_mutex_unlock(BAH_GC_state.mut)
     return <ptr>r
 }
@@ -1148,7 +1113,7 @@ memoryAlloc_NZ(s uint) ptr {
     }
 
 
-    r = BAH_GC_state.allocate(s, false, 0)
+    r = BAH_GC_state.allocate(s, false)
 
     *(<byte*>(r + s - 1)) = <byte>0
 
@@ -1233,7 +1198,7 @@ memoryAllocSTR(s uint) str {
     }
 
 
-    r = BAH_GC_state.allocate(s, true, 0)
+    r = BAH_GC_state.allocate(s, true)
     memset(<ptr>r, 0, s)
     pthread_mutex_unlock(BAH_GC_state.mut)
     return <ptr>r
@@ -1250,7 +1215,7 @@ memoryAllocSTR_NZ(s uint) str {
     }
 
 
-    r = BAH_GC_state.allocate(s, true, 0)
+    r = BAH_GC_state.allocate(s, true)
     *(<byte*>(r + s - 1)) = <byte>0
     pthread_mutex_unlock(BAH_GC_state.mut)
     return <ptr>r
@@ -1695,7 +1660,12 @@ __Bah_panic(e str, loc str) {
 
 arrayDuplicate(arr Bah_Array_Type*) {
     size = arr.length * arr.elemSize
-    ndata = memoryAllocAligned(size, arr.elemSize)
+    ndata ptr
+    if arr.elemSize < 8 {
+        ndata = memoryAllocSTR(size)
+    } else {
+        ndata = memoryAlloc(size)
+    }
     memcpy(ndata, arr.data, size)
     arr.data = ndata
     arr.realLength = arr.length
@@ -1731,7 +1701,7 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
         arr.realLength *= 2
     }
     if arr.data == null {
-        arr.data = memoryAllocAligned(arr.realLength * arr.elemSize, arr.elemSize)
+        arr.data = memoryAlloc(arr.realLength * arr.elemSize)
         return
     }
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
@@ -1758,7 +1728,7 @@ __Bah_realocate_arr_nonPointer(arr Bah_Array_Type*, index uint) {
 allocateArray(arr Bah_Array_Type*, nbElems uint) {
     arr.length = nbElems
     arr.realLength = nbElems
-    arr.data = memoryAllocAligned(nbElems * arr.elemSize, arr.elemSize)
+    arr.data = memoryAlloc(nbElems * arr.elemSize)
 }
 
 buffToStr(b char*) str {
@@ -1836,7 +1806,7 @@ arraySubstituteAndCopy(arr Bah_Array_Type*, i int, l int) Bah_Array_Type* {
 
 	size = length * arr.elemSize
 	realSize = length * arr.elemSize
-	data = memoryAllocAligned(size, arr.elemSize)
+	data = memoryAlloc(size)
 	oData = arr.data
 	memcpy(data, <ptr>(<uint>oData + offset), realSize)
 	na.data = data
