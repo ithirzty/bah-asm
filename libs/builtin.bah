@@ -280,8 +280,16 @@ struct mutexCondition {
     // mutexCond.wait()
     //}
     wait(m mutex) {
-        mid = m.id
-        pthread_cond_wait(&this.id, mid)
+        pthread_cond_wait(&this.id, m.id)
+    }
+
+    //Timeout in ns.
+    timedWait(m mutex, timeout uint) bool {
+        ts = Ctimespec{}
+        timespec_get(&ts, TIME_UTC)
+        ts.tv_nsec += (timeout % 1000000000)
+        ts.tv_sec += (timeout / 1000000000)
+        return pthread_cond_timedwait(&this.id, m.id, &ts) == 0
     }
 
     //To signal a single thread that the condition may be true.

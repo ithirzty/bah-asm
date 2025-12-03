@@ -1694,7 +1694,7 @@ struct asmContext {
     }
 
     generateTmpSym(value asmSymbol, size uint) asmSymbol {
-        if value.level == 0 && (value.stack || value.isValue) {
+        if value.level == 0 && value.isReg == false {
             return value
         }
 
@@ -4134,9 +4134,12 @@ struct asmContext {
                         offset++
                         tmpArg.size = arguments[i].size - 8
 
-                        if tmpArg.stack == false {
+                        if tmpArg.stack == false || tmpArg.isTmp {
+                            if tmpArg.level == 1 {
+                                tmpArg.level = 0
+                            }
                             this.instructions[len(this.instructions)] = asmInstruction {
-                                "leaq", tmpArg, asmSymbolReg(ASM_reg_id_return, 8, 0)
+                                "movq", tmpArg, asmSymbolReg(ASM_reg_id_return, 8, 0)
                             }
                             this.instructions[len(this.instructions)] = asmInstruction {
                                 "addq", asmSymbolValue("$8"), asmSymbolReg(ASM_reg_id_return, 8, 0)
