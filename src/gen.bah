@@ -1580,7 +1580,10 @@ generateReflection(val bahValue*) asmSymbol {
     setSym.address = sym.address - 64
     valSym = generateBahValueSymbol(val, null)
     if val.type.type == BAH_TYPE_TUPLE || val.type.type == BAH_TYPE_STR || val.type.isNativePtr == false {
-        valSym.level = -1
+        valSym.level--
+        if valSym.level < -1 {
+            valSym.level = -1
+        }
         valSym.size = 8
     }
     gen.generateVarSet(setSym, valSym, false)

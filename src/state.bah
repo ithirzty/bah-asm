@@ -14,7 +14,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.151 (build 37)"
+BAH_VERSION = "v0.152 (build 38)"
 
 
 const BAH_TYPE_BOOL         = 0
@@ -261,6 +261,13 @@ const BAH_SCOPE_RETURNED = 1
 const BAH_SCOPE_EXITTED  = 2
 const BAH_SCOPE_REALLOC  = 4
 
+struct bahLambda {
+    tokens: []bahToken
+    range: [int, int]
+    type: bahType*
+    id: str
+}
+
 struct parserScope {
     isConditional: bool
     
@@ -317,6 +324,7 @@ struct parserContext {
     debugEnabled: bool
     
     scopeCtx: parserScope*
+    lmabdasToParse: []bahLambda
 
     addVar(v bahVariable*) {
         v.scope = this.scope

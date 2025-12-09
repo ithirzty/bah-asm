@@ -186,7 +186,7 @@ struct objectFile {
                 if foundFunc == false {
                     fAddr = sym.st_value + rel.r_addend - rel.r_offset
                     if <uint>rel.r_offset + <uint>fAddr < 16 {
-                        panic("objectFile: could not link function "+fnName+". If you compiled with -trim, please add the symbol manually with objectFile.setSymbol().")
+                        println("objectFile: could not link function "+fnName+". If you compiled with -trim, please add the symbol manually with objectFile.setSymbol().")
                     } else {
                         *addr = fAddr
                     }

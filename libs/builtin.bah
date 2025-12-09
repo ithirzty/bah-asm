@@ -1847,6 +1847,16 @@ strToArr(str str) []char {
     return arr
 }
 
+strAsArr(s str) Bah_Array_Type {
+    return Bah_Array_Type {
+        data: <ptr>(<uint>s + 4)
+        length: len(s)
+        realLength: len(s)
+        elemSize: 1
+        parent: <ptr>s
+    }
+}
+
 //This is used to efficiently construct strs character by character.
 //Note that if you want to create a substring of a string efficiently, you can use str[from:to] instead.
 struct strBuilder {
