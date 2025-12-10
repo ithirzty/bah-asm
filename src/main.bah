@@ -414,7 +414,7 @@ main(args []str) int {
     }
 
     if isRun {
-        runArgs = [fileName, null]
+        runArgs = [cStr(file), null]
         pid = fork()
         if pid == 0 {
             r = execvp(fileName, <ptr>&runArgs)

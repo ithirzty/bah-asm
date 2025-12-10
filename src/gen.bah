@@ -8,6 +8,7 @@
 #import "state.bah"
 #import "error.bah"
 #import "optimizer.bah"
+#import "cache.bah"
 
 #x86 {
     #import "gen_asm_linux_64.bah"
@@ -1059,7 +1060,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 gen.generateVarSet(setSym, fnNameSym, false)
             }
 
-            asyncFnName = ".Bah_async_"+uintToStr(gen.fileNb)+"_"+uintToStr(gen.currentLine)
+            asyncFnName = ".Bah_async_"+pathToVarName(parserCtx.currentFilePath)+"_"+uintToStr(gen.currentLine)
 
             //ptherad fn call
             gen.generateFnCallStart()
