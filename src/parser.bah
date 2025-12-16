@@ -3060,7 +3060,7 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
                 rValSym = generateBahValueSymbol(rVal, null)
             }
 
-            if lVal.isArrayRecursive() {
+            if lVal.isArrayRecursive() || lVal.isUnary {
                 rValSym = gen.generateTmpSym(rValSym, rValSym.size)
             }
 

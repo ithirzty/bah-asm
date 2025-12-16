@@ -73,7 +73,7 @@ const PROT_READWRITE = 3
 #define free(p ptr)
 
 #linux {
-    #define mmap(addr ptr, ps uint, prot int32, flags int32, fd int32, offset int) ptr
+    #define mmap(addr ptr, ps uint, prot int32, flags int32, fd int32, offset uint) ptr
     #define munmap(addr ptr, l uint) int32
 }
 
