@@ -3638,8 +3638,13 @@ struct asmContext {
             }
         }
 
-        if sym.isValue == false || sym.isReg == false || sym.address >= ASM_reg_id_floats {
+        src asmSymbol
+
+        if sym.isValue == false && sym.isReg == false || sym.address < ASM_reg_id_floats {
             this.generateMoveValue(sym, asmSymbolReg(ASM_reg_id_floats, 8, 0))
+            src = asmSymbolReg(ASM_reg_id_floats, 8, 0)
+        } else {
+            src = sym
         }
 
         inst = "cvttsd2siq"
@@ -3668,21 +3673,24 @@ struct asmContext {
             }
         }
         this.instructions[len(this.instructions)] = asmInstruction {
-            inst, asmSymbolReg(ASM_reg_id_floats, 8, 0), opReg
+            inst, src, opReg
         }
 
-        if size == 1 {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "movsbq", asmSymbolReg(ASM_reg_id_op, size, this.regIndex+1), asmSymbolReg(ASM_reg_id_op, size, this.regIndex)
-            }
-        } else if size == 2 {
-            this.instructions[len(this.instructions)] = asmInstruction {
-                "movswq", asmSymbolReg(ASM_reg_id_op, size, this.regIndex+1), asmSymbolReg(ASM_reg_id_op, size, this.regIndex)
-            }
+        if size < 4 {
+            return this.generateTmpSym(asmSymbolReg(ASM_reg_id_op, size, this.regIndex + 1), size)
         }
 
-        r = this.generateTmpSym(asmSymbolReg(ASM_reg_id_op, size, this.regIndex), size)
-        return r
+        // if size == 1 {
+            // this.instructions[len(this.instructions)] = asmInstruction {
+            //     "movsbq", asmSymbolReg(ASM_reg_id_op, size, this.regIndex+1), asmSymbolReg(ASM_reg_id_op, size, this.regIndex)
+            // }
+        // } else if size == 2 {
+            // this.instructions[len(this.instructions)] = asmInstruction {
+            //     "movswq", asmSymbolReg(ASM_reg_id_op, size, this.regIndex+1), asmSymbolReg(ASM_reg_id_op, size, this.regIndex)
+            // }
+        // }
+
+        return this.generateTmpSym(asmSymbolReg(ASM_reg_id_op, size, this.regIndex), size)
     }
 
     generateConvIntToFloat(sym asmSymbol, size uint) asmSymbol {
@@ -3694,9 +3702,9 @@ struct asmContext {
             }
         }
 
-        this.instructions[len(this.instructions)] = asmInstruction {
-            "pxor", asmSymbolReg(ASM_reg_id_floats, 8, 0), asmSymbolReg(ASM_reg_id_floats, 8, 0)
-        }
+        // this.instructions[len(this.instructions)] = asmInstruction {
+        //     "pxor", asmSymbolReg(ASM_reg_id_floats, 8, 0), asmSymbolReg(ASM_reg_id_floats, 8, 0)
+        // }
 
         inst = "cvtsi2sdq"
         regSize = 8
@@ -4095,7 +4103,7 @@ struct asmContext {
 
         i=0; for i < len(arguments), i++ {
 
-            if i == 6 && rspOffsetAlignment + rspFinalOffset != 0 {
+            if i == 6 && rspFinalOffset != 0 {
                 this.instructions[len(this.instructions)] = asmInstruction {
                     "subq", asmSymbolValue("$"+uintToStr(rspOffsetAlignment + rspFinalOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
                 }
@@ -4222,14 +4230,11 @@ struct asmContext {
             "call", fnName
         }
 
-        // if rspOffset != 0 {
-        //     if rspOffset % 16 != 0 {
-        //         rspOffset += 16 - (rspOffset % 16)
-        //     }
-        //     this.instructions[len(this.instructions)] = asmInstruction {
-        //         "addq", asmSymbolValue("$"+uintToStr(rspOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
-        //     }
-        // }
+        if rspFinalOffset + bigArgRspOffset != 0 {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                "addq", asmSymbolValue("$"+uintToStr(rspOffsetAlignment + rspFinalOffset + bigArgRspOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+            }
+        }
 
         if returnSize > 8 {
             if returnSize <= 16 {

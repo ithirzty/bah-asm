@@ -389,26 +389,6 @@ uintToStr(i uint) str {
     return buffToStr(<char*>(<uint>s + ind + 1))
 }
 
-const Bah_string_hex_characters = "0123456789ABCDEF"
-
-uintToHex(i uint) str {
-    if i == 0 {
-        return "0"
-    }
-
-    s = buffer 66
-    s[65] = <char>0
-    ind = 64
-
-    for i != 0, i /= 16 {
-        s[ind] = Bah_string_hex_characters[i % 16]
-        ind--
-    }
-
-    return buffToStr(<char*>(<uint>s + ind + 1))
-}
-
-
 hexToInt(s str) int {
     l = len(s) - 2
     r = 0

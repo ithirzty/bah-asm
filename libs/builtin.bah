@@ -14,6 +14,8 @@ const strLenSize = 4
 #define atomic_load(obj int*) int
 #define sched_yield()
 
+#define uintToHex(i uint) str
+
 struct Bah_Array_Type {
 	data: ptr
 	length: uint
@@ -351,6 +353,7 @@ mutex() mutex {
     m.init()
     return m
 }
+
 
 #define GC_removeCurrentThread(val ptr)
 
@@ -1148,7 +1151,7 @@ memoryRealloc(o ptr, s uint) ptr {
     currPage = BAH_GC_state.isPointerInBounds(<uint>o)
 
     if currPage == null {
-        panic("GC: cannot reallocate memory that was not allocated by the garbage collector.")
+        panic("GC: cannot reallocate memory that was not allocated by the garbage collector (0x"+uintToHex(<uint>o)+").")
     }
 
     i=0; for i < currPage.listLength, i++ {
@@ -1712,6 +1715,7 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
         arr.data = memoryAlloc(arr.realLength * arr.elemSize)
         return
     }
+
     arr.data = memoryRealloc(arr.data, arr.realLength * arr.elemSize)
 }
 
@@ -1756,6 +1760,24 @@ cStrToBah(b char*) str {
     *r = l
     memcpy(<ptr>(<uint>r+4), b, l)
     return <str>r
+}
+
+uintToHex(i uint) str {
+    const Bah_string_hex_characters = "0123456789ABCDEF"
+    if i == 0 {
+        return "0"
+    }
+
+    s = buffer 66
+    s[65] = <char>0
+    ind = 64
+
+    for i != 0, i /= 16 {
+        s[ind] = Bah_string_hex_characters[i % 16]
+        ind--
+    }
+
+    return buffToStr(<char*>(<uint>s + ind + 1))
 }
 
 __bah_argsToArr(argc uint, argv char**) []str {
