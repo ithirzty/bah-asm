@@ -134,7 +134,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         tp = ASM_NUM_UINT
     } else if type.type == BAH_TYPE_FLOAT {
         tp = ASM_NUM_FLOAT
-    } else if type.isPtr && type.child.type == BAH_TYPE_STRCT {
+    } else if type.type == BAH_TYPE_STRCT || type.isPtr && type.child.type == BAH_TYPE_STRCT {
         methodName = ""
         if opStr[0] == '+' {
             methodName = ".add"
@@ -147,19 +147,25 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         }
 
         if len(methodName) != 0 {
-            method = parserCtx.findFunc(type.child.child.name+methodName)
+            method bahFunction*
+            if type.isPtr {
+                method = parserCtx.findFunc(type.child.child.name+methodName)
+            } else {
+                method = parserCtx.findFunc(type.child.name+methodName)
+            }
 
             if method != null {
-                if compatibleTypes(type, method.type.child) == false {
-                    throwErrorTok(tok, "Wrong type in call to "+method.name)
-                }
-
                 if compatibleTypes(type, method.type.child.next) == false {
                     throwErrorTok(tok, "Wrong type in call to "+method.name)
                 }
 
                 if compatibleTypes(type, method.type.ret) == false {
                     throwErrorTok(tok, method.name+"'s return type is not the same as its arguments.")
+                }
+
+                if type.isPtr == false {
+                    left.level =-1
+                    left.size = 8
                 }
 
                 gen.generateFnCallStart()
