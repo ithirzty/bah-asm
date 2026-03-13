@@ -1,0 +1,7 @@
+#x86 {
+    #import "gen_asm_linux_64.bah"
+}
+
+#arm {
+    #import "gen_asm_linux_arm64.bah"
+}

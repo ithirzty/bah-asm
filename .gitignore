@@ -4,3 +4,5 @@ main2
 .vscode
 .tmp_bah
 *.S
+src/main_cross_arm.bah
+src/main_cross_arm

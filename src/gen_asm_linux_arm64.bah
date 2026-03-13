@@ -7,10 +7,334 @@
 
 #define printDebugContext()
 
-const ASM_arguments_registers = []str{"r0", "r1", "r2", "r3",  "r4",  "r5", "r6", "r7"}
+const persistentmcpySource = ""
+// ".global persistentmcpy
+// persistentmcpy:
+// stp x29, x30, [sp, #-16]!
+// mov x29, sp
+// cmp #0, %rdx
+// je .persistentmcpy_648
+// addq %rdi, %rdx
+// subq $15, %rdx
+// cmpq %rdx, %rdi
+// jnb .persistentmcpy_not_649
+// .persistentmcpy_649:
+// movdqu (%rsi), %xmm0
+// movdqu %xmm0, (%rdi)
+// addq $16, %rsi
+// addq $16, %rdi
+// cmpq %rdx, %rdi
+// jb .persistentmcpy_649
+// .persistentmcpy_not_649:
+// addq $15, %rdx
+// cmpq %rdx, %rdi
+// jnb .persistentmcpy_not_650
+// .persistentmcpy_650:
+// movb (%rsi), %al
+// movb %al, (%rdi)
+// addq $1, %rsi
+// addq $1, %rdi
+// cmpq %rdx, %rdi
+// jb .persistentmcpy_650
+// .persistentmcpy_not_650:
+// popq %rbp
+// ret
+// .persistentmcpy_648:
+// leave
+// ret\n"
 
-const ASM_return_register = "r0"
+const ASM_arguments_registers = []str{"x0", "x1", "x2", "x3",  "x4",  "x5", "x6", "x7"}
+const ASM_return_register    = []str{"w0", "x0"}
+
+const ASM_float_registers_128 = []str{"v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31"}
+const ASM_float_registers_64  = []str{"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15", "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31"}
+const ASM_float_registers_32  = []str{"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24", "s25", "s26", "s27", "s28", "s29", "s30", "s31"}
+
+ASM_float_registers = [][]str{
+    ASM_float_registers_32, ASM_float_registers_64, ASM_float_registers_128
+}
+
+const ASM_registers_64 = []str{"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28", "x29", "x30", "x31"}
+const ASM_registers_32 = []str{"w0", "w1", "w2", "w3", "w4", "w5", "w6", "w7", "w8", "w9", "w10", "w11", "w12", "w13", "w14", "w15", "w16", "w17", "w18", "w19", "w20", "w21", "w22", "w23", "w24", "w25", "w26", "w27", "w28", "w29", "w30", "w31"}
+
+ASM_registers = [][]str{
+    ASM_registers_32, ASM_registers_64
+}
+
+const ASM_return_register = "x0"
 const ASM_stack_pointer_register = "sp"
 const ASM_data_register = "r3"
 
-//will maybe do later :skull:
+const ASM_NUM_INT   = 0
+const ASM_NUM_UINT  = 1
+const ASM_NUM_FLOAT = 2
+
+const ASM_reg_id_return = 0
+const ASM_reg_id_dest_addr = 1
+const ASM_reg_id_stack_pointer = 2
+const ASM_reg_id_base_pointer = 3
+
+const ASM_reg_id_args    = 128
+const ASM_reg_id_syscall = 256
+const ASM_reg_id_op      = 512
+const ASM_reg_id_floats  = 1024
+const ASM_reg_id_ymm     = 2048
+
+const ASM_OP_EQ            = 0
+const ASM_OP_NOT_EQ        = 1
+const ASM_OP_GREATER       = 2
+const ASM_OP_LESS          = 3
+const ASM_OP_LESS_OR_EQ    = 4
+const ASM_OP_GREATER_OR_EQ = 5
+
+const ASM_OP_BITWISE_OR    = 0
+const ASM_OP_BITWISE_XOR   = 1
+const ASM_OP_BITWISE_AND   = 2
+const ASM_OP_BITWISE_LEFT  = 3
+const ASM_OP_BITWISE_RIGHT = 4
+
+const ASM_SELF_OP_ADD = 0
+const ASM_SELF_OP_SUB = 1
+
+getTwoPow(x int) int {
+    a = 2
+    i=1; for a < x, i++ {
+        a *= 2
+    }
+
+    if a != x {
+        return -1
+    }
+
+    return i
+}
+
+spos(x uint) uint {
+    if x == 8 {
+        return 1
+    }
+
+    return 0
+}
+
+_asmSetBitfield(bitfield ptr, index uint) {
+    *(<bool*>(<uint>bitfield + index)) = true
+}
+
+_asmGetBitfield(bitfield ptr, index uint) bool {
+    return *(<bool*>(<uint>bitfield + index))
+}
+
+asmRandId uint = 0
+
+struct asmSymbol {
+    name: str
+    size: uint
+    address: int
+    offset: int
+    level: int
+    operStart: int = -1
+
+    isFloat: bool
+    isValue: bool
+    stack: bool
+    isReg: bool
+    isTmp: bool
+    active: bool
+
+    toStr() str {
+        if this.isReg {
+            index = 0
+            s = ""
+            if this.address >= ASM_reg_id_ymm {
+                index -= ASM_reg_id_ymm
+                s = ASM_float_registers_128[index]
+            } else if this.address >= ASM_reg_id_floats {
+                index -= ASM_reg_id_floats
+                s = ASM_float_registers[spos(this.size)][index]
+            } else if this.address >= ASM_reg_id_op {
+                index -= ASM_reg_id_op
+                s = ASM_registers[spos(this.size)][index + 8]
+            } else {
+                s = ASM_registers[spos(this.size)][this.address]
+            }
+
+            if this.level == 1 {
+                return "["+s+"]"
+            }
+
+            return s
+        }
+
+        return "_undefined_symbol"
+    }
+}
+
+asmSymbolValue(s str) asmSymbol {
+    r = asmSymbol{
+        isValue: true
+        name: s
+        active: true
+    }
+    return r
+}
+
+asmSymbolReg(id uint, size uint, num uint) asmSymbol {
+    r = asmSymbol {
+        isReg: true
+        size: size
+        address: id + num
+        active: true
+    }
+
+    return r
+}
+
+asmSymbolStack(address int, size uint) asmSymbol {
+    return asmSymbol {
+        stack: true
+        address: address
+        size: size
+        active: true
+    }
+}
+
+asmSymbolStaticName(name str) asmSymbol {
+    return asmSymbol {
+        name: name
+        active: true
+    }
+}
+
+asmSymbolTmp(size uint) asmSymbol {
+    r = asmSymbol {
+        stack: true
+        isTmp: true
+        address: asmRandId
+        size: size
+        active: true
+    }
+    asmRandId++
+    return r
+}
+
+isEmptySymbol(sym asmSymbol*) bool {
+    return sym.active == false
+}
+
+struct asmInstruction {
+    instruction: str
+    arg1: asmSymbol
+    arg2: asmSymbol
+
+    toStr() str {
+        if isEmptySymbol(&this.arg2) == false {
+            return this.instruction+" "+this.arg1.toStr()+", "+this.arg2.toStr()
+        }
+        if isEmptySymbol(&this.arg1) == false {
+            return this.instruction+" "+this.arg1.toStr()
+        }
+        return this.instruction
+    }
+
+    //Only works for 4 letters total instructions
+    isPrefixedInstruction(id uint) bool {
+        return (*<uint*>this.instruction & ~0xFF00000000000000) == id
+    }
+}
+
+#define _asm_append_instruction(ctxPtr ptr, inst asmInstruction)
+
+struct asmContext {
+    staticData: rope*
+    data: rope*
+    bss: rope*
+    code: rope*
+    debugInfo: rope*
+
+    debugEnabled: bool = true
+    enableOptimizations: bool = true
+    instructions: []asmInstruction
+
+    generateDefaults(builtinEnabled bool, isEntryFile bool, importEnabled bool) rope* {
+        programEntry rope*
+        
+        if isEntryFile {
+            this.debugInfo = rope(".global .bah_debug_info_lines\n.bah_debug_info_lines:\n")
+            this.data = rope("")
+            this.bss = rope(".bss\n.global __bss_start\n__bss_start:\n")
+            this.code = rope(".text\n")
+            if builtinEnabled {
+                programEntry = rope(".global _start\n.text\n_start:\nmov x29, sp\nadrp x0, __stackBase\nstr sp, [x0, :lo12:__stackBase]\nbl "+initFnName+"\nldr x0, [sp]\nadd x1, sp, #8\nmov x3, x0\nadd x3, x3, #1\nlsl x3, x3, #3\nadd x2, x1, x3\nbl "+argumentsToArrFunction+"\nbl main\nmov x8, x0\nmov x0, x8\nbl exit\natomic_store:\nldxr x2, [x0]\nstxr w3, x1, [x0]\ncbnz w3, 1b\ndmb ish\nmov x0, x2\nret\natomic_load:\nldar x0, [x0]\nret\natomic_add:\nldxr x2, [x0]\nadd x2, x2, x1\nstxr w3, x2, [x0]\ncbnz w3, 1b\ndmb ish\nret\n"+persistentmcpySource)
+                if importEnabled {
+                    programEntry += rope(".global atomic_load\n.global atomic_store\n.global atomic_add\n.global __stackBase\n")
+                }
+                this.staticData = rope(".data\n__stackBase:\n.quad 0\n")
+            } else {
+                programEntry = rope(".global _start\n.text\n_start:\nmov x29, sp\nadrp x0, __stackBase\nstr sp, [x0, :lo12:__stackBase]\nbl "+initFnName+"\nldr x0, [sp]\nadd x1, sp, #8\nmov x3, x0\nadd x3, x3, #1\nlsl x3, x3, #3\nadd x2, x1, x3\nbl main\nmov x8, x0\nmov x0, x8\nbl exit\n"+persistentmcpySource)
+                this.staticData = rope(".data\n__stackBase:\n.quad 0\n")
+            }
+        } else {
+            this.debugEnabled = false
+            this.debugInfo = rope("")
+            this.staticData = rope(".data\n")
+            this.data = rope("")
+            this.bss = rope(".bss\n")
+            this.code = rope(".text\n")
+        }
+
+        return programEntry
+    }
+
+    generateOpBitwise(a asmSymbol, b asmSymbol, operation uint, lossy bool) asmSymbol {
+        return asmSymbol{}
+    }
+
+    staticInt(v str) asmSymbol {
+        return asmSymbol {
+            name: "#"+intToStr(tokToInt(v))
+            size: 8
+            isValue: true
+            active: true
+        }
+    }
+
+    generateConvSizes(sym asmSymbol, to uint, isUnsigned bool) asmSymbol {
+        if sym.size == to {
+            return sym
+        }
+
+        if sym.isReg == false {
+
+        }
+
+        if sym.isFloat {
+
+        } else {
+            if sym.size == 1 {
+                this.instructions[len(this.instructions)] = asmInstruction {
+                    "sxtb", sym, sym
+                }
+
+                ogSym = sym
+                sym.size = to
+                
+                if to == 8 {
+                    this.instructions[len(this.instructions)] = asmInstruction {
+                        "sxtw", sym, ogSym
+                    }
+                }
+            } else if sym.size == 2 {
+
+            } else if sym.size == 4 {
+
+            } else if sym.size == 8 {
+
+            }
+            return sym            
+        }
+
+
+    }
+
+}

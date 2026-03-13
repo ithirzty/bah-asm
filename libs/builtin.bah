@@ -268,12 +268,13 @@ struct mutex {
 
 //This is a condition that while not true blocks the calling thread.
 struct mutexCondition {
-    id: pthread_cond_t
+    id: pthread_cond_t*
 
     //To initiate a condition.
     //You do not need to initiate the condition when creating it with mutexCondition().
     init() {
-        pthread_cond_init(&this.id, null)
+        this.id = memoryAlloc(sizeof(pthread_cond_t))
+        pthread_cond_init(this.id, null)
     }
 
     //To wait for another thread to signal that the condition may be true.
@@ -282,7 +283,7 @@ struct mutexCondition {
     // mutexCond.wait()
     //}
     wait(m mutex) {
-        pthread_cond_wait(&this.id, m.id)
+        pthread_cond_wait(this.id, m.id)
     }
 
     //Timeout in ns.
@@ -291,21 +292,21 @@ struct mutexCondition {
         timespec_get(&ts, TIME_UTC)
         ts.tv_nsec += (timeout % 1000000000)
         ts.tv_sec += (timeout / 1000000000)
-        return pthread_cond_timedwait(&this.id, m.id, &ts) == 0
+        return pthread_cond_timedwait(this.id, m.id, &ts) == 0
     }
 
     //To signal a single thread that the condition may be true.
     send() {
-        pthread_cond_signal(&this.id)
+        pthread_cond_signal(this.id)
     }
 
     broadcast() {
-        pthread_cond_broadcast(&this.id)
+        pthread_cond_broadcast(this.id)
     }
 
     //To destroy the condition.
     destroy() {
-        pthread_cond_destroy(&this.id)
+        pthread_cond_destroy(this.id)
     }
 
 }

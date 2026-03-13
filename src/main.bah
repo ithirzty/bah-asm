@@ -23,8 +23,21 @@
     BAH_OS = "windows"
 }
 
+// const AS_COMMAND_NAME = "aarch64-linux-gnu-as"
+// const LD_COMMAND_NAME = "aarch64-linux-gnu-ld"
+
+const AS_COMMAND_NAME = "as"
+const LD_COMMAND_NAME = "ld"
+
+#x86 {
+    const LD_DYNAMIC_LINKER_PATH = "/lib64/ld-linux-x86-64.so.2"
+}
+
+#arm {
+    const LD_DYNAMIC_LINKER_PATH = "/lib/ld-linux-aarch64.so.1"
+}
+
 #import "./lexer.bah"
-#import "./gen_asm_linux_64.bah"
 
 //utils
 #import "./cache.bah"
@@ -297,13 +310,13 @@ main(args []str) int {
             fileName += ".o"
         }
 
-        cmd = command("as -f -o "+fileName)
+        cmd = command(AS_COMMAND_NAME+" -f -o "+fileName)
         cmd.input = (gen.data + gen.bss + gen.code).toStr()
         cmd.run()
         return 0
     }
 
-    cmd = command("as -f -o "+fileNameNoExt+".o")
+    cmd = command(AS_COMMAND_NAME+" -f -o "+fileNameNoExt+".o")
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
 
     if isRun && isFullLink == false {
@@ -403,7 +416,7 @@ main(args []str) int {
         writeCache()
     }
 
-    cmd = command("ld -dynamic-linker /lib64/ld-linux-x86-64.so.2 -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
+    cmd = command(LD_COMMAND_NAME+" -dynamic-linker "+LD_DYNAMIC_LINKER_PATH+" -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
     err = cmd.run()
 
     removeFile(fileNameNoExt+".o")

@@ -1,7 +1,7 @@
 #import "channel.bah"
 
 #import "./lexer.bah"
-#import "./gen_asm_linux_64.bah"
+#import "./gen_target.bah"
 
 gen asmContext
 initFnGen asmContext
@@ -14,7 +14,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.153 (build 41)"
+BAH_VERSION = "v0.154 (build 42)"
 
 
 const BAH_TYPE_BOOL         = 0

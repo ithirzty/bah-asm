@@ -10,13 +10,7 @@
 #import "optimizer.bah"
 #import "cache.bah"
 
-#x86 {
-    #import "gen_asm_linux_64.bah"
-}
-
-#arm {
-    #import "gen_asm_linux_arm64.bah"
-}
+#import "./gen_target.bah"
 
 #define generateTypeConversion(val bahValue*, type bahType*) asmSymbol
 #define generateReflection(val bahValue*) asmSymbol
