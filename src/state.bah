@@ -14,7 +14,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.154 (build 42)"
+BAH_VERSION = "v0.154 (build 43)"
 
 
 const BAH_TYPE_BOOL         = 0

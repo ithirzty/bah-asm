@@ -1198,6 +1198,30 @@ memoryRealloc(o ptr, s uint) ptr {
     return <ptr>r
 }
 
+getPointerSize(p ptr) uint {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    
+    currPage = BAH_GC_state.isPointerInBounds(<uint>p)
+
+    if currPage == null {
+        panic("GC: cannot get the size of memory that was not allocated by the garbage collector (0x"+uintToHex(<uint>p)+").")
+    }
+
+    s = 0
+
+    i=0; for i < currPage.listLength, i++ {
+        index = <BAH_GC_ptr*>(<uint>currPage.list + i * sizeof(BAH_GC_ptr))
+        if index.p == <uint>p {
+            s = index.size
+            break
+        }
+    }
+
+    pthread_mutex_unlock(BAH_GC_state.mut)
+
+    return s
+}
+
 
 memoryAllocSTR(s uint) str {
     pthread_mutex_lock(BAH_GC_state.mut)

@@ -83,7 +83,7 @@ errorBahValueTokens(val bahValue*) [bahToken*, bahToken*] {
         for i < len(parserCtx.currentFile), i++ {
             if parserCtx.currentFile[i] == ')' {
                 break
-            } else parserCtx.currentFile[i] == <char>10 {
+            } else if parserCtx.currentFile[i] == <char>10 {
                 parTok.line++
             }
         }
@@ -201,7 +201,7 @@ errorBahValueTokens(val bahValue*) [bahToken*, bahToken*] {
             for i < len(parserCtx.currentFile), i++ {
                 if parserCtx.currentFile[i] == '}' {
                     break
-                } else parserCtx.currentFile[i] == <char>10 {
+                } else if parserCtx.currentFile[i] == <char>10 {
                     parTok.line++
                 }
             }

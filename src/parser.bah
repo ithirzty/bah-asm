@@ -3309,7 +3309,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
             parserCtx.scopeCtx.moreThanSingleSet = true
             i=start+1
             //handle rvalue lines without setting a var
-            if end - start >= 2 && tokens[start].type == TOKEN_TYPE_VAR {
+            if end - start >= 2 {
                 for i < end, i++ {
                     if tokens[i].cont == "(" && tokens[i-1].cont != "function" || (tokens[i].type == TOKEN_TYPE_SYNTAX && tokens[i].cont != "*") {
                         val = consumeValue(tokens, start, end, -1, 0, null)
