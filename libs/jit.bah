@@ -286,15 +286,23 @@ ret
     gen.generateFileLocation(parserCtx.currentFilePath)
 
     isObjectFile = true
+    parserCtx.isJIT = true
 
     parserCtx.declareMode = true
     if jitObj.hasBuiltin {
         includeFile(BAH_DIR + "builtin.bah")    
     }
     i=0; for i < len(jitObj.ctx.includes), i++ {
-        includeFile(jitObj.ctx.includes[i])    
+        includeFile(jitObj.ctx.includes[i])
     }
     parserCtx.declareMode = false
+
+    // i=0; for i < len(parserCtx.variables), i++ {
+    //     var = parserCtx.variables[i]
+    //     if var.scope == 0 && var.isConst == false {
+    //         gen.generateGlobalVarDecl(var.name, var.type.size)
+    //     }
+    // }
 
     isObjectFile = false
 
@@ -377,6 +385,10 @@ ret
             }
 
             func = parserCtx.findFunc(symName)
+
+            if symName == "sleep" {
+                symName = "bahSleep"
+            }
 
             if func == null {
                 continue

@@ -20,9 +20,9 @@ intToStr(i int) str {
         return "0"
     }
 
-    s = buffer 66
+    s = buffer 24
 
-    s[65] = <char>0
+    s[23] = <char>0
     
     subZero = false
 
@@ -31,7 +31,7 @@ intToStr(i int) str {
         i = 0-i
     }
 
-    ind = 64
+    ind = 22
 
     for i != 0, i /= 10 {
         conv = i % 10

@@ -14,7 +14,7 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.154 (build 43)"
+BAH_VERSION = "v0.154 (build 44)"
 
 
 const BAH_TYPE_BOOL         = 0
@@ -322,6 +322,7 @@ struct parserContext {
     importDeps: []str
     noImports: bool
     debugEnabled: bool
+    isJIT: bool
     
     scopeCtx: parserScope*
     lmabdasToParse: []bahLambda

@@ -1662,7 +1662,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
 
 generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
 
-    if val.type.isPtr {
+    if val.isPointer {
         throwError(val, "Cannot (yet) use a pointer as a global value.")
     }
 

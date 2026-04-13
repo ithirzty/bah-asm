@@ -71,10 +71,8 @@ lexerErr(line int, pos int, msg str) {
 }
 
 //Takes a file as input, outputs an array of tokens.
-lexer(s str, includeBodies bool) []bahToken {
+lexerToArray(s str, includeBodies bool, tokens []bahToken) {
     lexerStart = getTimeUnix()
-    tokens = []bahToken
-
 
     // totalSize += len(s)
 
@@ -335,5 +333,10 @@ lexer(s str, includeBodies bool) []bahToken {
 
     totalLines += lineNb - 1
     totalLexerTime += (getTimeUnix() - lexerStart)
+}
+
+lexer(s str, includeBodies bool) []bahToken {
+    tokens = []bahToken
+    lexerToArray(s, includeBodies, tokens)
     return tokens
 }

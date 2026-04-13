@@ -1144,7 +1144,9 @@ struct asmContext {
                     num = addr - (ASM_reg_id_op + 2)
                     _asmSetBitfield(&regsUsed, num)
                 }
-            } else if this.instructions[k].arg2.isReg {
+            }
+            
+            if this.instructions[k].arg2.isReg {
                 addr = this.instructions[k].arg2.address
                 if addr >= ASM_reg_id_args + 4 && addr < ASM_reg_id_args + 6 {
                     addr += ASM_reg_id_op + 2 - (ASM_reg_id_args + 4)
@@ -1181,15 +1183,12 @@ struct asmContext {
         if regNotBreaking {
             reg asmSymbol
 
-            if isEmptySymbol(&reg) {
-                j=3; for j != -1, j-- {
-                    if _asmGetBitfield(&regsUsed, j) == false {
-                        reg = asmSymbolReg(ASM_reg_id_op, sym.size, j + 2)
-                        break
-                    }
+            j=3; for j != -1, j-- {
+                if _asmGetBitfield(&regsUsed, j) == false {
+                    reg = asmSymbolReg(ASM_reg_id_op, sym.size, j + 2)
+                    break
                 }
             }
-
 
             if isEmptySymbol(&reg) == false {
                 for i < len(this.instructions), i++ {
@@ -1353,7 +1352,7 @@ struct asmContext {
                 }
 
                 istrct.instruction = "subq"
-                istrct.arg1 = asmSymbolValue("$"+uintToStr(this.stackOffset))
+                istrct.arg1 = asmSymbolValue("$"+uintToStr(this.stackOffset + 16))
                 istrct.arg2 = asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
             } else if *<uint*>istrct.instruction == ASM_instruction_id_leave {
                 if this.stackOffset == 0 {
@@ -3946,7 +3945,8 @@ struct asmContext {
                         rspOffset += alignedSize
                         valueReg.level = 1
                         valueReg.size = arguments[i].size
-                        this.generateMoveValue(valueReg, asmSymbolStack(tmpSyms[len(tmpSyms)-1].address - 8, arguments[i].size))
+                        this.generateMoveValue(valueReg, asmSymbolStack(tmpSyms[len(tmpSyms)-1].address, arguments[i].size))
+                        this.stackOffset = tmpSyms[len(tmpSyms)-1].address
                     } else {
                         valueReg = asmSymbolReg(ASM_reg_id_args, 8, i + offset)
                         valueReg.level = arguments[i].level
@@ -4192,7 +4192,7 @@ struct asmContext {
                     tmpArg = arguments[i]
                     tmpArg.size = 8
                     if i+offset > 5 {
-                        sSym = asmSymbolValue(uintToStr(rspOffset - bigArgRspOffset)+"(%rsp)")
+                        sSym = asmSymbolValue(intToStr(rspOffset - bigArgRspOffset)+"(%rsp)")
                         sSym.size = 8
                         sSym.level = -1
                         dest = asmSymbolReg(ASM_reg_id_op, 8, 4) //Avoid using rdi to not overwrite first argument
@@ -4237,7 +4237,7 @@ struct asmContext {
                                 tmpArg = tmpDest
                             }
 
-                            this.generateMoveValue(tmpArg, asmSymbolValue(uintToStr(rspOffset - bigArgRspOffset)+"(%rsp)"))
+                            this.generateMoveValue(tmpArg, asmSymbolValue(intToStr(rspOffset - bigArgRspOffset)+"(%rsp)"))
                             rspOffset += 8
                         } else {
                             valueReg = asmSymbolReg(ASM_reg_id_args, tmpArg.size, i+offset)
@@ -4254,7 +4254,7 @@ struct asmContext {
                         sizeAligned += (16 - sizeAligned % 16)
                     }
                     this.instructions[len(this.instructions)] = asmInstruction {
-                        "subq", asmSymbolValue("$"+uintToStr(sizeAligned)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+                        "subq", asmSymbolValue("$"+intToStr(sizeAligned)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
                     }
                     this.generateMoveValue(asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0), dest)
                     rspOffset += sizeAligned
@@ -4278,7 +4278,10 @@ struct asmContext {
                     arg = tmpDest
                 }
 
-                this.generateMoveValue(arg, asmSymbolValue(uintToStr(rspOffset - bigArgRspOffset)+"(%rsp)"))
+                dest = asmSymbolValue(intToStr(rspOffset - bigArgRspOffset)+"(%rsp)")
+                dest.size = arg.size
+
+                this.generateMoveValue(arg, dest)
                 rspOffset += 8
             } else {
                 valueReg = asmSymbolReg(ASM_reg_id_args, arguments[i].size, i+offset)
@@ -4302,7 +4305,7 @@ struct asmContext {
 
         if rspFinalOffset + bigArgRspOffset != 0 {
             this.instructions[len(this.instructions)] = asmInstruction {
-                "addq", asmSymbolValue("$"+uintToStr(rspOffsetAlignment + rspFinalOffset + bigArgRspOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+                "addq", asmSymbolValue("$"+intToStr(rspOffsetAlignment + rspFinalOffset + bigArgRspOffset)), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
             }
         }
 

@@ -573,6 +573,9 @@ toJsonRope(e reflectElement) rope* {
         }
         i = len(type)-1; for i >= 1, i-- {
             if type[i] == '*' && type[i-1] == '*' {
+                if value == null {
+                    return rope("null")
+                }
                 value = *(<ptr*>value)
                 nb++
             } else {
@@ -599,6 +602,10 @@ toJsonRope(e reflectElement) rope* {
             //the address of the member is the base address of the structure + the offset ammount
             //of the member
             member.value = <ptr>(<uint>value + member.offset)
+
+            if member.value == null {
+                continue
+            }
 
             //If the member is a pointer, its actual value is a pointer to a pointer.
             //We can either add a '*' to the member.type (would be slower and not work for arrays).

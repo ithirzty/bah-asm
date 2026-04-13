@@ -120,14 +120,13 @@ struct fileStream {
     }
 
     //Writes the opened file with the specified content.
-    writeFile(content str) int {
+    writeFile(content str) bool {
         if this.isValid() == false {
-            return -1
+            return false
         }
 
-        fwrite(content, len(content), 1, this.handle)
+        return fwrite(content, len(content), 1, this.handle) == 1
 
-        return 1
     }
 
     //Serialize a pointer and write it to a file.

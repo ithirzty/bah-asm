@@ -69,10 +69,11 @@ const ASM_NUM_INT   = 0
 const ASM_NUM_UINT  = 1
 const ASM_NUM_FLOAT = 2
 
+const ASM_reg_id_stack_pointer = 4096
+const ASM_reg_id_base_pointer = 4097
 const ASM_reg_id_return = 0
-const ASM_reg_id_dest_addr = 1
-const ASM_reg_id_stack_pointer = 2
-const ASM_reg_id_base_pointer = 3
+const ASM_reg_id_dest_addr = 4098
+const ASM_reg_id_sp_offset = 4099
 
 const ASM_reg_id_args    = 128
 const ASM_reg_id_syscall = 256
@@ -132,6 +133,7 @@ struct asmSymbol {
     size: uint
     address: int
     offset: int
+    indexed: byte
     level: int
     operStart: int = -1
 
@@ -146,7 +148,9 @@ struct asmSymbol {
         if this.isReg {
             index = 0
             s = ""
-            if this.address >= ASM_reg_id_ymm {
+            if this.address == ASM_reg_id_stack_pointer {
+                s = "sp"
+            } else if this.address >= ASM_reg_id_ymm {
                 index -= ASM_reg_id_ymm
                 s = ASM_float_registers_128[index]
             } else if this.address >= ASM_reg_id_floats {
@@ -160,6 +164,17 @@ struct asmSymbol {
             }
 
             if this.level == 1 {
+                if this.offset != 0 {
+                    if this.indexed == 1 {
+                        return "["+s+", "+intToStr(this.offset)+"]!"
+                    }
+
+                    if this.indexed == 2 {
+                        return "["+s+"], "+intToStr(this.offset)
+                    }
+
+                    return "["+s+", "+intToStr(this.offset)+"]"
+                }
                 return "["+s+"]"
             }
 
@@ -168,6 +183,27 @@ struct asmSymbol {
 
         return "_undefined_symbol"
     }
+
+    preIndex(n int) asmSymbol {
+        r = *this
+        r.indexed = 1
+        r.offset = n
+        r.level++
+        return r
+    }
+
+    postIndex(n int) asmSymbol {
+        r = *this
+        r.indexed = 2
+        r.offset = n
+        r.level++
+        return r
+    }
+}
+
+const STACKPTR_OFFSET = asmSymbol {
+    isReg: true
+    address: ASM_reg_id_sp_offset
 }
 
 asmSymbolValue(s str) asmSymbol {
@@ -179,7 +215,7 @@ asmSymbolValue(s str) asmSymbol {
     return r
 }
 
-asmSymbolReg(id uint, size uint, num uint) asmSymbol {
+asmSymbolReg(id int, size uint, num int) asmSymbol {
     r = asmSymbol {
         isReg: true
         size: size
@@ -226,15 +262,20 @@ struct asmInstruction {
     instruction: str
     arg1: asmSymbol
     arg2: asmSymbol
+    arg3: asmSymbol
+    extra: str = ""
 
     toStr() str {
+        if isEmptySymbol(&this.arg3) == false {
+            return this.instruction+" "+this.arg1.toStr()+", "+this.arg2.toStr()+", "+this.arg3.toStr() + this.extra
+        }
         if isEmptySymbol(&this.arg2) == false {
-            return this.instruction+" "+this.arg1.toStr()+", "+this.arg2.toStr()
+            return this.instruction+" "+this.arg1.toStr()+", "+this.arg2.toStr() + this.extra
         }
         if isEmptySymbol(&this.arg1) == false {
-            return this.instruction+" "+this.arg1.toStr()
+            return this.instruction+" "+this.arg1.toStr() + this.extra
         }
-        return this.instruction
+        return this.instruction + this.extra
     }
 
     //Only works for 4 letters total instructions
@@ -255,6 +296,13 @@ struct asmContext {
     debugEnabled: bool = true
     enableOptimizations: bool = true
     instructions: []asmInstruction
+
+    stackOffset: int = 0
+
+    fileNb: uint = 0
+    totalFileNb: uint = 0
+    currentLine: uint
+    lastFile: uint
 
     generateDefaults(builtinEnabled bool, isEntryFile bool, importEnabled bool) rope* {
         programEntry rope*
@@ -286,6 +334,77 @@ struct asmContext {
         return programEntry
     }
 
+    generateFileLocation(fileName str) {
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ".file "+uintToStr(this.totalFileNb)+" \""+fileName+"\""
+        }
+
+        if this.debugEnabled == false {
+            this.totalFileNb++
+            this.fileNb = this.totalFileNb
+            return
+        }
+
+        this.debugInfo += rope(".byte 1\n.int "+uintToStr(this.totalFileNb)+"\n.int "+uintToStr(len(fileName))+"\n.asciz \""+fileName+"\"\n")
+
+        this.totalFileNb++
+        this.fileNb = this.totalFileNb
+    }
+
+    generateLineLocation(line uint) {
+        if this.debugEnabled == false {
+            this.instructions[len(this.instructions)] = asmInstruction {
+                ".loc "+uintToStr(this.fileNb-1)+" "+uintToStr(line)
+            }
+            this.currentLine = line
+            this.lastFile = this.fileNb
+            return
+        }
+
+        if this.currentLine == line && this.lastFile == this.fileNb  {
+            return
+        }
+
+
+        index = len(this.instructions)
+        labelName = ".loc_"+uintToStr(this.fileNb-1)+"_"+uintToStr(line)
+
+        this.debugInfo += rope(".byte 2\n.quad "+labelName+"\n.int "+uintToStr(this.fileNb-1)+"\n.int "+uintToStr(line)+"\n")
+
+        this.instructions[index] = asmInstruction {
+            labelName+":"
+        }
+
+        this.currentLine = line
+        this.lastFile = this.fileNb
+    }
+
+    flushInstructions() rope* {
+        r = rope("")
+
+        i=0; for i < len(this.instructions), i++ {
+            istrct = &this.instructions[i]
+
+            if istrct.instruction == "stp" && isEmptySymbol(&istrct.arg3) == false && istrct.arg3.isReg && istrct.arg3.address == ASM_reg_id_sp_offset {
+                istrct.arg3 = asmSymbolReg(0, 8, ASM_reg_id_stack_pointer)
+                istrct.arg3 = istrct.arg3.preIndex(this.stackOffset)
+            }
+            if istrct.instruction == "ldp" && isEmptySymbol(&istrct.arg3) == false && istrct.arg3.isReg && istrct.arg3.address == ASM_reg_id_sp_offset {
+                istrct.arg3 = asmSymbolReg(0, 8, ASM_reg_id_stack_pointer)
+                istrct.arg3 = istrct.arg3.postIndex(this.stackOffset)
+            }
+            r += rope(istrct.toStr()+"\n")
+        }
+
+        this.stackOffset = 0
+        this.code += r
+        return r
+    }
+
+    generateStackAlloc(value asmSymbol) int {       
+        return 0
+    }
+
     generateOpBitwise(a asmSymbol, b asmSymbol, operation uint, lossy bool) asmSymbol {
         return asmSymbol{}
     }
@@ -299,42 +418,271 @@ struct asmContext {
         }
     }
 
+    staticFloat32(v str) asmSymbol {
+        return asmSymbol{}
+    }
+
+    staticFloat64(v str) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateStaticStr(s str, length uint) asmSymbol {
+        return asmSymbol{}
+    }
+
     generateConvSizes(sym asmSymbol, to uint, isUnsigned bool) asmSymbol {
         if sym.size == to {
             return sym
         }
 
-        if sym.isReg == false {
+        return asmSymbol{}
+    }
 
-        }
+    generateConvFloatToInt(sym asmSymbol, size uint) asmSymbol {
+        return asmSymbol{}
+    }
 
-        if sym.isFloat {
+    generateConvIntToFloat(sym asmSymbol, size uint) asmSymbol {
+        return asmSymbol{}
+    }
 
-        } else {
-            if sym.size == 1 {
-                this.instructions[len(this.instructions)] = asmInstruction {
-                    "sxtb", sym, sym
-                }
-
-                ogSym = sym
-                sym.size = to
-                
-                if to == 8 {
-                    this.instructions[len(this.instructions)] = asmInstruction {
-                        "sxtw", sym, ogSym
-                    }
-                }
-            } else if sym.size == 2 {
-
-            } else if sym.size == 4 {
-
-            } else if sym.size == 8 {
-
-            }
-            return sym            
-        }
-
+    generateMoveValue(sym asmSymbol, dest asmSymbol) {
 
     }
 
+    generateFnStart(fnName str, arguments []asmSymbol, returnSize uint) {
+        this.stackOffset = 16
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ".global", asmSymbolValue(fnName)
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            ".type", asmSymbolValue(fnName), asmSymbolValue("@function")
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            fnName+":"
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "stp", asmSymbolReg(0, 8, 29), asmSymbolReg(0, 8, 30), STACKPTR_OFFSET
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "mov", asmSymbolReg(0, 8, 29), asmSymbolReg(ASM_reg_id_stack_pointer, 8, 0)
+        }
+
+    }
+
+    generateFnEnd(endInstructions []asmInstruction) rope* {
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "ldp", asmSymbolReg(0, 8, 29), asmSymbolReg(0, 8, 30), STACKPTR_OFFSET
+        }
+
+        this.instructions[len(this.instructions)] = asmInstruction {
+            "ret"
+        }
+
+        return this.flushInstructions()
+    }
+
+    generateEarlyReturn() {
+
+    }
+
+    generateReturn(value asmSymbol) {
+
+    }
+
+    isSameArg(a asmSymbol*, b asmSymbol*) bool {
+        return false
+    }
+
+    inverseJump(inst str) str {
+        return ""
+    }
+
+    generateFnCallStart() {
+
+    }
+
+    generateFnCallArgument(arg asmSymbol) {
+
+    }
+
+    generateFnCall(fn asmSymbol, returnSize int, returnAddress asmSymbol*, returnsFloat bool) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateCompare(a asmSymbol, b asmSymbol, op uint, isUnsigned bool) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateOpMult(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateOpDiv(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateOpMod(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateOpSub(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateOpAdd(a asmSymbol, b asmSymbol, numType uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateTmpSym(value asmSymbol, size uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateTmpDecl(size uint, zero bool) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateVarSet(a asmSymbol, b asmSymbol, isUnsigned bool) {
+
+    }
+
+    generateFor() {
+
+    }
+
+    generateForContinue() {
+
+    }
+
+    generateForBreak() {
+
+    }
+
+    generateSymOffset(sym asmSymbol, offset asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateDereference(sym asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateForCond(cond asmSymbol, optimizedIndex int) {
+
+    }
+
+    generateSelfOp(sym asmSymbol, op byte) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateForOptimizedCond(cond asmSymbol) {
+
+    }
+
+    generateForIncr() {
+
+    }
+
+    generateIf(cond asmSymbol) uint {
+        return 0
+    }
+
+    generateElseIf(cond asmSymbol, chainLength uint, chainLabels []uint) {
+
+    }
+
+    generateElse(chainLength uint, chainLabels []uint) {
+
+    }
+
+    generateEndElse() {
+
+    }
+
+    generateEndIf(canBeChainned bool) {
+
+    }
+
+    generateForEnd(optimized bool) {
+
+    }
+
+    generateVarDecl(name str, size uint, zero bool) asmSymbol {
+        return asmSymbol{}
+    }
+    
+    generateDestSymOffset(sym asmSymbol, offset asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateDestDereference(sym asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateUnary(sym asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateInvBytes(a asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateStrConcatBegin() {
+
+    }
+
+    generateStrConcat(sym asmSymbol) {
+
+    }
+
+    generateStrConcatEnd() asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateBoolOrStart() {
+
+    }
+
+    generateBoolOr(cond asmSymbol) {
+
+    }
+
+    generateBoolOrEnd(cond asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateBoolAndStart() {
+
+    }
+
+    generateBoolAnd(cond asmSymbol) {
+
+    }
+
+    generateBoolAndEnd(cond asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateGlobalVarDecl(name str, size uint) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generateGlobalVarDeclWithValue(name str, size uint, syms []asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+    generatePrivateVarWithValue(name str, size uint, syms []asmSymbol) asmSymbol {
+        return asmSymbol{}
+    }
+
+}
+
+_asm_append_instruction(ctxPtr ptr, inst asmInstruction) {
+    ctx = <asmContext*>ctxPtr
+    ctx.instructions[len(ctx.instructions)] = inst
 }

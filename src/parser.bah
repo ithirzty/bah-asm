@@ -3017,7 +3017,7 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
 
         if parserCtx.scope == 0 {
             if rVal == null {
-                if parserCtx.declareMode {
+                if parserCtx.declareMode && parserCtx.isJIT == false {
                     lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
                     lVal.variable.sym.size = lVal.variable.type.size
                 } else {
@@ -3053,7 +3053,7 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
         if lVal.variable.type.isNativePtr {
             typeSize = 8
         }
-        if isObjectFile {
+        if isObjectFile && parserCtx.isJIT == false {
             lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
             lVal.variable.sym.size = typeSize
         } else {
@@ -3359,7 +3359,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                 parserCtx.addVar(lVal.variable)
 
                 if parserCtx.scope == 0 {
-                    if parserCtx.declareMode {
+                    if parserCtx.declareMode && parserCtx.isJIT == false {
                         lVal.variable.sym = asmSymbolStaticName(lVal.variable.name)
                         lVal.variable.sym.size = lVal.variable.type.size
                     } else {
