@@ -1274,7 +1274,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 varVal = valCons[0]
 
-                if valCons[0].type.isPtr == false {
+                if valCons[0].type.isPtr == false && valCons[0].value != BAH_VALUE_REG {
                     throwError(varVal, "Cannot access value of a non-pointer type.")
                 }
 
@@ -1402,128 +1402,169 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
         for start < end {
             if tokens[start+1].cont == "(" && tokens[start].cont != "*" {
-                if val.type.type != BAH_TYPE_FUNC {
-                    throwErrorTok(&t, "Cannot use symbol as function.")
-                }
+                if val.value == BAH_VALUE_REG {
+                    val.value = BAH_VALUE_INSTRUCTION
 
+                    currArgVal = val
 
-                if tokens[start].cont == "sizeof" {
-                    tp = consumeType(tokens, start+2, end, false)
-                    i = tp[1]
+                    i = start + 2
+                    nbPar = 1
 
-                    if tp[0] == null {
-                        throwErrorTok(&tokens[start+2], "Unknown type.")
-                    }
-
-                    val.isStaticValue = true
-                    val.value = 0
-                    val.sym = gen.staticInt(uintToStr(tp[0].size))
-                    val.type = new bahType {
-                        type: BAH_TYPE_UINT
-                        size: 8
-                    }
-
-                    if tokens[i].cont != ")" {
-                        throwErrorTok(&tokens[start+3], "Sizeof can only take one argument.")
-                    }
-
-                    
-                    start = i
-                    continue
-                }
-
-                fnSymVal = val
-                val = new bahValue
-                val.value = BAH_VALUE_FUNC_CALL
-                val.left = fnSymVal
-                val.tok = fnSymVal.tok
-                val.type = fnSymVal.type.ret
-
-                if parserCtx.scope != 0 {
-                    if (fnSymVal.tok.cont == "exit" || fnSymVal.tok.cont == "panic" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_EXIT)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
-                        parserCtx.scopeCtx.setState(BAH_SCOPE_EXITTED)
-                    } else if (fnSymVal.tok.cont == "memoryRealloc" || fnSymVal.tok.cont == "realloc" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_REALLOC)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
-                        parserCtx.scopeCtx.setState(BAH_SCOPE_REALLOC)
-                    } else if parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
-                        if fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_PURE) == false {
-                            parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
-                        } else {
-                            calledFn = parserCtx.findFunc(fnSymVal.tok.cont)
-                            if calledFn != null && calledFn.name != parserCtx.scopeCtx.currentFunction.name {
-                                parserCtx.scopeCtx.currentFunction.pureCalls[len(parserCtx.scopeCtx.currentFunction.pureCalls)] = calledFn
-                            }
+                    for i < end, i++ {
+                        if tokens[i].cont == ")" {
+                            break
                         }
-                    }
-                }
 
-                currArg = fnSymVal.type.child
-                currArgVal = val
+                        argCons = consumeValue(tokens, i, end, -1, 0, null)
+                        i = argCons[1]
 
 
-                i = start + 2
-                nbPar = 1
-
-                if val.left.value == BAH_VALUE_STRUCT && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
-                    currArg = currArg.next
-                }
-
-
-                for i < end, i++ {
-                    if tokens[i].cont == ")" {
-                        break
-                    }
-
-                    argCons = consumeValue(tokens, i, end, -1, 0, null)
-                    i = argCons[1]
-
-
-                    if argCons[0] == null {
-                        throwErrorTok(&tokens[i], "Expected value as argument in function call.")
-                    }
-
-                    if currArg == null {
-                        throwError(argCons[0], "Too many arguments in function call.")
-                    }
-
-                    if currArg.type == BAH_TYPE_STRCT && currArg.child.name == "reflectElement" && (argCons[0].type.type != BAH_TYPE_STRCT || argCons[0].type.child.name != "reflectElement") {
-                        currArgVal.right = new bahValue {
-                            value: BAH_VALUE_REFLECT
-                            left: argCons[0]
-                            type: currArg
-                        }
-                    } else {
-                        if argCons[0].type.type == BAH_TYPE_ARRAY && currArg.isPtr && currArg.child.type == BAH_TYPE_STRCT && currArg.child.child.name == "Bah_Array_Type" {
-                            argCons[0].type = currArg
-                        } else if compatibleTypes(argCons[0].type, currArg) == false {
-                            if argCons[0].type.type != BAH_TYPE_STR || currArg.isPtr == false || currArg.child.type != BAH_TYPE_UINT || currArg.child.size != 1 {
-                                throwTypeError(argCons[0], currArg)
-                            }
+                        if argCons[0] == null {
+                            throwErrorTok(&tokens[i], "Expected value as instruction operand.")
                         }
 
                         currArgVal.right = new bahValue {
                             value: BAH_VALUE_ARGS
                             left: argCons[0]
-                            type: currArg
+                        }
+
+                        currArgVal = currArgVal.right
+
+                        if i == end {
+                            throwErrorTok(&t, "Missing end of instruction.")
+                        }
+
+                        if tokens[i].cont != "," && tokens[i].cont != ")" {
+                            throwErrorTok(&tokens[i], "Expected separator between operands in instruction.")
+                        } else if tokens[i].cont == ")" {
+                            i--
+                        }
+
+                    }
+                } else {
+                    if val.type.type != BAH_TYPE_FUNC {
+                        throwErrorTok(&t, "Cannot use symbol as function.")
+                    }
+
+
+                    if tokens[start].cont == "sizeof" {
+                        tp = consumeType(tokens, start+2, end, false)
+                        i = tp[1]
+
+                        if tp[0] == null {
+                            throwErrorTok(&tokens[start+2], "Unknown type.")
+                        }
+
+                        val.isStaticValue = true
+                        val.value = 0
+                        val.sym = gen.staticInt(uintToStr(tp[0].size))
+                        val.type = new bahType {
+                            type: BAH_TYPE_UINT
+                            size: 8
+                        }
+
+                        if tokens[i].cont != ")" {
+                            throwErrorTok(&tokens[start+3], "Sizeof can only take one argument.")
+                        }
+
+                        
+                        start = i
+                        continue
+                    }
+
+                    fnSymVal = val
+                    val = new bahValue
+                    val.value = BAH_VALUE_FUNC_CALL
+                    val.left = fnSymVal
+                    val.tok = fnSymVal.tok
+                    val.type = fnSymVal.type.ret
+
+                    if parserCtx.scope != 0 {
+                        if (fnSymVal.tok.cont == "exit" || fnSymVal.tok.cont == "panic" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_EXIT)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
+                            parserCtx.scopeCtx.setState(BAH_SCOPE_EXITTED)
+                        } else if (fnSymVal.tok.cont == "memoryRealloc" || fnSymVal.tok.cont == "realloc" || fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_REALLOC)) && hasScopeAreturn(parserCtx.scopeCtx) == false {
+                            parserCtx.scopeCtx.setState(BAH_SCOPE_REALLOC)
+                        } else if parserCtx.scopeCtx.currentFunction.type.isFlagSet(BAH_TYPE_FLAG_PURE) {
+                            if fnSymVal.type.isFlagSet(BAH_TYPE_FLAG_PURE) == false {
+                                parserCtx.scopeCtx.currentFunction.type.toggleFlag(BAH_TYPE_FLAG_PURE)
+                            } else {
+                                calledFn = parserCtx.findFunc(fnSymVal.tok.cont)
+                                if calledFn != null && calledFn.name != parserCtx.scopeCtx.currentFunction.name {
+                                    parserCtx.scopeCtx.currentFunction.pureCalls[len(parserCtx.scopeCtx.currentFunction.pureCalls)] = calledFn
+                                }
+                            }
                         }
                     }
 
-                    currArgVal = currArgVal.right
-                    currArg = currArg.next
+                    currArg = fnSymVal.type.child
+                    currArgVal = val
 
-                    if i == end {
-                        throwErrorTok(&t, "Missing end of function call.")
+
+                    i = start + 2
+                    nbPar = 1
+
+                    if val.left.value == BAH_VALUE_STRUCT && val.left.type.child != null && val.left.type.child.isPtr && (val.left.left.type.isPtr && compatibleTypes(val.left.left.type, val.left.type.child) || val.left.left.type.isPtr == false && compatibleTypes(val.left.left.type, val.left.type.child.child)) {
+                        currArg = currArg.next
                     }
 
-                    if tokens[i].cont != "," && tokens[i].cont != ")" {
-                        throwErrorTok(&tokens[i], "Expected separator between arguments in function call.")
-                    } else if tokens[i].cont == ")" {
-                        i--
+
+                    for i < end, i++ {
+                        if tokens[i].cont == ")" {
+                            break
+                        }
+
+                        argCons = consumeValue(tokens, i, end, -1, 0, null)
+                        i = argCons[1]
+
+
+                        if argCons[0] == null {
+                            throwErrorTok(&tokens[i], "Expected value as argument in function call.")
+                        }
+
+                        if currArg == null {
+                            throwError(argCons[0], "Too many arguments in function call.")
+                        }
+
+                        if currArg.type == BAH_TYPE_STRCT && currArg.child.name == "reflectElement" && (argCons[0].type.type != BAH_TYPE_STRCT || argCons[0].type.child.name != "reflectElement") {
+                            currArgVal.right = new bahValue {
+                                value: BAH_VALUE_REFLECT
+                                left: argCons[0]
+                                type: currArg
+                            }
+                        } else {
+                            if argCons[0].type.type == BAH_TYPE_ARRAY && currArg.isPtr && currArg.child.type == BAH_TYPE_STRCT && currArg.child.child.name == "Bah_Array_Type" {
+                                argCons[0].type = currArg
+                            } else if compatibleTypes(argCons[0].type, currArg) == false {
+                                if argCons[0].type.type != BAH_TYPE_STR || currArg.isPtr == false || currArg.child.type != BAH_TYPE_UINT || currArg.child.size != 1 {
+                                    throwTypeError(argCons[0], currArg)
+                                }
+                            }
+
+                            currArgVal.right = new bahValue {
+                                value: BAH_VALUE_ARGS
+                                left: argCons[0]
+                                type: currArg
+                            }
+                        }
+
+                        currArgVal = currArgVal.right
+                        currArg = currArg.next
+
+                        if i == end {
+                            throwErrorTok(&t, "Missing end of function call.")
+                        }
+
+                        if tokens[i].cont != "," && tokens[i].cont != ")" {
+                            throwErrorTok(&tokens[i], "Expected separator between arguments in function call.")
+                        } else if tokens[i].cont == ")" {
+                            i--
+                        }
+
                     }
 
-                }
-
-                if currArg != null {
-                    throwErrorTok(&tokens[i], "Missing arguments.")
+                    if currArg != null {
+                        throwErrorTok(&tokens[i], "Missing arguments.")
+                    }
                 }
 
                 start = i
@@ -3314,7 +3355,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
                     if tokens[i].cont == "(" && tokens[i-1].cont != "function" || (tokens[i].type == TOKEN_TYPE_SYNTAX && tokens[i].cont != "*") {
                         val = consumeValue(tokens, start, end, -1, 0, null)
                         if val[0] != null {
-                            if val[0].value != BAH_VALUE_FUNC_CALL && val[0].isSelfOp == false {
+                            if val[0].value != BAH_VALUE_FUNC_CALL && val[0].value != BAH_VALUE_INSTRUCTION && val[0].isSelfOp == false {
                                 throwError(val[0], "Meaningless line.")
                             }
                             generateBahValueSymbol(val[0], null)

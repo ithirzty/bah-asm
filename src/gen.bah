@@ -359,39 +359,57 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
     if val.value == BAH_VALUE_CAST {
         if val.left.value == BAH_VALUE_REG {
-            if val.left.tok.cont[1:] == "data" {
+            if val.left.tok.cont == "$data" {
                 sym = asmSymbolStaticName("__data_start")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "bss" {
+            }
+            
+            if val.left.tok.cont == "$bss" {
                 sym = asmSymbolStaticName("__bss_start")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "stackBase" {
+            }
+            
+            if val.left.tok.cont == "$stackBase" {
                 sym = asmSymbolStaticName("__stackBase")
                 sym.size = 8
                 sym.level = 0
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "end" {
+            }
+            
+            if val.left.tok.cont == "$end" {
                 sym = asmSymbolStaticName("__bss_end")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "text" {
+            }
+            
+            if val.left.tok.cont == "$text" {
                 sym = asmSymbolStaticName("_start")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "debug" {
+            }
+            
+            if val.left.tok.cont == "$debug" {
                 sym = asmSymbolStaticName(".bah_debug_info")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
-            } else if val.left.tok.cont[1:] == "debugLines" {
+            }
+            
+            if val.left.tok.cont == "$debugLines" {
                 sym = asmSymbolStaticName(".bah_debug_info_lines")
                 sym.level = -1
                 return gen.generateTmpSym(sym, 8)
             }
+            
             r.isValue = true
             r.name = "%"+val.left.tok.cont[1:]
             r.size = val.type.size
+            // if strHasPrefix(val.left.tok.cont, "$xmm") {
+
+            // } else if strHasPrefix(val.left.tok.cont, "$ymm") {
+                
+            // }
             return r
         }
         return generateTypeConversion(val.left, val.type)
@@ -399,6 +417,40 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
 
     if val.value == BAH_VALUE_REG {
         throwError(val, "Cannot use a register without casting it.")
+    }
+
+    if val.value == BAH_VALUE_INSTRUCTION {
+        inst = asmInstruction {
+            val.tok.cont[1:]
+        }
+
+        currArg = val.right
+        n = 0
+        for currArg != null, currArg = currArg.right {
+            v = currArg.left
+            sym = asmSymbol{}
+            if v.value == BAH_VALUE_UNARY && v.left.value == BAH_VALUE_REG {
+                sym.parse(v.left.tok.cont)
+                sym.level = 1
+            } else if v.value == BAH_VALUE_REG {
+                sym.parse(v.tok.cont)
+            } else {
+                sym = generateBahValueSymbol(v, null)
+            }
+
+            if n == 0 {
+                inst.arg1 = sym
+            } else if n == 1 {
+                inst.arg2 = sym
+            } else {
+                inst.arg2 = asmSymbolValue(inst.arg2.toStr() + ", " + sym.toStr())
+            }
+
+            n++
+        }
+
+        gen.instructions[len(gen.instructions)] = inst
+        return asmSymbol{}
     }
 
     if val.value == BAH_VALUE_DECLARATION {
