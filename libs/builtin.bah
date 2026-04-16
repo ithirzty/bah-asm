@@ -87,6 +87,7 @@ cArr(arr Bah_Array_Type*) ptr {
 }
 
 clear(arr Bah_Array_Type*) {
+    memset(arr.data, 0, arr.length * arr.elemSize)
     arr.length = 0
 }
 
@@ -94,10 +95,12 @@ clear(arr Bah_Array_Type*) {
 //This will keep the order of the elements.
 delete(arr Bah_Array_Type*, i uint) {
     if i >= arr.length || i < 0 {
+        panic("delete: cannot delete at index outside of the array.")
         return
     }
 	if i == arr.length - 1 {
 		arr.length--
+        memset(<ptr>(<uint>arr.data + arr.length * arr.elemSize), 0, arr.elemSize)
 		return
 	}
     elemSize int = arr.elemSize
@@ -1172,9 +1175,11 @@ memoryRealloc(o ptr, s uint) ptr {
         panic("GC: could not reallocate memory.")
     }
 
-    memset(<ptr>(<uint>r + index.size), 0, s - index.size)
+    if s > index.size {
+        memset(<ptr>(<uint>r + index.size), 0, s - index.size)
+    }
 
-    BAH_GC_state.heapSize += s - index.size
+    BAH_GC_state.heapSize += <int>s - <int>index.size
     index.size = s
 
     if r != <uint>o {
@@ -1196,6 +1201,22 @@ memoryRealloc(o ptr, s uint) ptr {
 
     pthread_mutex_unlock(BAH_GC_state.mut)
     return <ptr>r
+}
+
+isStackAddress(p ptr) bool {
+    bp = <int>$rbp
+    sb = 0
+    pthread_mutex_lock(BAH_GC_state.mut)
+    callerId = syscall(__NR_gettid)
+    currThread = BAH_GC_state.threads
+    for currThread != null, currThread = currThread.next {
+        if currThread.sysid == callerId {
+            sb = currThread.stackBase
+            break
+        }
+    }
+    pthread_mutex_unlock(BAH_GC_state.mut)
+    return <int>p > bp && <int>p < sb
 }
 
 getPointerSize(p ptr) uint {
@@ -1765,7 +1786,15 @@ __Bah_realocate_arr_nonPointer(arr Bah_Array_Type*, index uint) {
 allocateArray(arr Bah_Array_Type*, nbElems uint) {
     arr.length = nbElems
     arr.realLength = nbElems
-    arr.data = memoryAlloc(nbElems * arr.elemSize)
+    if arr.data == null {
+        if arr.elemSize < 8 {
+            arr.data = memoryAllocSTR(nbElems * arr.elemSize)
+        } else {
+            arr.data = memoryAlloc(nbElems * arr.elemSize)
+        }
+    } else {
+        arr.data = memoryRealloc(arr.data, nbElems * arr.elemSize)
+    }
 }
 
 buffToStr(b char*) str {

@@ -218,7 +218,7 @@ struct mapWrapper {
     }
 
     //Set operation on algorithm 2.
-    set2(k str, e ptr) {
+    _set2(k str, e ptr) {
         if this.length == 0 {
             this.grow(50)
         }
@@ -250,7 +250,7 @@ struct mapWrapper {
     }
 
     //Delete operation on algoithm 2.
-    delete2(k str) {
+    _delete2(k str) {
         ind = __Bah_map_hash(k, len(this.elems))
         i=0; for i < len(this.elems), i++ {
             j = (i + ind) % len(this.elems)
@@ -268,7 +268,7 @@ struct mapWrapper {
     }
 
     //Get operation on algotihm 2.
-    get2(k str) ptr {
+    _get2(k str) ptr {
         ind = __Bah_map_hash(k, len(this.elems))
         i=0; for i < len(this.elems), i++ {
             j = (i + ind) % len(this.elems)
@@ -291,7 +291,7 @@ struct mapWrapper {
     }
 
     //Get operation on algotihm 1.
-    get1(k str) ptr {
+    _get1(k str) ptr {
         this.clearMsr()
         if this.nodes == null {
             return null
@@ -305,7 +305,7 @@ struct mapWrapper {
     }
 
     //Set operation on algorithm 1.
-    set1(k str, e ptr) {
+    _set1(k str, e ptr) {
         this.clearMsr()
         if this.nodes == null {
             this.nodes = new mapNode {
@@ -353,7 +353,7 @@ struct mapWrapper {
     }
 
     //Delete operation on algoithm 1.
-    delete1(k str) {
+    _delete1(k str) {
         this.clearMsr()
         this.nodes.getFast(k, this.nodes.calc(k, 0), &this.msr)
         if this.msr.found {
@@ -377,9 +377,9 @@ struct mapWrapper {
 
     _init() {
         this.algo = 2
-        this.set = this.set2
-        this.get = this.get2
-        this.delete = this.delete2
+        this.set = this._set2
+        this.get = this._get2
+        this.delete = this._delete2
         this.grow(50)
     }
 }
@@ -392,9 +392,9 @@ mapWrapperSetAlgo(p ptr, nb uint32) {
     }
     this.changingAlgo = true
     if nb == 1 {
-        this.set = this.set1
-        this.get = this.get1
-        this.delete = this.delete1
+        this.set = this._set1
+        this.get = this._get1
+        this.delete = this._delete1
         this.algo = 1
         this.length = 0
         i=0; for i < len(this.elems), i++ {
@@ -407,9 +407,9 @@ mapWrapperSetAlgo(p ptr, nb uint32) {
     } else if nb == 2 {
         this.nbDelete = 0
         this.grow(this.length)
-        this.set = this.set2
-        this.get = this.get2
-        this.delete = this.delete2
+        this.set = this._set2
+        this.get = this._get2
+        this.delete = this._delete2
         this.algo = 2
         this.length = 0
         current = this.nodes
