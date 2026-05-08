@@ -701,6 +701,16 @@ toLower(s string) string {
 }
 
 strToLower(s str) str {
+    i=0;for i < len(s), i++ {
+        if isUpper(s[i]) {
+            break
+        }
+    }
+
+    if i == len(s) {
+        return s
+    }
+
     ns = strBuilder{}
     i=0;for i < len(s), i++ {
         if isUpper(s[i]) {

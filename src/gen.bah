@@ -217,10 +217,16 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
     }
 
     if opStr == ">>" {
+        if type.type != BAH_TYPE_UINT {
+            return gen.generateOpBitwise(left, right, ASM_OP_SIGNED_BITWISE_RIGHT, false)
+        }
         return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_RIGHT, false)
     }
 
     if opStr == "<<" {
+        if type.type != BAH_TYPE_UINT {
+            return gen.generateOpBitwise(left, right, ASM_OP_SIGNED_BITWISE_LEFT, false)
+        }
         return gen.generateOpBitwise(left, right, ASM_OP_BITWISE_LEFT, false)
     }
 
@@ -248,7 +254,12 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         }
         gen.generateMoveValue(gen.staticInt("0"), index)
 
-        elemSizeSym = gen.staticInt(uintToStr(type.size))
+        elemSize = type.size
+        if elemSize % 8 != 0 && containsPtr(type) {
+            elemSize += 8 - (elemSize % 8)
+        }
+        elemSizeSym = gen.staticInt(uintToStr(elemSize))
+        
 
         gen.generateFor()
         optimizedIndex = len(gen.instructions)-1
@@ -552,10 +563,15 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             res = gen.generateFnCall(asmSymbolValue(memoryAllocFunction), 8, null, false)
             gen.generateMoveValue(res, sym)
 
+            elemSize = val.type.child.size
+            if elemSize % 8 != 0 && containsPtr(val.type.child) {
+                elemSize += 8 - (elemSize % 8)
+                // println(val.type.child.toStr()+" "+intToStr(val.type.child.size)+" -> "+intToStr(elemSize))
+            }
+
             res.level = 1
             res.offset = ARR_ELEMSIZE_OFFSET
-            gen.generateVarSet(res, gen.staticInt(uintToStr(val.type.child.size)), true)
-
+            gen.generateVarSet(res, gen.staticInt(uintToStr(elemSize)), true)
                     
             arrLen = 0
             currVal = val.right
@@ -570,7 +586,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 res.offset = ARR_REALENGTH_OFFSET
                 gen.generateVarSet(res, gen.staticInt(uintToStr(arrLen)), true)
                 gen.generateFnCallStart()
-                gen.generateFnCallArgument(gen.staticInt(uintToStr(val.type.child.size * arrLen)))
+                gen.generateFnCallArgument(gen.staticInt(uintToStr(elemSize * arrLen)))
                 allocFunc = asmSymbolValue(memoryAllocFunction)
                 if containsPtr(val.type.child) == false {
                     allocFunc.name = memoryAllocFunctionSTR
@@ -589,7 +605,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                     elemSym = generateBahValueSymbol(currVal.left, null)
                     
                     dataSym = gen.generateDestDereference(sym)
-                    dataSym = gen.generateDestSymOffset(dataSym, gen.staticInt(uintToStr(val.type.child.size * index)))                
+                    dataSym = gen.generateDestSymOffset(dataSym, gen.staticInt(uintToStr(elemSize * index)))                
 
                     dataSym.level = 1
                     dataSym.size = val.type.child.size
@@ -693,8 +709,14 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
         }
 
         if val.left.type.type == BAH_TYPE_ARRAY {
+
+            elemSize = val.left.type.child.size
+            if elemSize % 8 != 0 && containsPtr(val.left.type.child) {
+                elemSize += 8 - (elemSize % 8)
+            }
+
             rSym = generateBahValueSymbol(val.right, null)
-            rSym = gen.generateOpMult(rSym, gen.staticInt(uintToStr(val.left.type.child.size)), ASM_NUM_UINT)
+            rSym = gen.generateOpMult(rSym, gen.staticInt(uintToStr(elemSize)), ASM_NUM_UINT)
 
             if isValueInexpensive(val.left) == false {
                 rSym = gen.generateTmpSym(rSym, 8)
@@ -1365,7 +1387,12 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
 
         sym = gen.generateDestDereference(sym)
 
-        indexSym = gen.generateOpMult(indexSym, gen.staticInt(uintToStr(lval.left.type.child.size)), ASM_NUM_UINT)
+        elemSize = lval.left.type.child.size
+        if elemSize % 8 != 0 && containsPtr(lval.left.type.child) {
+            elemSize += 8 - (elemSize % 8)
+        }
+
+        indexSym = gen.generateOpMult(indexSym, gen.staticInt(uintToStr(elemSize)), ASM_NUM_UINT)
         sym = gen.generateDestSymOffset(sym, indexSym)
         sym.level = 1
         sym.size = lval.left.type.child.size
@@ -1793,6 +1820,13 @@ generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
                 nSyms[len(nSyms)-1].name = arrDataName
                 nSyms[len(nSyms)-1].level = -1
             }
+
+            elemSize = val.type.child.size
+            alignmentOffset = 0
+            if elemSize % 8 != 0 && containsPtr(val.type.child) {
+                alignmentOffset = 8 - (elemSize % 8)
+                elemSize += alignmentOffset
+            }
             
             //length
             nSyms[len(nSyms)] = asmSymbol {
@@ -1807,7 +1841,7 @@ generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
             //elemSize
             nSyms[len(nSyms)] = asmSymbol {
                 size: 8
-                name: uintToStr(val.type.child.size)
+                name: uintToStr(elemSize)
             }
             //parent
             nSyms[len(nSyms)] = asmSymbol {
@@ -1820,6 +1854,12 @@ generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
                 arrDataSyms = []asmSymbol
                 for currVal != null, currVal = currVal.right {
                     generateImmediateValues(currVal.left, arrDataSyms, true)
+                    if alignmentOffset != 0 {
+                        arrDataSyms[len(arrDataSyms)] = asmSymbol {
+                            size: alignmentOffset
+                            name: "0"
+                        }
+                    }
                 }
                 gen.generatePrivateVarWithValue(arrDataName, 8, arrDataSyms)
             }

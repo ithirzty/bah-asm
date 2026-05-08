@@ -127,10 +127,12 @@ const ASM_not = []str{"notb", "notw", "notl", "notq"}
 const ASM_or = []str{"orb", "orw", "orl", "orq"}
 const ASM_xor = []str{"xorb", "xorw", "xorl", "xorq"}
 const ASM_and = []str{"andb", "andw", "andl", "andq"}
-const ASM_shift_left = []str{"", "", "sall", "salq"}
-const ASM_shift_right = []str{"", "", "sarl", "sarq"}
+const ASM_signed_shift_left = []str{"", "", "sall", "salq"}
+const ASM_signed_shift_right = []str{"", "", "sarl", "sarq"}
+const ASM_shift_left = []str{"", "", "shll", "shlq"}
+const ASM_shift_right = []str{"", "", "shrl", "shrq"}
 
-ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right}
+ASM_bitwise_ops = [][]str{ASM_or, ASM_xor, ASM_and, ASM_shift_left, ASM_shift_right, ASM_signed_shift_left, ASM_signed_shift_right}
 
 const ASM_reg_id_return = 0
 const ASM_reg_id_dest_addr = 1
@@ -156,6 +158,9 @@ const ASM_OP_BITWISE_XOR   = 1
 const ASM_OP_BITWISE_AND   = 2
 const ASM_OP_BITWISE_LEFT  = 3
 const ASM_OP_BITWISE_RIGHT = 4
+const ASM_OP_SIGNED_BITWISE_LEFT  = 5
+const ASM_OP_SIGNED_BITWISE_RIGHT = 6
+
 
 const ASM_SELF_OP_ADD = 0
 const ASM_SELF_OP_SUB = 1
@@ -3171,6 +3176,10 @@ struct asmContext {
                 directive = ".word"
             } else if sym.size == 0 {
                 directive = ".asciz"
+            } else if sym.size != 1 {
+                this.data += rope(".zero "+intToStr(sym.size)+"\n")
+                sizeOffset += sym.size
+                continue
             }
 
             this.data += rope(directive + " " + sym.name + "\n")
@@ -3261,7 +3270,7 @@ struct asmContext {
             b = this.generateConvSizes(b, a.size, false)
         }
 
-        if operation == ASM_OP_BITWISE_LEFT || operation == ASM_OP_BITWISE_RIGHT {
+        if operation == ASM_OP_BITWISE_LEFT || operation == ASM_OP_BITWISE_RIGHT || operation == ASM_OP_SIGNED_BITWISE_LEFT || operation == ASM_OP_SIGNED_BITWISE_RIGHT {
             if (b.isReg == false || b.address != ASM_reg_id_args + 3) && (b.isValue == false || b.name[0] != '$') {
                 rightReg = asmSymbolReg(ASM_reg_id_args, b.size, 3)
                 if this.isSameArg(&a, &rightReg) {
@@ -3418,7 +3427,11 @@ struct asmContext {
                 if n % 2 == 0 {
                     p = getTwoPow(n)
                     if p != -1 {
-                        return this.generateOpBitwise(b, this.staticInt(intToStr(p)), ASM_OP_BITWISE_LEFT, false)
+                        op = ASM_OP_BITWISE_LEFT
+                        if numType != ASM_NUM_UINT {
+                            op = ASM_OP_SIGNED_BITWISE_LEFT
+                        }
+                        return this.generateOpBitwise(b, this.staticInt(intToStr(p)), op, false)
                     }
                 }
             }
@@ -3434,7 +3447,11 @@ struct asmContext {
                 if n % 2 == 0 {
                     p = getTwoPow(n)
                     if p != -1 {
-                        return this.generateOpBitwise(a, this.staticInt(intToStr(p)), ASM_OP_BITWISE_LEFT, false)
+                        op = ASM_OP_BITWISE_LEFT
+                        if numType != ASM_NUM_UINT {
+                            op = ASM_OP_SIGNED_BITWISE_LEFT
+                        }
+                        return this.generateOpBitwise(a, this.staticInt(intToStr(p)), op, false)
                     }
                 }
             }
@@ -3532,7 +3549,11 @@ struct asmContext {
             if n % 2 == 0 {
                 p = getTwoPow(n)
                 if p != -1 {
-                    return this.generateOpBitwise(a, this.staticInt(intToStr(p)), ASM_OP_BITWISE_RIGHT, false)
+                    op = ASM_OP_BITWISE_RIGHT
+                    if numType != ASM_NUM_UINT {
+                        op = ASM_OP_SIGNED_BITWISE_RIGHT
+                    }
+                    return this.generateOpBitwise(a, this.staticInt(intToStr(p)), op, false)
                 }
             }
         }

@@ -21,21 +21,71 @@ const HTML_nonClosingTags = []str{
 const HTML_nonParsingTags = []str{
     "script",
     "style",
-    "svg"
+    "svg",
+    "title"
+}
+
+_htmlLazyStrCompare(a str, source str, range [int32,int32]) bool {
+    if range[1] - range[0] != len(a) {
+        return false
+    }
+
+    i=0; for i < len(a), i++ {
+        if a[i] != source[range[0] + i] {
+            return false
+        }
+    }
+
+    return true
 }
 
 //Represents a html element.
 struct htmlElement {
-    name: str
+    _from: str
+
+    _name: [int32,int32]
+    _html: [int32,int32]
+    _text: [int32,int32]
+
     attrs: []str
-    html: str = ""
-    text: str = ""
     children: []htmlElement*
     parent: htmlElement*
 
+    getName() str {
+        return strToLower(this._from[this._name[0]:this._name[1]])
+    }
+
+
+    getText() str {
+        if this._text[1] - this._text[0] != 0 {
+            return this._from[this._text[0]:this._text[1]]
+        }
+
+        text = ""
+        i=0; for i < len(this.children), i++ {
+            ct = this.children[i].getText()
+            if len(ct) == 0 {
+                continue
+            }
+
+            if len(text) == 0 {
+                text += ct
+            } else {
+                text += " " + ct
+            }
+        }
+        return text
+    }
+
+    getHTML() str {
+        if this._html[0] == this._html[1] {
+            return this.getText()
+        }
+        return this._from[this._html[0]:this._html[1]]
+    }
 
     //Used for getting the content of the specified attribute.
-    attr(name str) str {
+    getAttr(name str) str {
         i=0; for i < len(this.attrs), i++ {
             attr = this.attrs[i]
             attrName = ""
@@ -99,7 +149,7 @@ struct htmlElement {
             if fc == '#' {
 
             } else if fc == '.' {
-                cl = c.attr("class")
+                cl = c.getAttr("class")
                 if strlen(cl) == 0 {
                     i++
                     continue
@@ -113,7 +163,9 @@ struct htmlElement {
                     j++
                 }
             } else {
-                if c.name == tag {
+                isName = false
+
+                if _htmlLazyStrCompare(tag, c._from, c._name) {
                     qs.trimLeft(strlen(tag))
                     qs.trim()
                     if qs.length > 0 {
@@ -150,8 +202,8 @@ isValidHTMLStringChar(c char) bool {
 
 //Used for skipping white spaces inside the current char array.
 //*Note: this is an internal function.*
-skipHTMLspace(s str, i int) int {
-    for i < len(s), i++ {
+skipHTMLspace(s str, i int, to int) int {
+    for i < to, i++ {
         if isSpace(s[i]) == false {
             break
         }
@@ -161,81 +213,91 @@ skipHTMLspace(s str, i int) int {
 
 //Used for parsing a string. Will return an array of elements.
 //*Note: this is an internal function, if you are trying to parse a document, use parseHTML().*
-parseHTMLElements(s str, parent htmlElement*) []htmlElement* {
+parseHTMLElements(s str, from int, to int, parent htmlElement*) []htmlElement* {
     elems = []htmlElement*
 
-    if len(s) == 0 {
+    if to - from <= 0 {
         return null
     }
 
-    start = skipHTMLspace(s, 0)
-    i=start; for i < len(s), i++ {
-        if s[i] == '<' {
+    from = skipHTMLspace(s, from, to)
+    prevPos = from
+    i=from; for i < to - 1, i++ {
+        if s[i] == '<' && isSpace(s[i+1]) == false {
+            prevPos = skipHTMLspace(s, prevPos, to)
+            if i - prevPos > 1 {
+                elems[len(elems)] = new htmlElement {
+                    parent: parent
+                    _from: s
+                    _text: [<int32>prevPos, <int32>i]
+                }
+                prevPos = i
+            }
 
-            if i + 6 < len(s) && s[i+1] == '!' && s[i+2] == '-' && s[i+3] == '-' {
+            if i + 6 < to && s[i+1] == '!' && s[i+2] == '-' && s[i+3] == '-' {
                 i += 4
-                for i < len(s) - 2, i++ {
+                for i < to - 2, i++ {
                     if s[i] == '-' && s[i+1] == '-' && s[i+2] == '>' {
+                        i += 2
                         break
                     }
                 }
+                prevPos = i+1
                 continue
             }
 
-            oldStart = start
-            if i > start {
-                elems[len(elems)] = new htmlElement {
-                    name: "text"
-                    text: s[start:i]
-                    parent: parent
-                }
-            }
-            start = i
+            // if gap between last element and this one, add a text pseudoelement
+
+            elemStart = i
 
             i++
-            for i < len(s), i++ {
+            start = i
+
+            elem = new htmlElement {
+                parent: parent
+                _from: s
+            }
+
+            for i < to, i++ {
                 if isValidHTMLStringChar(s[i]) == false {
                     break
                 }
             }
-            if i - start <= 1 {
-                delete(elems, len(elems)-1)
-                start = oldStart
-                continue
+
+            elem._name = [<int32>start, <int32>i]
+
+            isSelfClosing = false
+            shouldNotParseContent = false
+            j=0; for j < len(HTML_nonClosingTags), j++ {
+                if _htmlLazyStrCompare(HTML_nonClosingTags[j], s, elem._name) {
+                    isSelfClosing = true
+                    break
+                }
             }
 
-            htmlElem = new htmlElement {
-                name: strToLower(s[start+1:i])
-                parent: parent
+            j=0; for j < len(HTML_nonParsingTags), j++ {
+                if _htmlLazyStrCompare(HTML_nonParsingTags[j], s, elem._name) {
+                    shouldNotParseContent = true
+                    break
+                }
             }
-
-            isClosing = htmlElem.name in HTML_nonClosingTags
-
-            start = i
 
             //parsing attributes
-            for i < len(s), i++ {
-                i = skipHTMLspace(s, i)
+            for i < to, i++ {
+                i = skipHTMLspace(s, i, to)
 
                 if s[i] == '>' {
+                    break
+                }
+
+                if i+1 < to && s[i] == '/' && s[i+1] == '>' {
+                    isSelfClosing = true
                     i++
                     break
                 }
 
-                if i+1 < len(s) && s[i] == '<' && s[i+1] == '/' {
-                    delete(elems, len(elems)-1)
-                    start = oldStart
-                    i = oldStart
-                    break
-                }
-
-                if isClosing && i+1 < len(s) && s[i] == '/' && s[i+1] == '>' {
-                    i += 2
-                    break
-                }
-
                 start = i
-                for i < len(s), i++ {
+                for i < to, i++ {
                     if isValidHTMLStringChar(s[i]) == false {
                         break
                     }
@@ -245,111 +307,141 @@ parseHTMLElements(s str, parent htmlElement*) []htmlElement* {
                     continue
                 }
 
-                j = skipHTMLspace(s, i)
-
+                j = skipHTMLspace(s, i, to)
                 if s[j] != '=' {
-                    htmlElem.attrs[len(htmlElem.attrs)] = s[start:i]
+                    elem.attrs[len(elem.attrs)] = s[start:i]
+                    i = j-1
                     continue
                 }
 
-                i = skipHTMLspace(s, j+1)
-
+                i = skipHTMLspace(s, j + 1, to)
                 if s[i] == '"' || s[i] == <char>39 {
                     c = s[i]
                     i++
-                    for i < len(s), i++ {
+                    for i < to, i++ {
                         if s[i] == c {
                             i++
                             break
                         }
                     }
                 } else {
-                    for i < len(s), i++ {
+                    for i < to, i++ {
                         if isValidHTMLStringChar(s[i]) == false {
                             break
                         }
                     }
                 }
-                htmlElem.attrs[len(htmlElem.attrs)] = s[start:i]
+                elem.attrs[len(elem.attrs)] = s[start:i]
                 i--
             }
 
-            if start == oldStart {
-                continue
-            }
+            i++
+            start = i
+            contentEnd = i
 
-            start = skipHTMLspace(s, i)
+            if isSelfClosing == false {
+                count = 1
+                for i < to - 1, i++ {
+                    if s[i] == '<' && s[i+1] == '/' {
+                        contentEnd = i
+                        i += 2
+                        j = 0
+                        nl = elem._name[1] - elem._name[0]
+                        sameTagName = true
+                        for i < to, i++ {
+                            if isValidHTMLStringChar(s[i]) == false {
+                                break
+                            }
 
-            if isClosing {
-                elems[len(elems)] = htmlElem
-                i--
-                continue
-            }
+                            if j >= nl {
+                                sameTagName = false
+                                break
+                            }
 
-            max = len(s) - (len(htmlElem.name) + 2)
+                            if s[i] != s[elem._name[0] + j] {
+                                sameTagName = false
+                                break
+                            }
 
-            if i > max {
-                delete(elems, len(elems)-1)
-                start = oldStart
-                i = oldStart+1
-                continue
-            }
-
-            for i < max, i++ {
-                if s[i] == '<' && s[i+1] == '/' {
-                    i += 2
-                    j = 0
-                    for i < len(s), i++ {
-                        if isValidHTMLStringChar(s[i]) == false {
-                            break
+                            j++
                         }
-                        if s[i] != htmlElem.name[j] {
-                            break
+
+                        for i < to, i++ {
+                            if s[i] == '>' {
+                                break
+                            }
                         }
-                        j++
 
-                        if j == len(htmlElem.name) {
-                            break
+                        if sameTagName {
+                            count--
+                            if count == 0 {
+                                break
+                            }
                         }
-                    }
+                    } else if s[i] == '<' && s[i+1] != '!' {
+                        i++
 
-                    if j != len(htmlElem.name) {
-                        continue
-                    }
+                        j = 0
+                        nl = elem._name[1] - elem._name[0]
+                        sameTagName = true
+                        for i < to, i++ {
+                            if isValidHTMLStringChar(s[i]) == false {
+                                break
+                            }
 
-                    i++
-                    if s[i] == '>' {
-                        break
+                            if j >= nl {
+                                sameTagName = false
+                                break
+                            }
+
+                            if s[i] != s[elem._name[0] + j] {
+                                sameTagName = false
+                                break
+                            }
+
+                            j++
+                        }
+
+                        for i < to, i++ {
+                            if s[i] == '>' {
+                                break
+                            }
+                        }
+
+                        if sameTagName {
+                            count++
+                        }
+
                     }
                 }
+            } else {
+                i--
             }
 
-            elems[len(elems)] = htmlElem
+            elem._html = [<int32>elemStart, <int32>i]
 
-            if htmlElem.name in HTML_nonParsingTags {
-                htmlElem.text = s[start:i - (len(htmlElem.name) + 2)]
-                start = skipHTMLspace(s, i+1)
-                continue
+            if shouldNotParseContent == false {
+                if contentEnd - start > 0 {
+                    elem.children = parseHTMLElements(s, start, contentEnd, elem)
+                }
+            } else {
+                elem._text = [<int32>start, <int32>(contentEnd+1)]
             }
 
-            htmlElem.html = s[start:i - (len(htmlElem.name) + 2)]
-            htmlElem.children = parseHTMLElements(htmlElem.html, htmlElem)
-            start = skipHTMLspace(s, i+1)
+            elems[len(elems)] = elem
+
+            prevPos = i+1
+            
         }
     }
 
 
-    start = skipHTMLspace(s, start)
-    for i < start, i-- {
-        if isSpace(s[i-1]) == false {
-            break
-        }
-    }
-    if start < i {
+    prevPos = skipHTMLspace(s, prevPos, to)
+    if prevPos < to {
         elems[len(elems)] = new htmlElement {
-            name: "text"
             parent: parent
-            text: s[start:i]
+            _from: s
+            _text: [<int32>prevPos, <int32>to]
         }
     }
 
@@ -361,7 +453,7 @@ parseHTMLElements(s str, parent htmlElement*) []htmlElement* {
 //Will return a pointer to the document.
 parseHTML(doc str) htmlElement* {
     root = new htmlElement
-    root.name = "document"
-    root.children = parseHTMLElements(doc, root)
+    // root.name = "document"
+    root.children = parseHTMLElements(doc, 0, len(doc), root)
     return root
 }

@@ -6,7 +6,7 @@ mkdir /opt/bah-asm
 mkdir /opt/bah-asm/compiler
 cp -r ./libs/* /opt/bah-asm/
 cp ./src/*.bah /opt/bah-asm/compiler/
-if cat /proc/cpuinfo | grep "avx" > /dev/null; then
+if cat /proc/cpuinfo | grep "avx2" > /dev/null; then
     rm /opt/bah-asm/bah-noavx
 else
     echo "Note: installing none AVX version"

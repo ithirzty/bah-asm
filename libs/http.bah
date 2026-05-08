@@ -994,7 +994,6 @@ makeRawHttpsRequest(host str, message str, timeout int) response_buffer {
 
     ctx = SSL_CTX_new(TLS_client_method())
     if timeout > 0 {
-        println("timed out")
         SSL_CTX_set_timeout(ctx, timeout)
     }
 

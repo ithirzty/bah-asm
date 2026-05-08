@@ -505,6 +505,7 @@ struct BAH_GC_state_tag {
     mainThread: int
 
     mut: pthread_mutex_t*
+    scanMut: pthread_mutex_t*
 
     atomicThreadCount: uint
     atomicResume:      int
@@ -575,6 +576,14 @@ struct BAH_GC_state_tag {
 
         i = this.findPageIndex(pageNb)
 
+        if p < GC_min_ptr {
+            GC_min_ptr = p
+        }
+
+        if p > GC_max_ptr {
+            GC_max_ptr = p
+        }
+
         if i < this.pagesLength {
             page = *<BAH_GC_page**>(<uint>this.pages + i * sizeof(ptr))
             if page.page == pageNb {
@@ -603,14 +612,6 @@ struct BAH_GC_state_tag {
         currPage.list = malloc(s)
         memset(currPage.list, 0, s)
 
-        if p < GC_min_ptr {
-            GC_min_ptr = p
-        }
-
-        if p > GC_max_ptr {
-            GC_max_ptr = p
-        }
-
         return currPage
     }
 
@@ -620,7 +621,6 @@ struct BAH_GC_state_tag {
         if p == 0 {
             panic("GC: could not allocate memory.")
         }
-
 
         this.heapSize += s
 
@@ -758,11 +758,14 @@ GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
 
     memcpy(<ptr>t.regs, <ptr>(<uint>ctx + 40), 184)
 
+    GC_scanReversed(t.stackBase, (*<uint*>(<uint>t.regs + 120)), 8)
+    GC_scan(<uint>t.regs, <uint>t.regs + 184, 8)
+
     atomic_add(&BAH_GC_state.atomicThreadCount, 1)
 
-    for atomic_load(&BAH_GC_state.atomicResume) == 0 {
-        sched_yield()
-    }
+    // for atomic_load(&BAH_GC_state.atomicResume) == 0 {
+    //     sched_yield()
+    // }
 }
 
 GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
@@ -838,8 +841,10 @@ GC_init() {
     sigaction(SIGGCSTOP, &action, null)
 
     BAH_GC_state.mut = malloc(sizeof(pthread_mutex_t))
+    BAH_GC_state.scanMut = malloc(sizeof(pthread_mutex_t))
 
     pthread_mutex_init(BAH_GC_state.mut, 0)
+    pthread_mutex_init(BAH_GC_state.scanMut, 0)
 
     BAH_GC_state.threads = malloc(sizeof(BAH_GC_thread))
     BAH_GC_state.threads.sysid = BAH_GC_state.mainThread
@@ -872,22 +877,31 @@ GC_markPtr(p uint) {
     if gcPtr == null {
         return
     }
+
+
+    pthread_mutex_lock(BAH_GC_state.scanMut)
     if gcPtr.marked {
+        pthread_mutex_unlock(BAH_GC_state.scanMut)
         return
     }
 
-
     gcPtr.marked = true
+    pthread_mutex_unlock(BAH_GC_state.scanMut)
+
     if gcPtr.notScannable == false {
         if BAH_GC_state.scanStackBase - BAH_GC_state.scanRBP >= 6000000 {
-            overflowNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
-            overflowNode.data = gcPtr
-            overflowNode.next = BAH_GC_state.overflowQueue
-            BAH_GC_state.overflowQueue = overflowNode
+            puts("GC: unhandled stack overflow while scanning")
+            // pthread_mutex_lock(BAH_GC_state.scanMut)
+            // overflowNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
+            // overflowNode.data = gcPtr
+            // overflowNode.next = BAH_GC_state.overflowQueue
+            // BAH_GC_state.overflowQueue = overflowNode
+            // pthread_mutex_unlock(BAH_GC_state.scanMut)
+
             return
         }
 
-        GC_scan(p, p + gcPtr.size, 1)
+        GC_scan(p, p + gcPtr.size, 8)
     }
 }
 
@@ -967,7 +981,7 @@ GC_collect() {
     BAH_GC_state.scanStackBase = currThread.stackBase
     BAH_GC_state.scanRBP = currBasePointer
 
-    atomic_store(&BAH_GC_state.atomicResume, 0)
+    // atomic_store(&BAH_GC_state.atomicResume, 0)
     atomic_store(&BAH_GC_state.atomicThreadCount, 0)
 
     nbThreads = GC_stopWorld(callerId)
@@ -999,39 +1013,42 @@ GC_collect() {
     //check stack
     GC_scanReversed(currThread.stackBase, currBasePointer, 8)
 
-    for atomic_load(&BAH_GC_state.atomicThreadCount) != nbThreads {
-        sched_yield()
-    }
 
-    ct = BAH_GC_state.threads
-    for ct != null, ct = ct.next {
-        if ct.sysid == callerId {
-            continue
-        }
-        GC_scanReversed(ct.stackBase, (*<uint*>(<uint>ct.regs + 120)), 8)
-        GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
-    }
+    // ct = BAH_GC_state.threads
+    // for ct != null, ct = ct.next {
+    //     if ct.sysid == callerId {
+    //         continue
+    //     }
+    //     GC_scanReversed(ct.stackBase, (*<uint*>(<uint>ct.regs + 120)), 8)
+    //     GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
+    // }
 
     root = BAH_GC_state.roots
     for root != null, root = root.next {
         GC_scan(<uint>root.data, <uint>root.data + root.size, 1)
     }
 
+    for atomic_load(&BAH_GC_state.atomicThreadCount) != nbThreads {
+        sched_yield()
+    }
+
+    // atomic_store(&BAH_GC_state.atomicResume, 1)
+
     freed=0
     alive=0
 
-    additional=0
-    for BAH_GC_state.overflowQueue != null {
-        currQueue = BAH_GC_state.overflowQueue
-        BAH_GC_state.overflowQueue = null
-        for currQueue != null {
-            GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size, 1)
-            prevQueue = currQueue
-            currQueue = currQueue.next
-            free(prevQueue)
-            additional++
-        }
-    }
+    // additional=0
+    // for BAH_GC_state.overflowQueue != null {
+    //     currQueue = BAH_GC_state.overflowQueue
+    //     BAH_GC_state.overflowQueue = null
+    //     for currQueue != null {
+    //         GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size, 8)
+    //         prevQueue = currQueue
+    //         currQueue = currQueue.next
+    //         free(prevQueue)
+    //         additional++
+    //     }
+    // }
 
     BAH_GC_state.heapSize = 0
     j=0; for j < BAH_GC_state.pagesLength, j++ {
@@ -1097,7 +1114,6 @@ GC_collect() {
         }
     }
 
-    atomic_store(&BAH_GC_state.atomicResume, 1)
 }
 
 memoryAlloc(s uint) ptr {
@@ -1155,7 +1171,8 @@ memoryRealloc(o ptr, s uint) ptr {
     currPage = BAH_GC_state.isPointerInBounds(<uint>o)
 
     if currPage == null {
-        panic("GC: cannot reallocate memory that was not allocated by the garbage collector (0x"+uintToHex(<uint>o)+").")
+        printInt(<uint>o)
+        panic("GC: cannot reallocate memory that was not allocated by the garbage collector.")
     }
 
     i=0; for i < currPage.listLength, i++ {

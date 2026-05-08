@@ -258,6 +258,13 @@ struct _IO_FILE {
 // #define sqrt(x int) int
 // #define powd(x float, y float) float
 // #define sqrtd(x float) float
+#cLib "lm"
+
+#define round(x float) float
+#define floor(x float) float
+#define sqrt(x float) float
+#define isnan(x float) bool
+#define isinf(x float) bool
 
 // #define! fileno(f FILE*) int
 // #define! puts(s str)

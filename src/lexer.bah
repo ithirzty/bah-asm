@@ -34,11 +34,11 @@ struct bahToken {
 totalLines = 0
 lexerShouldAddToken = true
 
-const enclavers = []char{'(', ')', '{', '}', '[', ']'}
-const syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^', '~'}
+const bah_lexer_enclavers = []char{'(', ')', '{', '}', '[', ']'}
+const bah_lexer_syntaxes = []char{'!', '=', '|', <char>38, '%', '+', '-', '*', '/', ',', '<', '>', ':', <char>59, '^', '~'}
                                     //&                                                    //;
 
-const keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
+const bah_lexer_keywords = []str{"if", "else", "for", "return", "new", "break", "continue", "struct", "const", "extend", "function", "async", "in", "chan", "map", "buffer", "let", "then"}
 
 //Generates a token from all of its properties.
 makeToken(pos int, lineNb int, cont str, type tokenType, tokens []bahToken) bahToken* {
@@ -54,7 +54,7 @@ makeToken(pos int, lineNb int, cont str, type tokenType, tokens []bahToken) bahT
 
     t = &tokens[len(tokens)-1]
 
-    if type == TOKEN_TYPE_VAR && t.cont in keywords {
+    if type == TOKEN_TYPE_VAR && t.cont in bah_lexer_keywords {
         t.type = TOKEN_TYPE_KEYWORD
     } else if type == TOKEN_TYPE_INT || type == TOKEN_TYPE_STR || type == TOKEN_TYPE_FLOAT || type == TOKEN_TYPE_VAR || type == TOKEN_TYPE_BOOL || type == TOKEN_TYPE_CHAR {
         t.isValue = true
@@ -231,7 +231,7 @@ lexerToArray(s str, includeBodies bool, tokens []bahToken) {
             if lexerShouldAddToken {
                 makeToken(i, lineNb, ".", TOKEN_TYPE_SEP, tokens)
             }
-        } else if c in syntaxes { //token is a syntax element
+        } else if c in bah_lexer_syntaxes { //token is a syntax element
             if c == '<' {
                 pos = i
                 isCast = false
@@ -267,7 +267,7 @@ lexerToArray(s str, includeBodies bool, tokens []bahToken) {
             fc = c
             for i < len(s), i++ {
                 c = s[i]
-                if c in syntaxes == false {
+                if c in bah_lexer_syntaxes == false {
                     break
                 }
                 //for <=, >=, ==, !=, +=, -=, &&, ||, <<
@@ -293,7 +293,7 @@ lexerToArray(s str, includeBodies bool, tokens []bahToken) {
                 makeToken(pos, lineNb, s[pos:i], TOKEN_TYPE_SYNTAX, tokens)
             }
             i--
-        } else if c in enclavers { //token is enclaver
+        } else if c in bah_lexer_enclavers { //token is enclaver
             if includeBodies == false {
                 if nbEncl == 0 {
                     if c == '{' && tokens[len(tokens)-1].cont[0] != '#' && tokens[len(tokens) - 2].cont != "extend" && tokens[len(tokens)-2].cont != "struct" {

@@ -1,4 +1,72 @@
+struct threadPool {
+    handle: function(threadPool*, ptr, int)
+    status: uint
+    nbThreads: int
+    running: bool
+    value: ptr
+    cond: mutexCondition
+    mut: mutex
 
+    _worker(n int) {
+        idMask = 1 << (n-1)
+
+        for true {
+            this.mut.lock()
+            for this.status & idMask != 0 {
+                this.cond.wait(this.mut)
+            }
+
+            if this.running == false {
+                break
+            }
+
+            val = this.value
+            this.mut.unlock()
+
+            this.handle(val, n)
+
+            atomic_add(&this.status, idMask)
+        }
+    }
+
+    launch(n int) {
+        if n > 65 {
+            panic("Cannot launch a thread pool bigger than 65 threads.")
+        }
+        this.cond = mutexCondition()
+        this.mut = mutex()
+        this.running = true
+        this.nbThreads = n
+        this.status = 0xFFFFFFFFFFFFFFFF
+        i=1; for i < n, i++ {
+            async this._worker(i)
+        }
+    }
+
+    work(value ptr) {
+        this.value = value
+        this.status = 0
+        this.cond.broadcast()
+
+        this.handle(value, 0)
+        tot = 0
+        i=1; for i < this.nbThreads, i++ {
+            tot += 1 << (i-1)
+        }
+
+        for atomic_load(&this.status) != tot {
+            sched_yield()
+        }
+    }
+
+    stop() {
+        this.running = false
+        this.cond.broadcast()
+        this.mut.destroy()
+        this.cond.destroy()
+    }
+
+}
 
 //Example
 // #include "iostream.bah"
