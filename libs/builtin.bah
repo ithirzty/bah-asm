@@ -254,17 +254,33 @@ struct mutex {
     //This locks the mutex.
     //Every other thread trying to lock it will need to wait for it to be unlocked.
     lock() {
+        #debug {
+            if this.id == null {
+                panic("mutex: cannot lock uninitialized mutex")
+            }
+        }
         pthread_mutex_lock(this.id)
     }
 
     //This unlocks the mutex.
     unlock() {
+        #debug {
+            if this.id == null {
+                panic("mutex: cannot unlock uninitialized mutex")
+            }
+        }
         pthread_mutex_unlock(this.id)
     }
 
     //This destroyes the mutex.
     destroy() {
+        #debug {
+            if this.id == null {
+                panic("mutex: cannot destroy uninitialized mutex")
+            }
+        }
         pthread_mutex_destroy(this.id)
+        this.id = null
     }
 
 }
@@ -1597,6 +1613,10 @@ __Bah_panic(e str, loc str) {
 
 
         backtrace(2)
+
+        if isStackAddress(*<ptr*>(<uint>info + 16)) {
+            print("Note: the faulty address was on the stack.\nMake sur that you did not reference a value that has outlived its scope.\n")
+        }
         exit(139)
     }
 
@@ -1833,9 +1853,9 @@ cStrToBah(b char*) str {
     return <str>r
 }
 
-uintToHex(i uint) str {
+uintToHex(i int) str {
     const Bah_string_hex_characters = "0123456789ABCDEF"
-    if i == 0 {
+    if i <= 0 {
         return "0"
     }
 
