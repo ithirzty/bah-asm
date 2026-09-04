@@ -2085,18 +2085,18 @@ struct asmContext {
         return opReg
     }
 
-    generateCompare(a asmSymbol, b asmSymbol, op uint, isUnsigned bool) asmSymbol {
+    generateCompare(a asmSymbol, b asmSymbol, op uint, numType uint) asmSymbol {
         // this.convertRegister(&a, &b)
 
         ogB = b
         operStart = len(this.instructions)
 
-        if isUnsigned == false || (op != ASM_OP_GREATER && op != ASM_OP_LESS_OR_EQ) {
+        if numType != ASM_NUM_UINT || (op != ASM_OP_GREATER && op != ASM_OP_LESS_OR_EQ) {
             c = a
             a = b
             b = c
 
-            if a.isFloat == false && b.isFloat == false && b.isReg == false {
+            if numType != ASM_NUM_FLOAT && b.isReg == false {
                 if a.isReg && a.level == 0 {
                     if op == ASM_OP_LESS {
                         op = ASM_OP_GREATER
@@ -2107,7 +2107,7 @@ struct asmContext {
                     } else if op == ASM_OP_GREATER_OR_EQ {
                         op = ASM_OP_LESS_OR_EQ
                     }
-                    return this.generateCompare(a, b, op, isUnsigned)
+                    return this.generateCompare(a, b, op, numType)
                 }
                 tmpReg = asmSymbolReg(ASM_reg_id_op, b.size, this.regIndex+1)
                 this.generateMoveValue(b, tmpReg)
@@ -2137,14 +2137,14 @@ struct asmContext {
         }
 
         if a.size > b.size && b.isValue == false {
-            b = this.generateConvSizes(b, a.size, isUnsigned)
+            b = this.generateConvSizes(b, a.size, numType == ASM_NUM_UINT)
         } else if b.size > a.size && a.isValue == false {
-            a = this.generateConvSizes(a, b.size, isUnsigned)
+            a = this.generateConvSizes(a, b.size, numType == ASM_NUM_UINT)
         }
 
         ret = asmSymbolReg(ASM_reg_id_return, 1, 0)
 
-        if a.isFloat || b.isFloat {
+        if numType == ASM_NUM_FLOAT {
             if a.isReg == false || a.address < ASM_reg_id_floats {
                 r = asmSymbolReg(ASM_reg_id_floats, 8, 0)
                 if b.isReg && b.address >= ASM_reg_id_floats {
@@ -2198,7 +2198,7 @@ struct asmContext {
                 }
             }
 
-        } else if isUnsigned {
+        } else if numType == ASM_NUM_UINT {
             this.instructions[len(this.instructions)] = asmInstruction {
                 ASM_cmp[spos(a.size)], a, b
             }

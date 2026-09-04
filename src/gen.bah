@@ -182,7 +182,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
             res = gen.generateFnCall(asmSymbolValue(strCompareFunction), 1, null, false)
             stcInt = gen.staticInt("0")
             stcInt.size = 1
-            return gen.generateCompare(res, stcInt, ASM_OP_EQ, false)
+            return gen.generateCompare(res, stcInt, ASM_OP_EQ, ASM_NUM_INT)
         }
 
         if opStr != "in" {
@@ -307,27 +307,27 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
     }
 
     if opStr == "<" {
-        return gen.generateCompare(leftSym, right, ASM_OP_LESS, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_LESS, tp)
     }
     
     if opStr == ">" {
-        return gen.generateCompare(leftSym, right, ASM_OP_GREATER, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_GREATER, tp)
     }
     
     if opStr == "<=" {
-        return gen.generateCompare(leftSym, right, ASM_OP_LESS_OR_EQ, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_LESS_OR_EQ, tp)
     }
     
     if opStr == ">=" {
-        return gen.generateCompare(leftSym, right, ASM_OP_GREATER_OR_EQ, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_GREATER_OR_EQ, tp)
     }
     
     if opStr == "==" {
-        return gen.generateCompare(leftSym, right, ASM_OP_EQ, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_EQ, tp)
     }
     
     if opStr == "!=" {
-        return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp == ASM_NUM_UINT)
+        return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp)
     }
 
     throwErrorTok(tok, "Internal error: could not generate operation.")
