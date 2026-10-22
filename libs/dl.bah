@@ -125,6 +125,8 @@ struct objectFile {
 
     textAddress: uint
     textSize: uint
+    dataAddress: ptr
+    bssAddress: ptr
 
     _getELFstr(index uint) str {
         s = <char*>(<uint>this.stringTable + index)
@@ -138,20 +140,20 @@ struct objectFile {
 
     performRelocations(section Elf64_Shdr*) {
         j=0; for j * sizeof(Elf64_Rela) < section.sh_size, j++ {
-            rel = <Elf64_Rela*>&this.bytes[section.sh_offset + j * sizeof(Elf64_Rela)]
+            rel = <Elf64_Rela*>(<uint>cArr(this.bytes) + (section.sh_offset + j * sizeof(Elf64_Rela)))
             symbolNb = rel.r_info >> 32
             sym = this.symbols[rel.r_info >> 32]
             sectnb = sym.st_shndx
             sect = this.sectionHeaders[sectnb]
             relType = <uint32>rel.r_info
-            modSect = <Elf64_Shdr*>&this.bytes[this.ELFheader.e_shentsize * section.sh_info + this.ELFheader.e_shoff]
-            addr = <uint32*>(<uint>&this.bytes[modSect.sh_offset] + rel.r_offset)
+            modSect = <Elf64_Shdr*>(<uint>cArr(this.bytes) + (this.ELFheader.e_shentsize * section.sh_info + this.ELFheader.e_shoff))
+            addr = <uint32*>(<uint>cArr(this.bytes) + modSect.sh_offset + rel.r_offset)
 
             if relType == 1 { //.data -> .data relocation
-                srcAddr = <str><ptr>(<uint>&this.bytes[sect.sh_offset] + rel.r_addend)
+                srcAddr = <str><ptr>(<uint>cArr(this.bytes) + sect.sh_offset + rel.r_addend)
                 *(<str*>addr) = srcAddr
             } else if relType == 2 { //data(%rip)
-                tdo = <uint>&this.bytes[sect.sh_offset] - (<uint>&this.bytes[modSect.sh_offset] + rel.r_offset)
+                tdo = <uint>cArr(this.bytes) + sect.sh_offset - (<uint>cArr(this.bytes) + modSect.sh_offset + rel.r_offset)
                 *addr = tdo + sym.st_value + rel.r_addend
             } else if relType == 4 {
                 //function call of function declared inside the objectFile
@@ -206,25 +208,38 @@ struct objectFile {
         }
     }
 
+    registerGCroots() {
+        i=0; for i < len(this.sectionHeaders), i++ {
+            section = this.sectionHeaders[i]
+            name = this._getELFstr(section.sh_name)
+            if name == ".data" {
+                this.dataAddress = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
+                GC_registerRoot(this.dataAddress, section.sh_size)
+            } else if name == ".bss" {
+                this.bssAddress = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
+                GC_registerRoot(this.bssAddress, section.sh_size)
+            }
+        }
+    }
+
     open(filePath str) bool {
         this.fm.executable = true
         this.bytes = this.fm.open(filePath)
-        GC_registerRoot(cArr(this.bytes), len(this.bytes))
 
         if this.fm.isValid() == false || len(this.bytes) < 64 {
             this.fm.close()
             return false
         }
 
-        this.ELFheader = <Elf64_Ehdr*>&this.bytes[0]
+        this.ELFheader = <Elf64_Ehdr*>cArr(this.bytes)
         allocateArray(this.sectionHeaders, this.ELFheader.e_shnum)
 
         i=0; for i < this.ELFheader.e_shnum, i++ {
-            section = <Elf64_Shdr*>&this.bytes[this.ELFheader.e_shentsize * i + this.ELFheader.e_shoff]
+            section = <Elf64_Shdr*>(<uint>cArr(this.bytes) + (this.ELFheader.e_shentsize * i + this.ELFheader.e_shoff))
             this.sectionHeaders[i] = section
 
             if i == this.ELFheader.e_shstrndx && section.sh_type == SHT_STRTAB {
-                this.stringTable = &this.bytes[section.sh_offset]
+                this.stringTable = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
             }
         }
 
@@ -233,23 +248,23 @@ struct objectFile {
             name = this._getELFstr(section.sh_name)
             
             if name == ".text" {
-                this.textAddress = <uint>&this.bytes[section.sh_offset]
+                this.textAddress = <uint>cArr(this.bytes) + section.sh_offset
                 this.textSize = section.sh_size
-
             }
 
             if name == ".strtab" {
-                this.symNameTable = &this.bytes[section.sh_offset]
+                this.symNameTable = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
             }
 
             if name == ".symtab" {
                 j=0; for j * sizeof(Elf64_Sym) < section.sh_size, j++ {
-                    this.symbols[j] = <Elf64_Sym*>&this.bytes[section.sh_offset + j * sizeof(Elf64_Sym)]
+                    this.symbols[j] = <Elf64_Sym*>(<uint>cArr(this.bytes) + (section.sh_offset + j * sizeof(Elf64_Sym)))
                 }
             }
 
         }
 
+        this.registerGCroots()
         return true
     }
 
@@ -260,14 +275,21 @@ struct objectFile {
             if lookupName == name {
                 sectnb = sym.st_shndx
                 sect = this.sectionHeaders[sectnb]
-                return <ptr>&this.bytes[sym.st_value + sect.sh_offset]
+                return <ptr>(<uint>cArr(this.bytes) + sym.st_value + sect.sh_offset)
             }
         }
         return null
     }
 
     close() {
-        GC_removeRoot(cArr(this.bytes))
+        if this.dataAddress != null {
+            GC_removeRoot(this.dataAddress)
+            this.dataAddress = null
+        }
+        if this.bssAddress != null {
+            GC_removeRoot(this.bssAddress)
+            this.bssAddress = null
+        }
         this.fm.close()
     }
 }

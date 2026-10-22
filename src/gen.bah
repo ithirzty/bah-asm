@@ -150,11 +150,11 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
 
             if method != null {
                 if compatibleTypes(type, method.type.child.next) == false {
-                    throwErrorTok(tok, "Wrong type in call to "+method.name)
+                    throwErrorTok(*tok, "Wrong type in call to "+method.name)
                 }
 
                 if compatibleTypes(type, method.type.ret) == false {
-                    throwErrorTok(tok, method.name+"'s return type is not the same as its arguments.")
+                    throwErrorTok(*tok, method.name+"'s return type is not the same as its arguments.")
                 }
 
                 if type.isPtr == false {
@@ -186,7 +186,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         }
 
         if opStr != "in" {
-            throwErrorTok(tok, "Invalid operation.")
+            throwErrorTok(*tok, "Invalid operation.")
         }
     }
 
@@ -203,7 +203,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
     
     if opStr == "%" || opStr == "%=" {
         if tp == ASM_NUM_FLOAT {
-            throwErrorTok(tok, "Cannot do modulo operation on floats.")
+            throwErrorTok(*tok, "Cannot do modulo operation on floats.")
         }
         return gen.generateOpMod(left, right, tp)
     }
@@ -330,7 +330,7 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
         return gen.generateCompare(leftSym, right, ASM_OP_NOT_EQ, tp)
     }
 
-    throwErrorTok(tok, "Internal error: could not generate operation.")
+    throwErrorTok(*tok, "Internal error: could not generate operation.")
 
     n = asmSymbol{}
     return n
@@ -1419,7 +1419,7 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
         return lval.variable.sym
     }
 
-    throwErrorTok(&lval.tok, "Internal error generating left-value asm symbol.")
+    throwErrorTok(lval.tok, "Internal error generating left-value asm symbol.")
 
     return r
 }

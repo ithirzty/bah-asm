@@ -14,7 +14,7 @@ const ASCII_MAGENTA = "\033[35m"
 const ASCII_GREY = "\033[2m"
 const ASCII_RED = "\033[1;31m"
 
-throwErrorTok(t bahToken*, s str) {
+throwErrorTok(t bahToken, s str) {
     codeLine = ""
 
 
@@ -297,7 +297,7 @@ throwWarning(val bahValue*, err str) {
     codeLine = parserCtx.currentFile[lineStart:from] + ASCII_YELLOW + valStr + ASCII_RESET + parserCtx.currentFile[to:lineEnd]
     lineInfo = filePath+":"+uintToStr(lineNb)+":"+uintToStr(relPos)
 
-    println(ASCII_YELLOW+"[ERROR]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
+    println(ASCII_YELLOW+"[WARNING]"+ASCII_RESET+" "+lineInfo+ASCII_RESET)
     println(codeLine+"\033[1;37m")
     println(err+ASCII_RESET)
 }

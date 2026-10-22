@@ -93,6 +93,8 @@ const ASM_OP_BITWISE_XOR   = 1
 const ASM_OP_BITWISE_AND   = 2
 const ASM_OP_BITWISE_LEFT  = 3
 const ASM_OP_BITWISE_RIGHT = 4
+const ASM_OP_SIGNED_BITWISE_LEFT  = 5
+const ASM_OP_SIGNED_BITWISE_RIGHT = 6
 
 const ASM_SELF_OP_ADD = 0
 const ASM_SELF_OP_SUB = 1
@@ -198,6 +200,10 @@ struct asmSymbol {
         r.offset = n
         r.level++
         return r
+    }
+
+    parse(s str) {
+        
     }
 }
 
@@ -516,7 +522,7 @@ struct asmContext {
         return asmSymbol{}
     }
 
-    generateCompare(a asmSymbol, b asmSymbol, op uint, isUnsigned bool) asmSymbol {
+    generateCompare(a asmSymbol, b asmSymbol, op uint, numType uint) asmSymbol {
         return asmSymbol{}
     }
 

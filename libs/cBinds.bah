@@ -67,7 +67,7 @@ const PROT_READWRITE = 3
 
 #define memcpy(dest ptr, src ptr, size uint) ptr
 #define memmove(dest ptr, src ptr, size uint) ptr
-#define memset(p ptr, v int32, s uint) ptr
+#define memset(p ptr, v byte, s uint) ptr
 #define malloc(s uint) ptr
 #define realloc(o ptr, s uint) ptr
 #define free(p ptr)

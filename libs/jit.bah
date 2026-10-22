@@ -38,7 +38,7 @@ printDebugContext() {
     println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
 }
 
-throwErrorTok(t bahToken*, s str) {
+throwErrorTok(t bahToken, s str) {
     println("[jit] compilation error: " + s)
     pthread_exit(s)
 }
@@ -130,23 +130,19 @@ struct jitObject {
             data: mmap(null, len(this.of.bytes), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
         }
 
-
-
-        GC_registerRoot(cArr(newObj.of.bytes), len(newObj.of.bytes))
-
         memcpy(cArr(newObj.of.bytes), cArr(this.of.bytes), len(this.of.bytes))
         
         newObj.of.symbols = []Elf64_Sym*
         newObj.of.sectionHeaders = []Elf64_Shdr*
-        newObj.of.ELFheader = <Elf64_Ehdr*>&newObj.of.bytes[0]
+        newObj.of.ELFheader = <Elf64_Ehdr*>cArr(newObj.of.bytes)
         allocateArray(newObj.of.sectionHeaders, newObj.of.ELFheader.e_shnum)
 
         i=0; for i < newObj.of.ELFheader.e_shnum, i++ {
-            section = <Elf64_Shdr*>&newObj.of.bytes[newObj.of.ELFheader.e_shentsize * i + newObj.of.ELFheader.e_shoff]
+            section = <Elf64_Shdr*>(<uint>cArr(newObj.of.bytes) + newObj.of.ELFheader.e_shentsize * i + newObj.of.ELFheader.e_shoff)
             newObj.of.sectionHeaders[i] = section
 
             if i == newObj.of.ELFheader.e_shstrndx && section.sh_type == SHT_STRTAB {
-                newObj.of.stringTable = &newObj.of.bytes[section.sh_offset]
+                newObj.of.stringTable = <ptr>(<uint>cArr(newObj.of.bytes) + section.sh_offset)
             }
         }
 
@@ -161,16 +157,16 @@ struct jitObject {
             }
 
             if name == ".strtab" {
-                newObj.of.symNameTable = &newObj.of.bytes[section.sh_offset]
+                newObj.of.symNameTable = <ptr>(<uint>cArr(newObj.of.bytes) + section.sh_offset)
             }
 
             if name == ".symtab" {
                 j=0; for j * sizeof(Elf64_Sym) < section.sh_size, j++ {
-                    newObj.of.symbols[j] = <Elf64_Sym*>&newObj.of.bytes[section.sh_offset + j * sizeof(Elf64_Sym)]
+                    newObj.of.symbols[j] = <Elf64_Sym*>(<uint>cArr(newObj.of.bytes) + section.sh_offset + j * sizeof(Elf64_Sym))
                 }
             }
         }
-
+        newObj.of.registerGCroots()
         newObj.of.weakLinker()
 
         return newObj

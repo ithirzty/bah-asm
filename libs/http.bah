@@ -31,6 +31,7 @@ const SO_ERROR	      = 4
 const SO_REUSEADDR	  = 2
 const SO_KEEPALIVE	  = 9
 const SO_BINDTODEVICE = 25
+const SO_LINGER       = 0x0080
 
 const SHUT_RDWR = 2
 
@@ -293,6 +294,11 @@ struct http_socket {
         #windows {
             return false
         }
+    }
+
+    setLinger(seconds int) bool {
+        linger_opt = [<int32>1, <int32>seconds]
+        return setsockopt(this.sockfd, SOL_SOCKET, SO_LINGER, &linger_opt, 8) >= 0
     }
 
     //To close a socket.
