@@ -6,6 +6,10 @@
 //Note that ptrToValue will not give a pointer to a value that is already a pointer.
 //  For instance, if the value is an array, it will output an array directly.
 
+//WARNING: if a type such as a struct contains pointers but they are all = null,
+//         then when doing fromObject(), the allocator will mark the memory block as "cannot contain pointers".
+//         This means that on the next garbage collection, any pointer that has since been put in the memory block will be skipped.
+
 #define toObjectInner(e reflectElement, arr []byte)
 
 object_realocate_arr(arr Bah_Array_Type*, s uint) {
@@ -272,7 +276,7 @@ fromObjectInner(obj Bah_Array_Type*, offset uint) [ptr, uint] {
     offset += 1
     nbRefs = 0
 
-    if hasCopy {
+    if hasCopy != 0 {
         nbRefs = *<int32*>(<uint>obj.data + offset + size)
     } else {
         nbRefs = *<int32*>(<uint>obj.data + offset)
@@ -285,7 +289,7 @@ fromObjectInner(obj Bah_Array_Type*, offset uint) [ptr, uint] {
         r = memoryAlloc(size)
     }
     
-    if hasCopy {
+    if hasCopy != 0 {
         memcpy(r, <ptr>(<uint>obj.data + offset), size)
         offset += size + 4
     } else {

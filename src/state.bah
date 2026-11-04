@@ -14,23 +14,24 @@ isSilent = false
 compilerPath = ""
 
 const BAH_DIR = "/opt/bah-asm/"
-BAH_VERSION = "v0.157 (build 50)"
+BAH_VERSION = "v0.158 (build 51)"
 
 
-const BAH_TYPE_BOOL         = 0
-const BAH_TYPE_INT          = 1
-const BAH_TYPE_UINT         = 2
-const BAH_TYPE_FLOAT        = 3
-const BAH_TYPE_STR          = 4
-const BAH_TYPE_STRCT        = 5
-const BAH_TYPE_ARRAY        = 6
-const BAH_TYPE_MAP          = 7
-const BAH_TYPE_CHAN         = 8
-const BAH_TYPE_FUNC         = 9
-const BAH_TYPE_PTR          = 10
-const BAH_TYPE_CUSTOM_TYPE  = 11
-const BAH_TYPE_BUFFER       = 12
-const BAH_TYPE_TUPLE        = 13
+const BAH_TYPE_NONE         = 0
+const BAH_TYPE_BOOL         = 1
+const BAH_TYPE_INT          = 2
+const BAH_TYPE_UINT         = 3
+const BAH_TYPE_FLOAT        = 4
+const BAH_TYPE_STR          = 5
+const BAH_TYPE_STRCT        = 6
+const BAH_TYPE_ARRAY        = 7
+const BAH_TYPE_MAP          = 8
+const BAH_TYPE_CHAN         = 9
+const BAH_TYPE_FUNC         = 10
+const BAH_TYPE_PTR          = 11
+const BAH_TYPE_CUSTOM_TYPE  = 12
+const BAH_TYPE_BUFFER       = 13
+const BAH_TYPE_TUPLE        = 14
 
 const ARR_TYPE_SIZE        = 40
 const ARR_LENGTH_OFFSET    = 8
@@ -322,8 +323,14 @@ struct parserContext {
     declareMode: bool
     importDeps: []str
     noImports: bool
+    doNotCompileImports: bool
     debugEnabled: bool
     isJIT: bool
+
+    scopeFinalizer: function(parserContext*, parserScope*)
+    variableDeclareCallback: function(parserContext*, bahVariable*)
+    typeDeclareCallback: function(parserContext*, bahType*)
+    functionDeclareCallback: function(parserContext*, bahFunction*)
     
     scopeCtx: parserScope*
     lmabdasToParse: []bahLambda
@@ -331,14 +338,26 @@ struct parserContext {
     addVar(v bahVariable*) {
         v.scope = this.scope
         this.variables[len(this.variables)] = v
+
+        if this.variableDeclareCallback != null {
+            this.variableDeclareCallback(v)
+        }
     }
 
     addFunc(fn bahFunction*) {
         this.functions[len(this.functions)] = fn
+
+        if this.functionDeclareCallback != null {
+            this.functionDeclareCallback(fn)
+        }
     }
 
     addType(tp bahType*) {
         this.types[len(this.types)] = tp
+
+        if this.typeDeclareCallback != null {
+            this.typeDeclareCallback(tp)
+        }
     }
 
     startScope(scope parserScope*) {
@@ -351,6 +370,9 @@ struct parserContext {
     }
 
     endScope() {
+        if this.scopeFinalizer != null {
+            this.scopeFinalizer(this.scopeCtx)
+        }
         this.scope--
                 
         this.scopeCtx = this.scopeCtx.parent

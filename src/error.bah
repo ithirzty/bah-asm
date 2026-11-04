@@ -24,10 +24,10 @@ throwErrorTok(t bahToken, s str) {
     filePath = absPath(parserCtx.currentFilePath)
     lineStart=t.pos; for lineStart != -1, lineStart-- {
         if parserCtx.currentFile[lineStart] == <char>10 {
-            lineStart++
             break
         }
     }
+    lineStart++
 
 
     lineEnd = t.pos + len(t.cont); for lineEnd < len(parserCtx.currentFile), lineEnd++ {

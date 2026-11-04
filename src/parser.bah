@@ -137,15 +137,18 @@ importFile(filePath str) {
     gen.generateFileLocation(parserCtx.currentFilePath)
     parseLines(inclTokens, 0, len(inclTokens))
 
-    cf = getCacheFile(filePath)
-    outputName = BAH_DIR+"cache/"+pathToVarName(filePath)
+    if parserCtx.doNotCompileImports == false {
+        cf = getCacheFile(filePath)
+        outputName = BAH_DIR+"cache/"+pathToVarName(filePath)
 
-    if isObjectFile == false && isValidCacheFile(cf) == false {
-        parserCtx.currentCompileNb++
-        async parallelObjCompile(filePath, outputName, parserCtx.importDeps, cf)
+        if isObjectFile == false && isValidCacheFile(cf) == false {
+            parserCtx.currentCompileNb++
+            async parallelObjCompile(filePath, outputName, parserCtx.importDeps, cf)
+        }
+
+        parserCtx.libraries[len(parserCtx.libraries)] = outputName+".o"
     }
 
-    parserCtx.libraries[len(parserCtx.libraries)] = outputName+".o"
 
     gen.fileNb = oldFileNb
     parserCtx.currentFilePath = oldFilePath 
@@ -380,6 +383,8 @@ consumeType(tokens []bahToken, start uint, end uint, isFuncDecl bool) [bahType*,
                 r.size = strToInt(tokens[i+2].cont)
                 i += 3
 
+            } else {
+                throwErrorTok(tokens[i], "Invalid type.")
             }
         } else {
 
@@ -927,7 +932,7 @@ consumeValueFunction(tokens []bahToken, t bahToken, val bahValue*, i int, tp bah
     return i
 }
 
-consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel uint, typeHint bahType*) [bahValue*, uint] {
+consumeValue(tokens []bahToken, start int, end int, parentStart int, opLevel uint, typeHint bahType*) [bahValue*, uint] {
 
     i = start
     nbPar = 0
@@ -1186,7 +1191,6 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 currTp = val.type
                 i++
                 for i < end, i++ {
-
                     elemVal = consumeValue(tokens, i, end-1, start+1, 0, null)
 
 
@@ -1225,7 +1229,8 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                     i = elemVal[1]
 
-                    if tokens[i].cont != "," {
+                    //']' check because it would make an infinite loop on dangling coma
+                    if tokens[i].cont != "," || tokens[i+1].cont == "]" {
                         break
                     }
                 }
@@ -1247,12 +1252,12 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
 
                 varVal = valCons[0]
 
-                if varVal.value == BAH_VALUE_INDEXED && varVal.left.type.type == BAH_TYPE_ARRAY {
-                    v = parserCtx.findVar(varVal.left.tok.cont)
-                    if v == null || v.isConst == false {
-                        throwWarning(varVal, "Taking the reference of an array element.\nIf the array is reallocated, this reference may point to already freed memory.")
-                    }
-                }
+                // if varVal.value == BAH_VALUE_INDEXED && varVal.left.type.type == BAH_TYPE_ARRAY {
+                //     v = parserCtx.findVar(varVal.left.tok.cont)
+                //     if v == null || v.isConst == false {
+                //         throwWarning(varVal, "Taking the reference of an array element.\nIf the array is reallocated, this reference may point to already freed memory.")
+                //     }
+                // }
 
                 // if varVal.isVariable == false {
                 //     throwError(&varVal.tok, "Cannot get pointer of anything other than a variable.")
@@ -1422,7 +1427,21 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                             break
                         }
 
-                        argCons = consumeValue(tokens, i, end, -1, 0, null)
+                        argCons = [<bahValue*>null, 0]
+
+                        if tokens[i].cont == "$" && i+1 < end && tokens[i+1].type == TOKEN_TYPE_STR {
+                            nc = tokens[i+1].cont
+                            nt = tokens[i]
+                            nt.cont += nc[1:len(nc)-1]
+                            argVal = new bahValue {
+                                value: BAH_VALUE_REG
+                                tok: nt
+                            }
+                            argCons = [argVal, i+2]
+                        } else {
+                            argCons = consumeValue(tokens, i, end, -1, 0, null)
+                        }
+
                         i = argCons[1]
 
 
@@ -1577,7 +1596,7 @@ consumeValue(tokens []bahToken, start uint, end uint, parentStart int, opLevel u
                 start = i
             } else if tokens[start+1].cont == "[" {
                 //TODO: handle splits and others (value1 : value2)
-                if start + 3 >= end {
+                if start + 2 >= end {
                     throwErrorTok(tokens[start+1], "Missing index value.")
                 }
 
@@ -2077,9 +2096,9 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
             filePath = currDirectory + inclFileName
         }
 
-        if fileExists(filePath) == false {
+        if fileExists(filePath) == false || isFolder(filePath) {
             filePath = BAH_DIR + inclFileName
-            if fileExists(filePath) == false {
+            if fileExists(filePath) == false || isFolder(filePath) {
                 throwErrorTok(tokens[start+1], "Cannot find file.")
             }
         }
@@ -2111,9 +2130,9 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         }
 
 
-        if fileExists(filePath) == false {
+        if fileExists(filePath) == false || isFolder(filePath) {
             filePath = BAH_DIR + inclFileName
-            if fileExists(filePath) == false {
+            if fileExists(filePath) == false || isFolder(filePath) {
                 throwErrorTok(tokens[start+1], "Cannot find file.")
             }
         }
@@ -2139,7 +2158,7 @@ parseHashDirective(tokens []bahToken, start uint, end uint) {
         realGen.bss += gen.bss
         gen = realGen
     } else {
-        if tokens[start].cont != "#" || end - start == 1 || tokens[start+1].cont != "!" {
+        if end - start == 1 || tokens[start+1].cont != "!" {
             throwErrorTok(tokens[start], "Unknown directive.")
         }
     }
@@ -2241,7 +2260,16 @@ parseIf(tokens []bahToken, start uint, end uint) {
         throwErrorTok(tokens[start+1], "Expected a condition in if statement.")
     }
 
+    boolType = bahType {
+        type: BAH_TYPE_BOOL
+    }
+
+    if compatibleTypes(&boolType, condValCons[0].type) == false {
+        throwTypeError(condValCons[0], &boolType)
+    }
+
     isChainStart = end < len(tokens) && tokens[end].cont == "else"
+
 
     condSym = generateBahValueSymbol(condValCons[0], null)
 
@@ -3283,6 +3311,10 @@ parseLine(tokens []bahToken, start uint, end uint) {
     //type by first token
     t = tokens[start]
 
+    if end-start == 1 && tokens[start].type != TOKEN_TYPE_KEYWORD {
+        throwErrorTok(tokens[start], "Meaningless line.")
+    }
+
     parserCtx.currentLine = t.line
     if parserCtx.declareMode == false && parserCtx.scope != 0 {
         gen.generateLineLocation(t.line)
@@ -3340,7 +3372,7 @@ parseLine(tokens []bahToken, start uint, end uint) {
             }
         }
 
-        if i != end {
+        if i+1 < end {
             if i == start {
                 throwErrorTok(tokens[i], "Expected a value on the left of equal, got nothing.")
             }
@@ -3350,7 +3382,6 @@ parseLine(tokens []bahToken, start uint, end uint) {
 
             lValCons = consumeLeftValue(tokens, start, i)
             rValCons = consumeValue(tokens, i+1, end, -1, 0, null)
-
             parseVariableSet(tokens, start, end, eqlIndex, lValCons, rValCons)
         } else {
 

@@ -93,9 +93,12 @@ compatibleTypes(a bahType*, b bahType*) bool {
         b = b.child.child
     }
 
+    if a.type == b.type && b.type == BAH_TYPE_TUPLE && a.size != b.size {
+        return false
+    }
+
 
     if a.type == b.type {
-
         for a.isPtr {
             a = a.child
         }
@@ -111,7 +114,6 @@ compatibleTypes(a bahType*, b bahType*) bool {
                     return false
                 }
             }
-
 
             currType = a.child
             bcurrType = b.child

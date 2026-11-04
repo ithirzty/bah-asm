@@ -38,24 +38,24 @@ printDebugContext() {
     println("Code position: "+parserCtx.currentFilePath+":"+uintToStr(parserCtx.currentLine))
 }
 
-throwErrorTok(t bahToken, s str) {
-    println("[jit] compilation error: " + s)
-    pthread_exit(s)
-}
+// throwErrorTok(t bahToken, s str) {
+//     println("[jit] compilation error: " + s)
+//     pthread_exit(s)
+// }
 
-throwError(val bahValue*, err str) {
-    println("[jit] compilation error: " + err)
-    pthread_exit(err)
-}
+// throwError(val bahValue*, err str) {
+//     println("[jit] compilation error: " + err)
+//     pthread_exit(err)
+// }
 
-throwTypeError(val bahValue*, type bahType*) {
-    println("[jit] compilation error: " + val.type.toStr() + " != " + type.toStr())
-    pthread_exit(val.type.toStr() + " != " + type.toStr())
-}
+// throwTypeError(val bahValue*, type bahType*) {
+//     println("[jit] compilation error: " + val.type.toStr() + " != " + type.toStr())
+//     pthread_exit(val.type.toStr() + " != " + type.toStr())
+// }
 
-throwWarning(val bahValue*, err str) {
-    println("[jit] compilation warning: " + err)
-}
+// throwWarning(val bahValue*, err str) {
+//     println("[jit] compilation warning: " + err)
+// }
 
 makeJitFilenameToken() str {
     n uint
@@ -85,8 +85,22 @@ makeJitFilenameToken() str {
 }
 
 struct jitContext {
-    includes: []str
-    wrapFunctions: []str
+    includes: []str // Files to include definitions from (but that should not be compiled)
+
+    wrapFunctions: []str // Function names to wrap to be able to jitObject.call().
+                         //This is not necessary if you use jitObject.getSymbol().
+                         //Useful if you do not have the type signature of the function at compile time and need to build the arguments buffer dynamicaly.
+
+    toAsm: bool // Will not assemble and link the program. If this is set to true, you can retrieve the assembly in jitObject.asm
+
+    omitImports: bool // Do not compile #import file's code but parse its declarations.
+                      // Will break the jit compiler, use this for code analyzing instead.
+
+    scopeFinalizer: function(parserContext*, parserScope*) // Callback on each scope end during parsing.
+    variableDeclareCallback: function(parserContext*, bahVariable*)
+    typeDeclareCallback: function(parserContext*, bahType*)
+    functionDeclareCallback: function(parserContext*, bahFunction*)
+    errorCallback: function(parserContext*, compilerError)
 }
 
 struct jitObject {
@@ -100,6 +114,7 @@ struct jitObject {
     succeeded: bool = true
     hasBuiltin: bool = true
     isMapped: bool
+    asm: str
 
     functions: []bahFunction*
 
@@ -151,7 +166,7 @@ struct jitObject {
             name = newObj.of._getELFstr(section.sh_name)
             
             if name == ".text" {
-                newObj.of.textAddress = <uint>&newObj.of.bytes[section.sh_offset]
+                newObj.of.textAddress = <uint>cArr(newObj.of.bytes) + section.sh_offset
                 newObj.of.textSize = section.sh_size
 
             }
@@ -183,11 +198,40 @@ struct jitObject {
     }
 }
 
+_currentJitObj jitObject*
+jitCompilerMutex mutex
+
+_initializeJit() {
+    jitCompilerMutex = mutex()
+
+    compilerErrorCallback = function(err compilerError) {
+        if _currentJitObj != null && _currentJitObj.ctx.errorCallback != null {
+            ecb = _currentJitObj.ctx.errorCallback
+            ecb(&parserCtx, err)
+        } else {
+            println("[jit] "parserCtx.currentFile+":"+intToStr(parserCtx.currentLine)+"\t"+err.error)
+        }
+
+        if err.isWarning == false {
+            jitCompilerMutex.unlock()
+        }
+    }
+}
+
+#init _initializeJit()
+
 __jitCompile_asThread(jitObj jitObject*) {
+    jitCompilerMutex.lock()
+    _currentJitObj = jitObj
     code = parserCtx.currentFile
     gen = asmContext{}
-    parserCtx = parserContext{}
 
+    parserCtx = parserContext{
+        scopeFinalizer: jitObj.ctx.scopeFinalizer
+        variableDeclareCallback: jitObj.ctx.variableDeclareCallback 
+        typeDeclareCallback: jitObj.ctx.typeDeclareCallback 
+        functionDeclareCallback: jitObj.ctx.functionDeclareCallback 
+    }
 
     initFnGen = asmContext{
         code: rope("")
@@ -205,7 +249,8 @@ __jitCompile_asThread(jitObj jitObject*) {
         debugEnabled: false
     }
 
-    parserCtx.noImports = true
+    parserCtx.noImports = jitObj.ctx.omitImports == false
+    parserCtx.doNotCompileImports = true
 
     #avx! {
         GEN_AVXenabled = false
@@ -237,6 +282,24 @@ __jitCompile_asThread(jitObj jitObject*) {
 
     BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
         "#dynamic", true
+    }
+
+    #x86 {
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#x86", true
+        }
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#arm", false
+        }
+    }
+
+    #arm {
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#arm", true
+        }
+        BAH_boolean_hashes[len(BAH_boolean_hashes)] = booleanHash {
+            "#x86", false
+        }
     }
 
     initFnCallRope = rope("")
@@ -344,11 +407,18 @@ ret
         removeFile(evalTmpOFiles[i])
     }
 
+    if jitObj.ctx.toAsm {
+        jitObj.asm = (gen.data + gen.bss + gen.code).toStr()
+        jitCompilerMutex.unlock()
+        return
+    }
 
     cmd = command("as -f -Z -o "+fileName+" > /dev/null")
 
 
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
+
+    jitCompilerMutex.unlock()
 
     stubbedSymbols = []str
 

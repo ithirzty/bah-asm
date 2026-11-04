@@ -87,6 +87,7 @@ main(args []str) int {
     flags.addString("o", "Name of the output file.")
     flags.addBool("v", "Get compiler version.")
     flags.addBool("object", "Compile to object file.")
+    flags.addBool("lib", "Compile as a library to be used by other programming languages (.so file).")
     flags.addBool("silent", "Should not output anything.")
     flags.addBool("trim", "Removes all debug data.")
     flags.addBool("asm", "Compile to assembly file.")
@@ -112,6 +113,7 @@ main(args []str) int {
     parserCtx.debugEnabled = flags.isSet("debug")
     gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
     GEN_AVXenabled = flags.isSet("noAVX") == false
+    GEN_isSharedObject = flags.isSet("lib")
     
     #avx! {
         GEN_AVXenabled = false
@@ -319,6 +321,21 @@ main(args []str) int {
     cmd = command(AS_COMMAND_NAME+" -f -o "+fileNameNoExt+".o")
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
 
+    if GEN_isSharedObject {
+        i=len(fileName)-1; for i != -1, i-- {
+            if fileName[i] == '/' {
+                break
+            }
+            if fileName[i] == '.' {
+                break
+            }
+        }
+        
+        if i == -1 || fileName[i] != '.' {
+            fileName += ".so"
+        }
+    }
+
     if isRun && isFullLink == false {
         stubbedSymbols = []str
 
@@ -416,7 +433,12 @@ main(args []str) int {
         writeCache()
     }
 
-    cmd = command(LD_COMMAND_NAME+" -dynamic-linker "+LD_DYNAMIC_LINKER_PATH+" -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
+    if GEN_isSharedObject {
+        cmd = command(LD_COMMAND_NAME+" --shared -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
+    } else {
+        cmd = command(LD_COMMAND_NAME+" -dynamic-linker "+LD_DYNAMIC_LINKER_PATH+" -o "+fileName+" "+libraries+" "+fileNameNoExt+".o -lc")
+    }
+
     err = cmd.run()
 
     removeFile(fileNameNoExt+".o")

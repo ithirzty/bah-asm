@@ -125,6 +125,7 @@ writeCache() {
     fs.open(BAH_DIR + "cache/cache.bobj", "w")
     fs.writeBytes(toObject(cache))
     fs.close()
+    cacheMutex.destroy()
 }
 
 //Used to decide weither a file should be recompiled or if its cached version is still good.

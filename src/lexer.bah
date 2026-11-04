@@ -69,7 +69,6 @@ lexerErr(line int, pos int, msg str) {
 
     exit(1)
 }
-
 //Takes a file as input, outputs an array of tokens.
 lexerToArray(s str, includeBodies bool, tokens []bahToken) {
     lexerStart = getTimeUnix()

@@ -1280,7 +1280,7 @@ struct http_request extend http_transport {
 
                     headerNameS = toLower(string(headerName))
 
-                    if headerNameS.count("content-disposition") {
+                    if headerNameS.count("content-disposition") != 0 {
                         k=0; for k < len(headerCont), k++ {
                             if isSpace(headerCont[k]) == false {
                                 break

@@ -86,10 +86,6 @@ evalFunc(func bahFunction*, args bahValue*) asmSymbol {
         }
     }
 
-    #debug {
-        printDebugContext()
-        println("evaluating: "+func.name)
-    }
     res = 0
     if len(values) == 1 {
         cptr = <function(int)int>func.call
@@ -171,15 +167,9 @@ generateValueOperation(tok bahToken*, left asmSymbol, right asmSymbol, type bahT
 
     } else if type.type == BAH_TYPE_STR {
         if opStr == "==" {
-            gen.generateFnCallStart()
-            gen.generateFnCallArgument(left)
-            gen.generateFnCallArgument(right)
-            return gen.generateFnCall(asmSymbolValue(strCompareFunction), 1, null, false)
+            return gen.generateStrCompare(left, right)
         } else if opStr == "!=" {
-            gen.generateFnCallStart()
-            gen.generateFnCallArgument(left)
-            gen.generateFnCallArgument(right)
-            res = gen.generateFnCall(asmSymbolValue(strCompareFunction), 1, null, false)
+            res = gen.generateStrCompare(left, right)
             stcInt = gen.staticInt("0")
             stcInt.size = 1
             return gen.generateCompare(res, stcInt, ASM_OP_EQ, ASM_NUM_INT)
@@ -797,6 +787,9 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                     }
                     sm.size = 8
                 }
+                if GEN_isSharedObject && sm.isTmp == false && sm.stack == false && sm.isValue == false {
+                    sm.level++
+                }
                 return sm
             }
         }
@@ -805,6 +798,11 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
     if val.value == BAH_VALUE_FUNC_SYM {
         if isEmptySymbol(&val.sym) == false {
             return val.sym
+        }
+        if GEN_isSharedObject {
+            sym = asmSymbolStaticName(val.tok.cont)
+            sym.size = 8
+            return sym
         }
         sym = asmSymbolValue(val.tok.cont)
         sym.size = 8
@@ -833,7 +831,7 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
                 isPackedInReg = sym.size <= 16 && sym.level == 0
                 sym.size = 8
                 if sym.stack == false {
-                    sym.level = -1
+                    sym.level--
                 } else {
                     sym.level = 0
                 }
@@ -992,6 +990,14 @@ generateBahValueSymbol(val bahValue*, shortcut asmSymbol*) asmSymbol {
             }
 
             return currSym
+        }
+
+        if val.left.type.type == BAH_TYPE_FLOAT && val.left.type.size != val.right.type.size {
+            if val.left.isStaticValue {
+                val.left.type.size = val.right.type.size
+            } else if val.right.isStaticValue {
+                val.right.type.size = val.left.type.size
+            }
         }
 
 
@@ -1334,7 +1340,7 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
                         size = sym.size
                         sym.size = 8
                         if sym.stack == false {
-                            sym.level = -1
+                            sym.level--
                         } else {
                             sym.level = 0
                         }
@@ -1416,7 +1422,11 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
     }
 
     if lval.isVariable {
-        return lval.variable.sym
+        sm = lval.variable.sym
+        if GEN_isSharedObject && sm.isTmp == false && sm.stack == false && sm.isValue == false {
+            sm.level++
+        }
+        return sm
     }
 
     throwErrorTok(lval.tok, "Internal error generating left-value asm symbol.")
@@ -1680,7 +1690,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
         throwError(val, "Cannot be converted to a pointer type.")
     }
 
-    if type.type == BAH_TYPE_INT || type.type == BAH_TYPE_UINT || type.type == BAH_TYPE_BOOL || val.type.type == BAH_TYPE_PTR || type.type == BAH_TYPE_PTR {
+    if type.type == BAH_TYPE_INT || type.type == BAH_TYPE_UINT || type.type == BAH_TYPE_BOOL || val.type.isPtr || type.isPtr || val.type.type == BAH_TYPE_PTR || type.type == BAH_TYPE_PTR {
         
         if val.type.type == BAH_TYPE_FLOAT {
             return gen.generateConvFloatToInt(generateBahValueSymbol(val, null), type.size)
@@ -1733,7 +1743,7 @@ generateTypeConversion(val bahValue*, type bahType*) asmSymbol {
 
 
 
-    throwError(val, "Internal error generating conversion of asm symbol.")
+    throwError(val, "Internal error generating conversion of asm symbol ("+intToStr(val.type.type)+" -> "+intToStr(type.type)+").")
 
     r = asmSymbol{}
     return r
@@ -1762,17 +1772,25 @@ generateImmediateValues(val bahValue*, syms []asmSymbol, isConst bool) {
             name: val.tok.cont
         }
     } else if val.tok.type == TOKEN_TYPE_FLOAT {
-        f = strToFloat(val.tok.cont)
-        u = *(<uint*>&f)
 
-        partA = <int32>u
-        
-        syms[len(syms)] = asmSymbol {
-            size: 4
-            name: intToStr(partA)
-        }
+        if val.type.size == 4 {
+            f = <float32>strToFloat(val.tok.cont)
+            u = *(<int32*>&f)
+            syms[len(syms)] = asmSymbol {
+                size: 4
+                name: uintToStr(u)
+            }
+            
+        } else if val.type.size == 8 {
+            f = <float>strToFloat(val.tok.cont)
+            u = *(<uint*>&f)
 
-        if val.type.size == 8 {
+            partA = <int32>u
+            
+            syms[len(syms)] = asmSymbol {
+                size: 4
+                name: intToStr(partA)
+            }
             partB = <int32>(u >> 32)
             syms[len(syms)] = asmSymbol {
                 size: 4

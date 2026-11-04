@@ -39,42 +39,6 @@ __bah_arrayLength(a Bah_Array_Type*) uint {
     return a.length
 }
 
-__bah_compareStr(a str, b str) bool {
-    la = 0
-    lb = 0
-
-    if <ptr>a != null {
-        la = *<uint32*>a
-    }
-
-    if <ptr>b != null {
-        lb = *<uint32*>b
-    }
-
-    if la != lb {
-        return false
-    }
-
-    if la % 8 == 0 {
-        la += 4
-        i=4; for i < la, i += 8 {
-            if *<uint*>(<uint>a + i) != *<uint*>(<uint>b + i) {
-                return false
-            }
-        }
-
-        return true
-    }
-
-    i=0; for i < la, i++ {
-        if a[i] != b[i] {
-            return false
-        }
-    }
-
-    return true
-}
-
 cStr(s str) char* {
 	if <ptr>s == null {
 		return null
@@ -865,11 +829,109 @@ GC_markPtr(p uint) {
     }
 }
 
+GC_markPtr2(p uint, pageNb uint32) {
+    pageIndex = BAH_GC_state.findPageIndex(pageNb)
 
-GC_scan(p uint, to uint, alignment uint) {
-    to -= 7
+    if pageIndex == BAH_GC_state.pagesLength {
+        return
+    }
+
+    ptrPage = *<BAH_GC_page**>(<uint>BAH_GC_state.pages + pageIndex * sizeof(ptr))
+
+    if ptrPage.page != pageNb {
+        return
+    }
+
+    gcPtr = ptrPage.find(p)
+
+    if gcPtr == null {
+        return
+    }
+
+
+    pthread_mutex_lock(BAH_GC_state.scanMut)
+    if gcPtr.marked {
+        pthread_mutex_unlock(BAH_GC_state.scanMut)
+        return
+    }
+
+    gcPtr.marked = true
+    pthread_mutex_unlock(BAH_GC_state.scanMut)
+
+    if gcPtr.notScannable == false {
+        if BAH_GC_state.scanStackBase - BAH_GC_state.scanRBP >= 6000000 {
+            puts("GC: unhandled stack overflow while scanning")
+            // pthread_mutex_lock(BAH_GC_state.scanMut)
+            // overflowNode = <BAH_GC_channelNode*>malloc(sizeof(BAH_GC_channelNode))
+            // overflowNode.data = gcPtr
+            // overflowNode.next = BAH_GC_state.overflowQueue
+            // BAH_GC_state.overflowQueue = overflowNode
+            // pthread_mutex_unlock(BAH_GC_state.scanMut)
+
+            return
+        }
+
+        GC_scan(p, p + gcPtr.size, 8)
+    }
+}
+
+
+GC_scan(p uint, rTo uint, alignment uint) {
+    #avx {
+        if alignment == 8 {
+            to = rTo - 31
+            ptrs = [<uint>0,<uint>0,<uint>0,<uint>0]
+            pages = [<uint>0,<uint>0,<uint>0,<uint>0]
+            $vpbroadcastq(&GC_min_ptr, $ymm4)
+            $vpbroadcastq(&GC_max_ptr, $ymm5)
+            for p < to, p += 32 {
+                $movq(p, $rax)
+                $vmovdqu(*$rax, $ymm1)
+                
+                $vpsrlq(20, $ymm1, $ymm2)
+
+                $vpcmpgtq($ymm1, $ymm4, $ymm6)
+                $vpcmpgtq($ymm5, $ymm1, $ymm7)
+                $VMOVMSKPD($ymm6, $rax)
+                $VMOVMSKPD($ymm7, $rbx)
+
+                rangeMask = <byte>$bl
+                rangeMask = rangeMask | <byte>$al
+
+                $vmovdqu($ymm1, ptrs)
+                $vmovdqu($ymm2, pages)
+
+
+                if rangeMask & 1 == 0 && pages[0] != 0 {
+                    GC_markPtr2(ptrs[0], pages[0])
+                }
+
+
+                if rangeMask & 2 == 0 && pages[1] != 0 {
+                    GC_markPtr2(ptrs[1], pages[1])
+                }
+
+
+                if rangeMask & 4 == 0 && pages[2] != 0 {
+                    GC_markPtr2(ptrs[2], pages[2])
+                }
+
+
+                if rangeMask & 8 == 0 && pages[3] != 0 {
+                    GC_markPtr2(ptrs[3], pages[3])
+                }
+            }
+        }
+    }
+    
+    to = rTo - 7
     for p < to, p += alignment {
-        GC_markPtr(*<uint*>p)
+        v = *<uint*>p
+        if v < GC_min_ptr || v > GC_max_ptr {
+            continue
+        }
+        page = BAH_GC_state.calcPageNb(v)
+        GC_markPtr2(v, page)
     }
 }
 
@@ -973,16 +1035,6 @@ GC_collect() {
     //check stack
     GC_scanReversed(currThread.stackBase, currBasePointer, 8)
 
-
-    // ct = BAH_GC_state.threads
-    // for ct != null, ct = ct.next {
-    //     if ct.sysid == callerId {
-    //         continue
-    //     }
-    //     GC_scanReversed(ct.stackBase, (*<uint*>(<uint>ct.regs + 120)), 8)
-    //     GC_scan(<uint>ct.regs, <uint>ct.regs + 184, 8)
-    // }
-
     root = BAH_GC_state.roots
     for root != null, root = root.next {
         GC_scan(<uint>root.data, <uint>root.data + root.size, 1)
@@ -992,23 +1044,8 @@ GC_collect() {
         sched_yield()
     }
 
-    // atomic_store(&BAH_GC_state.atomicResume, 1)
-
     freed=0
     alive=0
-
-    // additional=0
-    // for BAH_GC_state.overflowQueue != null {
-    //     currQueue = BAH_GC_state.overflowQueue
-    //     BAH_GC_state.overflowQueue = null
-    //     for currQueue != null {
-    //         GC_scan(currQueue.data.p, currQueue.data.p + currQueue.data.size, 8)
-    //         prevQueue = currQueue
-    //         currQueue = currQueue.next
-    //         free(prevQueue)
-    //         additional++
-    //     }
-    // }
 
     BAH_GC_state.heapSize = 0
     j=0; for j < BAH_GC_state.pagesLength, j++ {
@@ -1793,18 +1830,16 @@ __Bah_realocate_arr(arr Bah_Array_Type*, index uint) {
         arr.length = index + 1
     }
 
-
     if index < arr.realLength {
         return
     }
-
-    orl = arr.realLength
 
     if arr.realLength == 0 {
         arr.realLength = 64
     } else {
         arr.realLength *= 2
     }
+    
     if arr.data == null {
         arr.data = memoryAlloc(arr.realLength * arr.elemSize)
         return
