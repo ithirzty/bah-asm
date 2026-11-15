@@ -113,7 +113,6 @@ struct jitObject {
     
     succeeded: bool = true
     hasBuiltin: bool = true
-    isMapped: bool
     asm: str
 
     functions: []bahFunction*
@@ -134,67 +133,14 @@ struct jitObject {
     dup() jitObject {
         newObj = jitObject {
             functions: this.functions
-            of: this.of
+            of: this.of.dup()
             hasBuiltin: this.hasBuiltin
-            isMapped: true
         }
-
-        newObj.of.bytes = <[]byte>new Bah_Array_Type {
-            elemSize: 1
-            length: len(this.of.bytes)
-            data: mmap(null, len(this.of.bytes), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
-        }
-
-        memcpy(cArr(newObj.of.bytes), cArr(this.of.bytes), len(this.of.bytes))
-        
-        newObj.of.symbols = []Elf64_Sym*
-        newObj.of.sectionHeaders = []Elf64_Shdr*
-        newObj.of.ELFheader = <Elf64_Ehdr*>cArr(newObj.of.bytes)
-        allocateArray(newObj.of.sectionHeaders, newObj.of.ELFheader.e_shnum)
-
-        i=0; for i < newObj.of.ELFheader.e_shnum, i++ {
-            section = <Elf64_Shdr*>(<uint>cArr(newObj.of.bytes) + newObj.of.ELFheader.e_shentsize * i + newObj.of.ELFheader.e_shoff)
-            newObj.of.sectionHeaders[i] = section
-
-            if i == newObj.of.ELFheader.e_shstrndx && section.sh_type == SHT_STRTAB {
-                newObj.of.stringTable = <ptr>(<uint>cArr(newObj.of.bytes) + section.sh_offset)
-            }
-        }
-
-        i=0; for i < len(newObj.of.sectionHeaders), i++ {
-            section = newObj.of.sectionHeaders[i]
-            name = newObj.of._getELFstr(section.sh_name)
-            
-            if name == ".text" {
-                newObj.of.textAddress = <uint>cArr(newObj.of.bytes) + section.sh_offset
-                newObj.of.textSize = section.sh_size
-
-            }
-
-            if name == ".strtab" {
-                newObj.of.symNameTable = <ptr>(<uint>cArr(newObj.of.bytes) + section.sh_offset)
-            }
-
-            if name == ".symtab" {
-                j=0; for j * sizeof(Elf64_Sym) < section.sh_size, j++ {
-                    newObj.of.symbols[j] = <Elf64_Sym*>(<uint>cArr(newObj.of.bytes) + section.sh_offset + j * sizeof(Elf64_Sym))
-                }
-            }
-        }
-        newObj.of.registerGCroots()
-        newObj.of.weakLinker()
-
         return newObj
     }
 
     close() {
-        if this.isMapped {
-            GC_removeRoot(cArr(this.of.bytes))
-            munmap(cArr(this.of.bytes), len(this.of.bytes))
-        } else {
-            this.of.close()
-            removeFile(this.filePath)
-        }
+        this.of.close()
     }
 }
 
@@ -251,6 +197,7 @@ __jitCompile_asThread(jitObj jitObject*) {
 
     parserCtx.noImports = jitObj.ctx.omitImports == false
     parserCtx.doNotCompileImports = true
+    GEN_isSharedObject = true
 
     #avx! {
         GEN_AVXenabled = false
@@ -418,43 +365,53 @@ ret
 
     cmd.input = (gen.data + gen.bss + gen.code).toStr()
 
-    jitCompilerMutex.unlock()
-
     stubbedSymbols = []str
 
+    res = strBuilder{}
+    endStubs = ""
     i=0; for i < len(cmd.input), i++ {
         //will skip first line but who cares
         for i < len(cmd.input), i++ {
+            res.append(cmd.input[i])
             if cmd.input[i] == <char>10 {
                 i++
+                if i < len(cmd.input) {
+                    res.append(cmd.input[i])
+                }
                 break
             }
         }
 
         if i+5 >= len(cmd.input) {
+            i++
+            for i < len(cmd.input), i++ {
+                res.append(cmd.input[i])
+            }
             break
         }
 
         if cmd.input[i] == 'c' && cmd.input[i+1] == 'a' && cmd.input[i+2] == 'l' && cmd.input[i+3] == 'l' {
+            n=1; for n < 5, n++ {
+                res.append(cmd.input[i+n])
+            }
             i += 5
 
             j=i; for j < len(cmd.input), j++ {
                 if cmd.input[j] == <char>10 {
                     break
                 }
+                res.append(cmd.input[j])
             }
 
             symName = cmd.input[i:j]
+
+            i = j-1
 
             if symName == "persistentmcpy" {
                 continue
             }
 
             func = parserCtx.findFunc(symName)
-
-            if symName == "sleep" {
-                symName = "bahSleep"
-            }
 
             if func == null {
                 continue
@@ -464,21 +421,28 @@ ret
                 continue
             }
 
-
-            cmd.input = cmd.input[:i] + symName + "_STUB" + cmd.input[j:]
+            stubStr = "_STUB"
+            j=0; for j < len(stubStr), j++ {
+                res.append(stubStr[j])
+            }
 
             if symName in stubbedSymbols == false {
                 stubbedSymbols[len(stubbedSymbols)] = symName
-
-                cmd.input += symName + "_STUB:\njmp *"+symName+"\n"
+                
+                endStubs += symName + "_STUB:\njmp *"+symName+"\n"
             }
         }
     }
+
+    jitCompilerMutex.unlock()
+
+    cmd.input = res.str() + endStubs
 
     if jitObj.succeeded {
         cmd.run()
 
         jitObj.of.open(fileName)
+        removeFile(fileName)
         jitObj.of.weakLinker()
         jitObj.filePath = fileName
     }

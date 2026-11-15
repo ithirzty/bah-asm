@@ -425,6 +425,7 @@ struct BAH_GC_state_tag {
 
     stackBase: uint
     threads: BAH_GC_thread*
+    nbStoppedThreads: int
     
     mainThread: int
 
@@ -432,7 +433,6 @@ struct BAH_GC_state_tag {
     scanMut: pthread_mutex_t*
 
     atomicThreadCount: uint
-    atomicResume:      int
 
     scanStackBase: uint
     scanRBP: uint
@@ -566,7 +566,7 @@ struct BAH_GC_state_tag {
         this.roots.next = oldRoot
     }
 
-    removeRoot(p ptr) {
+    removeRoot(p ptr) bool {
         root = this.roots
         prevRoot = <BAH_GC_root*>null
         for root != null, root = root.next {
@@ -578,11 +578,12 @@ struct BAH_GC_state_tag {
                     prevRoot.next = root.next
                 }
                 free(root)
-                break
+                return true
             }
 
             prevRoot = root
         }
+        return false
     }
 }
 
@@ -687,9 +688,9 @@ GC_thread_sig_handler(sig int, info ptr, ctx ptr) {
 
     atomic_add(&BAH_GC_state.atomicThreadCount, 1)
 
-    // for atomic_load(&BAH_GC_state.atomicResume) == 0 {
-    //     sched_yield()
-    // }
+    for atomic_load(&BAH_GC_state.atomicThreadCount) != BAH_GC_state.nbStoppedThreads {
+        sched_yield()
+    }
 }
 
 GC_thread_create(id pthread_t*, attr pthread_attr_t*, func ptr, args ptr) int32 {
@@ -958,7 +959,7 @@ GC_stopWorld(callerId uint) uint {
     return nb
 }
 
-GC_collect() {
+_GC_collect() {
     //save registers
     ordi = <uint>$rdi
     orsi = <uint>$rsi
@@ -1003,10 +1004,9 @@ GC_collect() {
     BAH_GC_state.scanStackBase = currThread.stackBase
     BAH_GC_state.scanRBP = currBasePointer
 
-    // atomic_store(&BAH_GC_state.atomicResume, 0)
     atomic_store(&BAH_GC_state.atomicThreadCount, 0)
 
-    nbThreads = GC_stopWorld(callerId)
+    BAH_GC_state.nbStoppedThreads = GC_stopWorld(callerId) + 1
 
     //check registers
     GC_markPtr(ordi)
@@ -1040,7 +1040,9 @@ GC_collect() {
         GC_scan(<uint>root.data, <uint>root.data + root.size, 1)
     }
 
-    for atomic_load(&BAH_GC_state.atomicThreadCount) != nbThreads {
+    atomic_add(&BAH_GC_state.atomicThreadCount, 1)
+
+    for atomic_load(&BAH_GC_state.atomicThreadCount) != BAH_GC_state.nbStoppedThreads {
         sched_yield()
     }
 
@@ -1113,10 +1115,16 @@ GC_collect() {
 
 }
 
+GC_collect() {
+    pthread_mutex_lock(BAH_GC_state.mut)
+    _GC_collect()
+    pthread_mutex_unlock(BAH_GC_state.mut)
+}
+
 memoryAlloc(s uint) ptr {
     pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
+        _GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
         if BAH_GC_state.nextCollect < GC_min_collect {
             BAH_GC_state.nextCollect = GC_min_collect
@@ -1133,7 +1141,7 @@ memoryAlloc(s uint) ptr {
 memoryAlloc_NZ(s uint) ptr {
     pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
+        _GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
         if BAH_GC_state.nextCollect < GC_min_collect {
             BAH_GC_state.nextCollect = GC_min_collect
@@ -1156,7 +1164,7 @@ memoryRealloc(o ptr, s uint) ptr {
 
     pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
+        _GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
         if BAH_GC_state.nextCollect < GC_min_collect {
             BAH_GC_state.nextCollect = GC_min_collect
@@ -1261,7 +1269,7 @@ getPointerSize(p ptr) uint {
 memoryAllocSTR(s uint) str {
     pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
+        _GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
         if BAH_GC_state.nextCollect < GC_min_collect {
             BAH_GC_state.nextCollect = GC_min_collect
@@ -1278,7 +1286,7 @@ memoryAllocSTR(s uint) str {
 memoryAllocSTR_NZ(s uint) str {
     pthread_mutex_lock(BAH_GC_state.mut)
     if BAH_GC_state.heapSize >= BAH_GC_state.nextCollect {
-        GC_collect()
+        _GC_collect()
         BAH_GC_state.nextCollect = BAH_GC_state.heapSize * 2
         if BAH_GC_state.nextCollect < GC_min_collect {
             BAH_GC_state.nextCollect = GC_min_collect
@@ -1298,10 +1306,11 @@ GC_registerRoot(addr ptr, size uint) {
     pthread_mutex_unlock(BAH_GC_state.mut)
 }
 
-GC_removeRoot(addr ptr) {
+GC_removeRoot(addr ptr) bool {
     pthread_mutex_lock(BAH_GC_state.mut)
-    BAH_GC_state.removeRoot(addr)
+    r = BAH_GC_state.removeRoot(addr)
     pthread_mutex_unlock(BAH_GC_state.mut)
+    return r
 }
 
 print(s str) {

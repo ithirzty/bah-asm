@@ -113,8 +113,12 @@ struct objectFileUserSym {
     value: ptr
 }
 
+struct objectFileGotEntry {
+    name: str
+    addr: ptr
+}
+
 struct objectFile {
-    fm: fileMap
     bytes: []byte
 
     ELFheader: Elf64_Ehdr*
@@ -123,10 +127,17 @@ struct objectFile {
     symNameTable: ptr
     symbols: []Elf64_Sym*
 
-    textAddress: uint
+    textAddress: ptr
     textSize: uint
+    textIndex: int
+    dataIndex: int
+    bssIndex: int
     dataAddress: ptr
     bssAddress: ptr
+
+    got: []objectFileGotEntry
+
+    isDupped: bool
 
     _getELFstr(index uint) str {
         s = <char*>(<uint>this.stringTable + index)
@@ -138,6 +149,73 @@ struct objectFile {
         return cStrToBah(s)
     }
 
+    _getSectAddress(sectNb int) ptr {
+        if sectNb == this.dataIndex {
+            return this.dataAddress
+        }
+
+        if sectNb == this.bssIndex {
+            return this.bssAddress
+        }
+
+        if sectNb == this.textIndex {
+            return this.textAddress
+        }
+
+        sect = this.sectionHeaders[sectNb]
+        return <ptr>(<uint>cArr(this.bytes) + sect.sh_offset)
+    }
+
+    _getSymAddrFromName(symName str) ptr {
+        if symName == "__Bah_panic" {
+            return __Bah_panic
+        }
+
+        if symName == "bahSleep" {
+            return bahSleep
+        }
+
+        i=0; for i < len(this.symbols), i++ {
+            sym = this.symbols[i]
+            lookupName = this._getELFsymName(sym.st_name)
+            if lookupName == symName {
+                sectnb = sym.st_shndx
+                sect = this.sectionHeaders[sectnb]
+
+                if sectnb != this.dataIndex && sectnb != this.bssIndex && sectnb != this.textIndex {
+                    continue
+                }
+
+                return <ptr>(<uint>this._getSectAddress(sectnb) + sym.st_value)
+                // return <ptr>(<uint>cArr(this.bytes) + sym.st_value + sect.sh_offset)
+            }
+        }
+
+        foundFunc = false
+        debugInfos = <uint*>$debug
+        for *debugInfos != 0 {
+            realFnAddress = *debugInfos
+            debugInfos = <uint*>(<uint>debugInfos + 16)
+            realsymName = <str>debugInfos
+
+            if symName == realsymName {
+                return <ptr>realFnAddress
+            }
+
+            debugInfos = <uint*>(<uint>debugInfos + 5 + len(realsymName))
+        }
+        return null
+    }
+
+    _getGotEntry(symName str) objectFileGotEntry* {
+        i=0; for i < len(this.got), i++ {
+            if this.got[i].name == symName {
+                return &this.got[i]
+            }
+        }
+        return null
+    }
+
     performRelocations(section Elf64_Shdr*) {
         j=0; for j * sizeof(Elf64_Rela) < section.sh_size, j++ {
             rel = <Elf64_Rela*>(<uint>cArr(this.bytes) + (section.sh_offset + j * sizeof(Elf64_Rela)))
@@ -147,13 +225,14 @@ struct objectFile {
             sect = this.sectionHeaders[sectnb]
             relType = <uint32>rel.r_info
             modSect = <Elf64_Shdr*>(<uint>cArr(this.bytes) + (this.ELFheader.e_shentsize * section.sh_info + this.ELFheader.e_shoff))
-            addr = <uint32*>(<uint>cArr(this.bytes) + modSect.sh_offset + rel.r_offset)
+            addr = <uint32*>(<uint>this._getSectAddress(section.sh_info) + rel.r_offset)
 
             if relType == 1 { //.data -> .data relocation
-                srcAddr = <str><ptr>(<uint>cArr(this.bytes) + sect.sh_offset + rel.r_addend)
+                srcAddr = <str><ptr>(<uint>this._getSectAddress(sectnb) + rel.r_addend)
                 *(<str*>addr) = srcAddr
             } else if relType == 2 { //data(%rip)
-                tdo = <uint>cArr(this.bytes) + sect.sh_offset - (<uint>cArr(this.bytes) + modSect.sh_offset + rel.r_offset)
+                panic("objectFile: Relocation type data(%rip) is not supported anymore...")
+                tdo = <uint>cArr(this.bytes) + sect.sh_offset - <uint>addr
                 *addr = tdo + sym.st_value + rel.r_addend
             } else if relType == 4 {
                 //function call of function declared inside the objectFile
@@ -189,12 +268,63 @@ struct objectFile {
                     fAddr = sym.st_value + rel.r_addend - rel.r_offset
                     if <uint>rel.r_offset + <uint>fAddr < 16 {
                         println("objectFile: could not link function "+fnName+". If you compiled with -trim, please add the symbol manually with objectFile.setSymbol().")
-                    } else {
-                        *addr = fAddr
                     }
                 }
-
                 *addr = realFnAddress
+            } else if relType == 9 || relType == 41 || relType == 42 {
+                //relType == 41 || relType == 42 -> optimization
+                // v = g + got + a - p
+                p = <uint>addr
+                symName = this._getELFsymName(sym.st_name)
+                g = this._getGotEntry(symName)
+                *addr = <uint>&g.addr + rel.r_addend - p
+            } else if relType == 10 {
+                //v = s + a
+                *addr = <uint>this._getSectAddress(sectnb) + sym.st_value
+            }
+        }
+    }
+
+    _buidGOTtable() {
+        i=0; for i < len(this.sectionHeaders), i++ {
+            section = this.sectionHeaders[i]
+            if section.sh_type == SHT_RELA {
+                sectnb = section.sh_info
+                if sectnb != this.dataIndex && sectnb != this.bssIndex && sectnb != this.textIndex {
+                    continue
+                }
+
+                j=0; for j * sizeof(Elf64_Rela) < section.sh_size, j++ {
+                    rel = <Elf64_Rela*>(<uint>cArr(this.bytes) + (section.sh_offset + j * sizeof(Elf64_Rela)))
+                    symbolNb = rel.r_info >> 32
+                    sym = this.symbols[rel.r_info >> 32]
+                    sectnb = sym.st_shndx
+                    sect = this.sectionHeaders[sectnb]
+                    relType = <uint32>rel.r_info
+                    modSect = <Elf64_Shdr*>(<uint>cArr(this.bytes) + (this.ELFheader.e_shentsize * section.sh_info + this.ELFheader.e_shoff))
+                    addr = <uint32*>(<uint>this._getSectAddress(section.sh_info) + rel.r_offset)
+
+                    if relType != 9 && relType != 41 && relType != 42 {
+                        continue
+                    }
+
+                    symName = this._getELFsymName(sym.st_name)
+
+                    k=0; for k < len(this.got), k++ {
+                        if this.got[k].name == symName {
+                            break
+                        }
+                    }
+
+                    if k == len(this.got) {
+                        ga = <Bah_Array_Type*>this.got
+                        this.got[k] = objectFileGotEntry {
+                            name: symName
+                            addr: this._getSymAddrFromName(symName)
+                        }
+                    }
+                }
+                
             }
         }
     }
@@ -203,31 +333,67 @@ struct objectFile {
         i=0; for i < len(this.sectionHeaders), i++ {
             section = this.sectionHeaders[i]
             if section.sh_type == SHT_RELA {
+                sectnb = section.sh_info
+                if sectnb != this.dataIndex && sectnb != this.bssIndex && sectnb != this.textIndex {
+                    continue
+                }
                 this.performRelocations(section)
             }
         }
     }
 
-    registerGCroots() {
+    _allocateDataSections() {
         i=0; for i < len(this.sectionHeaders), i++ {
             section = this.sectionHeaders[i]
             name = this._getELFstr(section.sh_name)
             if name == ".data" {
                 this.dataAddress = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
-                GC_registerRoot(this.dataAddress, section.sh_size)
+                this.dataIndex = i
             } else if name == ".bss" {
                 this.bssAddress = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
-                GC_registerRoot(this.bssAddress, section.sh_size)
+                this.bssIndex = i
             }
         }
+
+        ag = <Bah_Array_Type*>this.got
+
+        gotSize = len(this.got) * sizeof(objectFileGotEntry)
+        dataSection = this.sectionHeaders[this.dataIndex]
+        bssSection = this.sectionHeaders[this.bssIndex]
+        textSection = this.sectionHeaders[this.textIndex]
+        totalSize = dataSection.sh_size + bssSection.sh_size + textSection.sh_size + gotSize
+
+        memReg = mmap(null, totalSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+
+        dataAddr = this.dataAddress
+        txtAddr = this.textAddress
+
+        this.dataAddress = <ptr>(<uint>memReg)
+        this.bssAddress = <ptr>(<uint>this.dataAddress + dataSection.sh_size)
+        this.textAddress = <ptr>(<uint>this.bssAddress + bssSection.sh_size)
+
+        memcpy(<ptr>(<uint>this.textAddress + textSection.sh_size), ag.data, gotSize)
+        ag.data = <ptr>(<uint>this.textAddress + textSection.sh_size)
+
+        GC_registerRoot(ag.data, gotSize)
+        GC_registerRoot(this.dataAddress, dataSection.sh_size)
+        GC_registerRoot(this.bssAddress, bssSection.sh_size)
+
+        memcpy(this.dataAddress, dataAddr, dataSection.sh_size)
+        memset(this.bssAddress, 0, bssSection.sh_size)
+        memcpy(this.textAddress, txtAddr, textSection.sh_size)
     }
 
     open(filePath str) bool {
-        this.fm.executable = true
-        this.bytes = this.fm.open(filePath)
+        fs = fileStream{}
+        fs.open(filePath, "rb")
+        if fs.isValid() == false {
+            return false
+        }
+        this.bytes = fs.readBytes()
+        fs.close()
 
-        if this.fm.isValid() == false || len(this.bytes) < 64 {
-            this.fm.close()
+        if len(this.bytes) < 64 {
             return false
         }
 
@@ -248,8 +414,9 @@ struct objectFile {
             name = this._getELFstr(section.sh_name)
             
             if name == ".text" {
-                this.textAddress = <uint>cArr(this.bytes) + section.sh_offset
+                this.textAddress = <ptr>(<uint>cArr(this.bytes) + section.sh_offset)
                 this.textSize = section.sh_size
+                this.textIndex = i
             }
 
             if name == ".strtab" {
@@ -264,8 +431,43 @@ struct objectFile {
 
         }
 
-        this.registerGCroots()
+        this._buidGOTtable()
+        this._allocateDataSections()
         return true
+    }
+
+    dup() objectFile {
+        of = *this
+        of.isDupped = true
+        of.got = []objectFileGotEntry
+        ag = <Bah_Array_Type*>of.got
+
+        gotSize = len(this.got) * sizeof(objectFileGotEntry)
+        dataSection = this.sectionHeaders[this.dataIndex]
+        bssSection = this.sectionHeaders[this.bssIndex]
+        textSection = this.sectionHeaders[this.textIndex]
+        totalSize = dataSection.sh_size + bssSection.sh_size + textSection.sh_size + gotSize
+
+        memReg = mmap(null, totalSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)
+
+        of.dataAddress = <ptr>(<uint>memReg)
+        of.bssAddress = <ptr>(<uint>of.dataAddress + dataSection.sh_size)
+        of.textAddress = <ptr>(<uint>of.bssAddress + bssSection.sh_size)
+
+        ag.data = <ptr>(<uint>of.textAddress + textSection.sh_size)
+        ag.realLength = len(this.got)
+        GC_registerRoot(ag.data, gotSize)
+        of._buidGOTtable()
+
+        GC_registerRoot(of.dataAddress, dataSection.sh_size)
+        GC_registerRoot(of.bssAddress, bssSection.sh_size)
+
+        memcpy(of.dataAddress, this.dataAddress, dataSection.sh_size)
+        memset(of.bssAddress, 0, bssSection.sh_size)
+        memcpy(of.textAddress, this.textAddress, textSection.sh_size)
+
+        of.weakLinker()
+        return of
     }
 
     getSymbol(name str) ptr {
@@ -274,22 +476,31 @@ struct objectFile {
             lookupName = this._getELFsymName(sym.st_name)
             if lookupName == name {
                 sectnb = sym.st_shndx
-                sect = this.sectionHeaders[sectnb]
-                return <ptr>(<uint>cArr(this.bytes) + sym.st_value + sect.sh_offset)
+
+                if sectnb != this.dataIndex && sectnb != this.bssIndex && sectnb != this.textIndex {
+                    continue
+                }
+
+                return <ptr>(<uint>this._getSectAddress(sectnb) + sym.st_value)
             }
         }
         return null
     }
 
     close() {
-        if this.dataAddress != null {
-            GC_removeRoot(this.dataAddress)
-            this.dataAddress = null
-        }
-        if this.bssAddress != null {
-            GC_removeRoot(this.bssAddress)
-            this.bssAddress = null
-        }
-        this.fm.close()
+        GC_removeRoot(this.dataAddress)
+        GC_removeRoot(this.bssAddress)
+        GC_removeRoot(cArr(this.got))
+
+        gotSize = len(this.got) * sizeof(objectFileGotEntry)
+        dataSection = this.sectionHeaders[this.dataIndex]
+        bssSection = this.sectionHeaders[this.bssIndex]
+        textSection = this.sectionHeaders[this.textIndex]
+        totalSize = dataSection.sh_size + bssSection.sh_size + textSection.sh_size + gotSize
+        
+        munmap(this.dataAddress, totalSize)
+        
+        this.dataAddress = null
+        this.bssAddress = null
     }
 }

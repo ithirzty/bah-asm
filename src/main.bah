@@ -109,7 +109,7 @@ main(args []str) int {
 
     isFullLink = flags.isSet("linkAndRun")
     isRun = flags.isSet("run") || isFullLink
-    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX") || isRun && isFullLink == false
+    parserCtx.noImports = flags.isSet("noImports") || flags.isSet("debug") || flags.isSet("noAVX") || flags.isSet("lib") || isRun && isFullLink == false
     parserCtx.debugEnabled = flags.isSet("debug")
     gen.debugEnabled = flags.isSet("trim") == false || flags.isSet("debug")
     GEN_AVXenabled = flags.isSet("noAVX") == false

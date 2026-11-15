@@ -380,6 +380,7 @@ parseHTMLElements(s str, from int, to int, parent htmlElement*) []htmlElement* {
                         }
                     } else if s[i] == '<' && s[i+1] != '!' {
                         i++
+                        matchStart = i
 
                         j = 0
                         nl = elem._name[1] - elem._name[0]
@@ -400,6 +401,11 @@ parseHTMLElements(s str, from int, to int, parent htmlElement*) []htmlElement* {
                             }
 
                             j++
+                        }
+
+                        if i == matchStart {
+                            i = matchStart-1
+                            continue
                         }
 
                         for i < to, i++ {
@@ -425,7 +431,7 @@ parseHTMLElements(s str, from int, to int, parent htmlElement*) []htmlElement* {
                     elem.children = parseHTMLElements(s, start, contentEnd, elem)
                 }
             } else {
-                elem._text = [<int32>start, <int32>(contentEnd+1)]
+                elem._text = [<int32>start, <int32>(contentEnd)]
             }
 
             elems[len(elems)] = elem

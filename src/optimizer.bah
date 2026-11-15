@@ -1,4 +1,5 @@
 #import "./state.bah"
+#import "./error.bah"
 
 //optimization done on bahValue trees
 
@@ -215,7 +216,7 @@ optimizeBranchlessAND(val bahValue*) bahValue* {
 //Unlikely conditions:
 // - variable null check
 
-optimizeIsCondNotLikely(cond bahValue*) bool {
+staticAnalyzerIsCondNotLikely(cond bahValue*) bool {
 
     if cond.value != BAH_VALUE_OP {
         return false
@@ -235,4 +236,1222 @@ optimizeIsCondNotLikely(cond bahValue*) bool {
     }
 
     return false
+}
+
+staticAnalyzerIsAtomicValue(val bahValue*) bool {
+    return val.isStaticValue || val.value == BAH_VALUE_FUNC_CALL
+}
+
+struct staticAnalyzerVarReference {
+    var: bahVariable*
+    times: int
+}
+
+struct collpasedCalculationResult {
+    refs: []staticAnalyzerVarReference
+    singleRef: staticAnalyzerVarReference //to not allocate an array on each atomic calc
+    offset: int
+    isInvalid: bool
+
+    nbRefs() int {
+        single = 0
+        if this.singleRef.var != null {
+            single = 1
+        }
+        return len(this.refs) + single
+    }
+
+    getRef(index int) staticAnalyzerVarReference* {
+        if this.singleRef.var != null {
+            if index == 0 {
+                sr = &this.singleRef
+                return sr
+            }
+            index--
+        }
+        return &this.refs[index]
+    }
+
+    countRefsTo(var bahVariable*) int {
+        if this.singleRef.var == var {
+            return this.singleRef.times
+        }
+
+        i=0; for i < len(this.refs), i++ {
+            if this.refs[i].var == var {
+                return this.refs[i].times
+            }
+        }
+
+        return 0
+    }
+}
+
+struct _staticAnalyzerVarStack {
+    var: bahVariable*
+    value: bahValueCollapsed
+}
+
+struct _staticAnalyzerCalcStack {
+    var: bahVariable*
+    value: collpasedCalculationResult
+}
+
+_staticAnalyzerMinVarStack = []_staticAnalyzerVarStack
+_staticAnalyzerMaxVarStack = []_staticAnalyzerVarStack
+_staticAnalyzerCalcVarStack = []_staticAnalyzerCalcStack
+
+_staticAnalyzerCalcMinValue(v bahValue*, destVar bahVariable*) bahValueCollapsed {
+    if v == null {
+        return bahValueCollapsed{type: bahValueCollapsedInval}
+    }
+    //TODO: handle type overflow
+    for v.value == BAH_VALUE_CAST {
+        v = v.left
+    }
+
+    if v.value == BAH_VALUE_DECLARATION && v.type.type == BAH_TYPE_ARRAY {
+        arrLen = 0
+        currVal = v.right
+        for currVal != null, currVal = currVal.right {
+            arrLen++
+        }
+
+        return bahValueCollapsed{
+            type: bahValueCollapsedNum
+            value: <ptr>arrLen    
+        }
+    }
+
+    if v.value == BAH_VALUE_VAR || v.value == BAH_VALUE_FUNC_CALL && v.tok.cont == "len" {
+        var bahVariable*
+
+        if v.value == BAH_VALUE_VAR {
+            var = parserCtx.findVar(v.tok.cont)
+        } else {
+            var = parserCtx.findVar(v.right.left.tok.cont)
+        }
+
+        if var == null {
+            return bahValueCollapsed{type: bahValueCollapsedInval}
+        }
+
+        if var.isConst {
+            return bahValueCollapsed{
+                type: bahValueCollapsedNum
+                value: <ptr>strToInt(var.sym.toStr())
+            }
+        }
+
+        i=0; for i < len(_staticAnalyzerMinVarStack), i++ {
+            if _staticAnalyzerMinVarStack[i].var == var {
+                return _staticAnalyzerMinVarStack[i].value
+            }
+        }
+
+        an = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+        r = bahValueCollapsed{}
+
+        if (an == null || an.min[0].type == bahValueCollapsedInval) && v.value != BAH_VALUE_VAR && var != destVar {
+            r = bahValueCollapsed {
+                type: bahValueCollapsedLen
+                value: var
+            }
+        }
+
+        if an != null {
+            r = an.min[0]
+        }
+
+        _staticAnalyzerMinVarStack[len(_staticAnalyzerMinVarStack)] = _staticAnalyzerVarStack {
+            var: var
+            value: r
+        }
+
+        return r
+    }
+
+    if v.value == BAH_VALUE_OP {
+        //var is incremented inside of a loop body, n += 2 -> n += 2 * loopCount
+        if v.left.value == BAH_VALUE_VAR && staticAnalyzerIsAtomicValue(v.right) || v.right.value == BAH_VALUE_VAR && staticAnalyzerIsAtomicValue(v.left) {
+            if v.left.value == BAH_VALUE_VAR {
+                var = parserCtx.findVar(v.left.tok.cont)
+                sv = v.right
+
+                if var == destVar && parserCtx.scopeCtx.loopIterator != null {
+                    if parserCtx.scopeCtx.loopIteratorIncrement.type == bahValueCollapsedInval {
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+                    itAn = parserCtx.scopeCtx.gatValueAnalysis(parserCtx.scopeCtx.loopIterator)
+
+                    if var == parserCtx.scopeCtx.loopIterator {
+                        if v.tok.cont == "+" || v.tok.cont == "+=" {
+                            r = itAn.min[0] + _staticAnalyzerCalcMinValue(v.right, destVar)
+                            r.pemdas = v.pemdas
+                            return r
+                        } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                            r = itAn.min[0] - _staticAnalyzerCalcMinValue(v.right, destVar)
+                            r.pemdas = v.pemdas
+                            return r
+                        } 
+                        //TODO: use pow
+                        // else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                        //     return itAn.min[0] / _staticAnalyzerCalcMinValue(v.right, destVar)
+                        // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                        //     return itAn.min[0] * _staticAnalyzerCalcMinValue(v.right, destVar)
+                        // }
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+
+                    amm = itAn.max[1] / parserCtx.scopeCtx.loopIteratorIncrement
+
+                    if v.tok.cont == "+" || v.tok.cont == "+=" {
+                        r = _staticAnalyzerCalcMinValue(v.left, destVar) + (_staticAnalyzerCalcMinValue(v.right, destVar) * amm)
+                        r.pemdas = v.pemdas
+                        return r
+                    } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                        r = _staticAnalyzerCalcMinValue(v.left, destVar) - (_staticAnalyzerCalcMinValue(v.right, destVar) * amm)
+                        r.pemdas = v.pemdas
+                        return r
+                    }
+                    //TODO: use pow
+                    //  else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                    //     return _staticAnalyzerCalcMinValue(v.left, destVar) / (_staticAnalyzerCalcMinValue(v.right, destVar) * amm)
+                    // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                    //     return _staticAnalyzerCalcMinValue(v.left, destVar) * (_staticAnalyzerCalcMinValue(v.right, destVar) * amm)
+                    // }
+                    return bahValueCollapsed{type: bahValueCollapsedInval}
+                }
+
+            } else {
+                var = parserCtx.findVar(v.right.tok.cont)
+                sv = v.left
+
+                if var == destVar && parserCtx.scopeCtx.loopIterator != null && parserCtx.scopeCtx.loopIterator != var {
+                    if parserCtx.scopeCtx.loopIteratorIncrement.type == bahValueCollapsedInval {
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+                    itAn = parserCtx.scopeCtx.gatValueAnalysis(parserCtx.scopeCtx.loopIterator)
+                    amm = itAn.max[1] / parserCtx.scopeCtx.loopIteratorIncrement
+
+                    if v.tok.cont == "+" || v.tok.cont == "+=" {
+                        r = (_staticAnalyzerCalcMinValue(v.left, destVar) * amm) + _staticAnalyzerCalcMinValue(v.right, destVar) 
+                        r.pemdas = v.pemdas
+                        return r
+                    } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                        r = (_staticAnalyzerCalcMinValue(v.left, destVar) * amm) - _staticAnalyzerCalcMinValue(v.right, destVar) 
+                        r.pemdas = v.pemdas
+                        return r
+                    }
+                    //TODO: use pow
+                    // else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                    //     return (_staticAnalyzerCalcMinValue(v.left, destVar) * amm) / _staticAnalyzerCalcMinValue(v.right, destVar) 
+                    // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                    //     return (_staticAnalyzerCalcMinValue(v.left, destVar) * amm) * _staticAnalyzerCalcMinValue(v.right, destVar) 
+                    // }
+                    return bahValueCollapsed{type: bahValueCollapsedInval}
+                }
+            }
+        }
+        if v.tok.cont == "+" || v.tok.cont == "+=" {
+            r = _staticAnalyzerCalcMinValue(v.left, destVar) + _staticAnalyzerCalcMinValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+            r = _staticAnalyzerCalcMinValue(v.left, destVar) - _staticAnalyzerCalcMinValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "/" || v.tok.cont == "/=" {
+            r = _staticAnalyzerCalcMinValue(v.left, destVar) / _staticAnalyzerCalcMinValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+            r = _staticAnalyzerCalcMinValue(v.left, destVar) * _staticAnalyzerCalcMinValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        }
+    }
+
+    if v.isStaticValue {
+        return bahValueCollapsed{
+            type: bahValueCollapsedNum
+            value: <ptr>strToInt(v.tok.cont)
+        }
+    }
+
+    return bahValueCollapsed{type: bahValueCollapsedInval}
+}
+
+_staticAnalyzerCalcMaxValue(v bahValue*, destVar bahVariable*) bahValueCollapsed {
+    if v == null {
+        return bahValueCollapsed{type: bahValueCollapsedInval}
+    }
+    //TODO: handle type overflow
+    for v.value == BAH_VALUE_CAST {
+        v = v.left
+    }
+
+    if v.value == BAH_VALUE_DECLARATION && v.type.type == BAH_TYPE_ARRAY {
+        arrLen = 0
+        currVal = v.right
+        for currVal != null, currVal = currVal.right {
+            arrLen++
+        }
+
+        return bahValueCollapsed{
+            type: bahValueCollapsedNum
+            value: <ptr>arrLen    
+        }
+    }
+
+    if v.value == BAH_VALUE_VAR || v.value == BAH_VALUE_FUNC_CALL && v.tok.cont == "len" {
+        var bahVariable*
+
+        if v.value == BAH_VALUE_VAR {
+            var = parserCtx.findVar(v.tok.cont)
+        } else {
+            var = parserCtx.findVar(v.right.left.tok.cont)
+        }
+
+        if var == null {
+            return bahValueCollapsed{type: bahValueCollapsedInval}
+        }
+
+
+        if var.isConst {
+            return bahValueCollapsed{
+                type: bahValueCollapsedNum
+                value: <ptr>strToInt(var.sym.toStr())
+            }
+        }
+
+        i=0; for i < len(_staticAnalyzerMaxVarStack), i++ {
+            if _staticAnalyzerMaxVarStack[i].var == var {
+                return _staticAnalyzerMaxVarStack[i].value
+            }
+        }
+
+        an = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+        r = bahValueCollapsed{}
+
+        if (an == null || an.max[1].type == bahValueCollapsedInval) && v.value != BAH_VALUE_VAR && var != destVar {
+            r = bahValueCollapsed {
+                type: bahValueCollapsedLen
+                value: var
+            }
+        }
+
+        if an != null {
+            r = an.max[1]
+        }
+
+        _staticAnalyzerMaxVarStack[len(_staticAnalyzerMaxVarStack)] = _staticAnalyzerVarStack {
+            var: var
+            value: r
+        }
+
+        return r
+
+    }
+
+    if v.value == BAH_VALUE_OP {
+        //var is incremented inside of a loop body, n += 2 -> n += 2 * loopCount
+        if v.left.value == BAH_VALUE_VAR && staticAnalyzerIsAtomicValue(v.right) || v.right.value == BAH_VALUE_VAR && staticAnalyzerIsAtomicValue(v.left) {
+            if v.left.value == BAH_VALUE_VAR {
+                var = parserCtx.findVar(v.left.tok.cont)
+                sv = v.right
+
+                if var == destVar && parserCtx.scopeCtx.loopIterator != null {
+
+                    if parserCtx.scopeCtx.loopIteratorIncrement.type == bahValueCollapsedInval {
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+                    itAn = parserCtx.scopeCtx.gatValueAnalysis(parserCtx.scopeCtx.loopIterator)
+
+                    //only actually do the calculation in maxValue to not do it twice
+                    if var == parserCtx.scopeCtx.loopIterator {
+                        if v.tok.cont == "+" || v.tok.cont == "+=" {
+                            parserCtx.scopeCtx.loopIteratorIncrement += _staticAnalyzerCalcMaxValue(v.right, destVar)
+                            r = itAn.max[1] + _staticAnalyzerCalcMaxValue(v.right, destVar)
+                            r.pemdas = v.pemdas
+                            return r
+                        } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                            parserCtx.scopeCtx.loopIteratorIncrement -= _staticAnalyzerCalcMaxValue(v.right, destVar)
+                            r = itAn.max[1] - _staticAnalyzerCalcMaxValue(v.right, destVar)
+                            r.pemdas = v.pemdas
+                            return r
+                        }
+                        //TODO: use pow
+                        // else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                        //     parserCtx.scopeCtx.loopIteratorIncrement /= _staticAnalyzerCalcMaxValue(v.right, destVar)
+                        //     return itAn.max[1] / _staticAnalyzerCalcMaxValue(v.right, destVar)
+                        // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                        //     parserCtx.scopeCtx.loopIteratorIncrement *= _staticAnalyzerCalcMaxValue(v.right, destVar)
+                        //     return itAn.max[1] * _staticAnalyzerCalcMaxValue(v.right, destVar)
+                        // }
+
+                        parserCtx.scopeCtx.loopIteratorIncrement = bahValueCollapsed{type: bahValueCollapsedInval}
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+
+                    amm = itAn.max[1] / parserCtx.scopeCtx.loopIteratorIncrement
+
+                    if v.tok.cont == "+" || v.tok.cont == "+=" {
+                        r = _staticAnalyzerCalcMaxValue(v.left, destVar) + (_staticAnalyzerCalcMaxValue(v.right, destVar) * amm)
+                        r.pemdas = v.pemdas
+                        return r
+                    } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                        r = _staticAnalyzerCalcMaxValue(v.left, destVar) - (_staticAnalyzerCalcMaxValue(v.right, destVar) * amm)
+                        r.pemdas = v.pemdas
+                        return r
+                    }
+                    //TODO: use pow
+                    // else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                    //     return _staticAnalyzerCalcMaxValue(v.left, destVar) / (_staticAnalyzerCalcMaxValue(v.right, destVar) * amm)
+                    // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                    //     return _staticAnalyzerCalcMaxValue(v.left, destVar) * (_staticAnalyzerCalcMaxValue(v.right, destVar) * amm)
+                    // }
+
+                    return bahValueCollapsed{type: bahValueCollapsedInval}
+                }
+
+            } else {
+                var = parserCtx.findVar(v.right.tok.cont)
+                sv = v.left
+
+                if var == destVar && parserCtx.scopeCtx.loopIterator != null && parserCtx.scopeCtx.loopIterator != var {
+                    if parserCtx.scopeCtx.loopIteratorIncrement.type == bahValueCollapsedInval {
+                        return bahValueCollapsed{type: bahValueCollapsedInval}
+                    }
+                    itAn = parserCtx.scopeCtx.gatValueAnalysis(parserCtx.scopeCtx.loopIterator)
+                    amm = itAn.max[1] / parserCtx.scopeCtx.loopIteratorIncrement
+                    
+                    if v.tok.cont == "+" || v.tok.cont == "+=" {
+                        r = (_staticAnalyzerCalcMaxValue(v.left, destVar) * amm) + _staticAnalyzerCalcMaxValue(v.right, destVar) 
+                        r.pemdas = v.pemdas
+                        return r
+                    } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+                        r = (_staticAnalyzerCalcMaxValue(v.left, destVar) * amm) - _staticAnalyzerCalcMaxValue(v.right, destVar) 
+                        r.pemdas = v.pemdas
+                        return r
+                    }
+                    //TODO: use pow
+                    // else if v.tok.cont == "/" || v.tok.cont == "/=" {
+                    //     return (_staticAnalyzerCalcMaxValue(v.left, destVar) * amm) / _staticAnalyzerCalcMaxValue(v.right, destVar) 
+                    // } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+                    //     return (_staticAnalyzerCalcMaxValue(v.left, destVar) * amm) * _staticAnalyzerCalcMaxValue(v.right, destVar) 
+                    // }
+                    return bahValueCollapsed{type: bahValueCollapsedInval}
+                }
+            }
+        }
+        if v.tok.cont == "+" || v.tok.cont == "+=" {
+            r = _staticAnalyzerCalcMaxValue(v.left, destVar) + _staticAnalyzerCalcMaxValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "-" || v.tok.cont == "-=" {
+            r = _staticAnalyzerCalcMaxValue(v.left, destVar) - _staticAnalyzerCalcMaxValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "/" || v.tok.cont == "/=" {
+            r = _staticAnalyzerCalcMaxValue(v.left, destVar) / _staticAnalyzerCalcMaxValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        } else if v.tok.cont == "/" || v.tok.cont == "*=" {
+            r = _staticAnalyzerCalcMaxValue(v.left, destVar) * _staticAnalyzerCalcMaxValue(v.right, destVar)
+            r.pemdas = v.pemdas
+            return r
+        }
+    }
+
+    if v.isStaticValue {
+        return bahValueCollapsed{
+            type: bahValueCollapsedNum
+            value: <ptr>strToInt(v.tok.cont)
+        }
+    }
+    
+    return bahValueCollapsed{type: bahValueCollapsedInval}
+}
+
+staticAnalyzerCalcMaxValue(v bahValue*, destVar bahVariable*) bahValueCollapsed {
+    clear(_staticAnalyzerMaxVarStack)
+    return _staticAnalyzerCalcMaxValue(v, destVar)
+}
+
+staticAnalyzerCalcMinValue(v bahValue*, destVar bahVariable*) bahValueCollapsed {
+    clear(_staticAnalyzerMinVarStack)
+    return _staticAnalyzerCalcMinValue(v, destVar)
+}
+
+staticAnalyzerIsValueAnalyzable(val bahValue*) bool {
+    for val.value == BAH_VALUE_CAST {
+        val = val.left
+    }
+
+    if val.isPointer {
+        return false
+    }
+
+    if val.value == BAH_VALUE_DECLARATION {
+        //more complex behavior
+        return val.type.type == BAH_TYPE_ARRAY
+    }
+
+    if val.value == BAH_VALUE_UNARY {
+        return staticAnalyzerIsValueAnalyzable(val.left)
+    }
+
+    if val.value == BAH_VALUE_STRUCT {
+        return staticAnalyzerIsValueAnalyzable(val.left)
+    }
+
+    if val.value == BAH_VALUE_OP || val.value == BAH_VALUE_SPLIT || val.value == BAH_VALUE_INDEXED {
+        return staticAnalyzerIsValueAnalyzable(val.left) && staticAnalyzerIsValueAnalyzable(val.right)
+    }
+
+    return val.value != BAH_VALUE_FUNC_CALL || val.tok.cont == "len"
+}
+
+staticAnalyzerrDoArrayBoundChecks(val bahValue*, varAnalysis bahVarValueAnalysis*, indexMin bahValueCollapsed, indexMax bahValueCollapsed) {
+    zv = bahValueCollapsed{
+        type: bahValueCollapsedNum
+        value: <ptr>0
+    }
+
+    if indexMin.isLessThan(zv) {
+        throwError(val, "Cannot index an array with a negative index.")
+    }
+
+    num1 = bahValueCollapsed{
+        type: bahValueCollapsedNum
+        value: <ptr>1
+    }
+
+    arrMax = bahValueCollapsed {
+        type: bahValueCollapsedLen
+        value: varAnalysis.var
+    }
+
+    isNotInLoop = true
+    scope = parserCtx.scopeCtx
+    for scope != null, scope = scope.parent {
+        if scope.isLoop {
+            isNotInLoop = false
+            break
+        }
+    }
+
+    if indexMin.isMoreThan(arrMax) || indexMax.isMoreThan(arrMax) && isNotInLoop {
+        throwError(val, "Cannot index an array with an index > len(arr).")
+    } else {
+        // println(indexMin.toStr() + " < " + arrMax.toStr())
+    }
+}
+
+staticAnalyzerAvoidRecursiveLink(index bahValueCollapsed*, var bahVariable*) bool {
+    if index.type == bahValueCollapsedLen && index.value == var {
+        return true
+    }
+
+    if index.type == bahValueCollapsedNum || index.type == bahValueCollapsedInval {
+        return false
+    }
+
+    if index.a != null {
+        res = staticAnalyzerAvoidRecursiveLink(index.a, var)
+        if res {
+            return res
+        }
+    }
+
+    if index.b != null {
+        res = staticAnalyzerAvoidRecursiveLink(index.b, var)
+        if res {
+            return res
+        }
+    }
+
+
+    return false
+}
+
+staticAnalyzerConsiderVarValue(var bahVariable*, val bahValue*, hasToBeTrue bool) {
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    if var == null || var.isConst {
+        return
+    }
+
+    if var.type.type != BAH_TYPE_UINT && var.type.type != BAH_TYPE_INT && var.type.type != BAH_TYPE_ARRAY {
+        return
+    }
+    
+    if staticAnalyzerIsValueAnalyzable(val) == false {
+        return
+    }
+
+    //TODO: si on est dans une boucle, trouver la formule en cas de self reference (si n = n + 1 et que la boucle tourne 12 fois, n = n + 12...)
+    // faire cela pour quelques formules simples, sinon -> inval pour ne pas propager de fausses infos.
+
+    varAnalysis = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+    if varAnalysis == null {
+        parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis)] = bahVarValueAnalysis {
+            var: var
+        }
+        varAnalysis = &parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis) - 1]
+    } else if var.scope < parserCtx.scope {
+        parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis)] = *varAnalysis
+        varAnalysis = &parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis) - 1]
+    }
+
+    if var.type.type == BAH_TYPE_ARRAY {
+
+
+        indexMin = staticAnalyzerCalcMinValue(val, var)
+        indexMax = staticAnalyzerCalcMaxValue(val, var)
+
+        if hasToBeTrue == false && val.value != BAH_VALUE_DECLARATION {
+            staticAnalyzerrDoArrayBoundChecks(val, varAnalysis, indexMin, indexMax)
+        }
+        if hasToBeTrue {
+            indexMin -= bahValueCollapsed {
+                type: bahValueCollapsedNum
+                value: <ptr>1
+            }
+            indexMax -= bahValueCollapsed {
+                type: bahValueCollapsedNum
+                value: <ptr>1
+            }
+        } else if val.value != BAH_VALUE_DECLARATION {
+            indexMin += bahValueCollapsed {
+                type: bahValueCollapsedNum
+                value: <ptr>1
+            }
+            indexMax += bahValueCollapsed {
+                type: bahValueCollapsedNum
+                value: <ptr>1
+            }
+        }
+
+        //if 'j = len(arr) + 1' and 'arr[j] = x', then len(arr) might be equal to len(arr) + 1
+        //this nonsense would cause infinite calculating efforts 
+        if staticAnalyzerAvoidRecursiveLink(&indexMax, var) {
+            return
+        }
+
+        bounds = [
+            indexMax, indexMax
+        ]
+
+        if bounds[0].type != bahValueCollapsedInval {
+            //is more because an array cannot get less big by appending to it
+            if (varAnalysis.isMinValid() == false || bounds[0].isMoreThan(varAnalysis.min[0])) {
+                varAnalysis.min = bounds
+                // println("arr: "+var.name+" = "+bounds[0].toStr())
+            }
+
+            if (varAnalysis.isMaxValid() == false || bounds[1].isMoreThan(varAnalysis.max[1])) {
+                varAnalysis.max = bounds
+                // println("arr: "+var.name+" = "+bounds[1].toStr())
+            }
+        }
+    } else {
+        varAnalysis.min = [
+            staticAnalyzerCalcMinValue(val, var), staticAnalyzerCalcMaxValue(val, var)
+        ]
+        varAnalysis.max = varAnalysis.min
+        // println("set: "+var.name + " = " + varAnalysis.min[1].toStr())
+    }
+
+
+    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
+}
+
+staticAnalyzerConsiderVarMaxValue(var bahVariable*, val bahValue*) {
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    if var == null {
+        return
+    }
+
+    if var.isConst || var.type.type != BAH_TYPE_UINT && var.type.type != BAH_TYPE_INT {
+        return
+    }
+    
+    if staticAnalyzerIsValueAnalyzable(val) == false {
+        return
+    }
+
+    varAnalysis = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+    if varAnalysis == null {
+        parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis)] = bahVarValueAnalysis {
+            var: var
+        }
+        varAnalysis = &parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis) - 1]
+    }
+
+    varAnalysis.max = [
+        staticAnalyzerCalcMinValue(val, var), staticAnalyzerCalcMaxValue(val, var)
+    ]
+
+    if varAnalysis.max[0].isLessThan(varAnalysis.min[1]) {
+        varAnalysis.min = varAnalysis.max
+    }
+
+    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
+}
+
+staticAnalyzerConsiderVarMinValue(var bahVariable*, val bahValue*) {
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    if var == null {
+        return
+    }
+
+    if var.isConst || var.type.type != BAH_TYPE_UINT && var.type.type != BAH_TYPE_INT {
+        return
+    }
+    
+    if staticAnalyzerIsValueAnalyzable(val) == false {
+        return
+    }
+
+    varAnalysis = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+    if varAnalysis == null {
+        parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis)] = bahVarValueAnalysis {
+            var: var
+        }
+        varAnalysis = &parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis) - 1]
+    }
+
+    varAnalysis.min = [
+        staticAnalyzerCalcMinValue(val, var), staticAnalyzerCalcMaxValue(val, var)
+    ]
+
+    if varAnalysis.min[1].isMoreThan(varAnalysis.max[0]) {
+        varAnalysis.max = varAnalysis.min
+    }
+
+    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
+}
+
+staticAnalyzerConsiderVarNotValue(var bahVariable*, val bahValue*) {
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    if var == null {
+        return
+    }
+
+    if var.isConst || var.type.type != BAH_TYPE_UINT && var.type.type != BAH_TYPE_INT {
+        return
+    }
+    
+    if staticAnalyzerIsValueAnalyzable(val) == false {
+        return
+    }
+
+    varAnalysis = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+    if varAnalysis == null {
+        parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis)] = bahVarValueAnalysis {
+            var: var
+        }
+        varAnalysis = &parserCtx.scopeCtx.varValueAnalysis[len(parserCtx.scopeCtx.varValueAnalysis) - 1]
+    }
+
+    oneCollpsd = bahValueCollapsed {
+        type: bahValueCollapsedNum
+        value: <ptr>1
+    }
+
+    bounds = [
+        staticAnalyzerCalcMinValue(val, var),
+        staticAnalyzerCalcMaxValue(val, var)
+    ]
+
+    if varAnalysis.max[1].isMoreThan(bounds[0]) {
+        bounds[0] += oneCollpsd
+        bounds[1] += oneCollpsd
+        varAnalysis.min = bounds
+    } else if varAnalysis.min[0].isLessThan(bounds[0]) {
+        bounds[0] -= oneCollpsd
+        bounds[1] -= oneCollpsd
+        varAnalysis.max = bounds
+    }
+
+    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
+}
+
+staticAnalyzerConsiderCondition(val bahValue*) {
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    //TODO: walk tree recursively and do ||, && and negation...
+    //TODO: for now, < == <= and > = >=
+    if val.value == BAH_VALUE_OP {
+        if val.tok.cont == "<" || val.tok.cont == "<=" {
+            if val.left.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarMaxValue(var, val.right)
+            } else if val.right.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarMinValue(var, val.left)
+            }
+        } else if val.tok.cont == ">" || val.tok.cont == ">=" {
+            if val.left.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarMinValue(var, val.right)
+            } else if val.right.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarMaxValue(var, val.left)
+            }
+        } else if val.tok.cont == "==" {
+            if val.left.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarValue(var, val.right, false)
+            } else if val.right.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                staticAnalyzerConsiderVarValue(var, val.left, false)
+            } else if val.left.value == BAH_VALUE_FUNC_CALL && val.left.tok.cont == "len" && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.right.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                //if val > max then update max, if val < min then update min
+                //if val is in bounds, the condition is as false
+
+                staticAnalyzerConsiderVarValue(var, val.right, true)
+            } else if val.right.value == BAH_VALUE_FUNC_CALL && val.right.tok.cont == "len" && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.right.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+
+                staticAnalyzerConsiderVarValue(var, val.left, true)
+                // staticAnalyzerConsiderVarMinValue(var, val.left)
+            }
+        } else if val.tok.cont == "!=" {
+            if val.left.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                //if val > max then update max, if val < min then update min
+                //if val is in bounds, the condition is as false
+
+                staticAnalyzerConsiderVarNotValue(var, val.right)
+            } else if val.right.value == BAH_VALUE_VAR && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+
+                staticAnalyzerConsiderVarNotValue(var, val.left)
+                // staticAnalyzerConsiderVarMinValue(var, val.left)
+            } else if val.left.value == BAH_VALUE_FUNC_CALL && val.left.tok.cont == "len" && staticAnalyzerIsValueAnalyzable(val.right) {
+                var = parserCtx.findVar(val.left.right.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+                //if val > max then update max, if val < min then update min
+                //if val is in bounds, the condition is as false
+
+                staticAnalyzerConsiderVarNotValue(var, val.right)
+            } else if val.right.value == BAH_VALUE_FUNC_CALL && val.right.tok.cont == "len" && staticAnalyzerIsValueAnalyzable(val.left) {
+                var = parserCtx.findVar(val.right.right.left.tok.cont)
+                if parserCtx.scopeCtx.isLoop && parserCtx.scopeCtx.loopIterator == null {
+                    parserCtx.scopeCtx.loopIterator = var
+                }
+
+                staticAnalyzerConsiderVarNotValue(var, val.left)
+            }
+        }
+    }
+}
+
+staticAnalyzerArraySkipRealoc(lval bahLeftValue*, val bahValue*) bool {
+
+    
+
+    return false
+}
+
+staticAnalyzerCalculateCollapsedValueOperation(a collpasedCalculationResult, b collpasedCalculationResult, opType int) collpasedCalculationResult {
+    r = collpasedCalculationResult {}
+
+    if a.isInvalid || b.isInvalid {
+        r.isInvalid = true
+        return r
+    }
+
+    nbRefsA = a.nbRefs()
+    nbRefsB = b.nbRefs()
+
+    if opType == bahValueCollapsedOpAdd {
+        i=0; for i < nbRefsA, i++ {
+            ref = a.getRef(i)
+            ref.times += b.countRefsTo(ref.var)
+            if ref.times == 0 {
+                continue
+            }
+
+            r.refs[len(r.refs)] = *ref
+        }
+
+        i=0; for i < nbRefsB, i++ {
+            ref = b.getRef(i)
+            if ref.times == 0 || a.countRefsTo(ref.var) != 0 {
+                continue
+            }
+
+            r.refs[len(r.refs)] = *ref
+        }
+
+        r.offset = a.offset + b.offset
+    } else if opType == bahValueCollapsedOpSub {
+        i=0; for i < nbRefsA, i++ {
+            ref = a.getRef(i)
+            ref.times -= b.countRefsTo(ref.var)
+            if ref.times == 0 {
+                continue
+            }
+
+            r.refs[len(r.refs)] = *ref
+        }
+
+        i=0; for i < nbRefsB, i++ {
+            ref = b.getRef(i)
+            if ref.times == 0 || a.countRefsTo(ref.var) != 0 {
+                continue
+            }
+
+            r.refs[len(r.refs)] = *ref
+        }
+
+        r.offset = a.offset - b.offset
+    } else if opType == bahValueCollapsedOpDiv {
+        if nbRefsB == 0 && b.offset != 0 {
+            i=0; for i < nbRefsA, i++ {
+                ref = a.getRef(i)
+                ref.times /= b.offset
+                if ref.times == 0 {
+                    continue
+                }
+                r.refs[len(r.refs)] = *ref
+            }
+
+            i=0; for i < nbRefsB, i++ {
+                ref = b.getRef(i)
+                if ref.times == 0 || a.countRefsTo(ref.var) != 0 {
+                    continue
+                }
+
+                r.refs[len(r.refs)] = *ref
+            }
+
+            r.offset = a.offset / b.offset
+        } else {
+            r.isInvalid = true
+        }
+    } else if opType == bahValueCollapsedOpMult {
+        if nbRefsB == 0 {
+            i=0; for i < nbRefsA, i++ {
+                ref = a.getRef(i)
+                ref.times *= b.offset
+                if ref.times == 0 {
+                    continue
+                }
+                r.refs[len(r.refs)] = *ref
+            }
+
+            i=0; for i < nbRefsB, i++ {
+                ref = b.getRef(i)
+                if ref.times == 0 || a.countRefsTo(ref.var) != 0 {
+                    continue
+                }
+
+                r.refs[len(r.refs)] = *ref
+            }
+
+            r.offset = a.offset * b.offset
+        } else if nbRefsA == 0 {
+            i=0; for i < nbRefsB, i++ {
+                ref = b.getRef(i)
+                ref.times *= a.offset
+                if ref.times == 0 {
+                    continue
+                }
+                r.refs[len(r.refs)] = *ref
+            }
+
+            i=0; for i < nbRefsB, i++ {
+                ref = b.getRef(i)
+                if ref.times == 0 || a.countRefsTo(ref.var) != 0 {
+                    continue
+                }
+
+                r.refs[len(r.refs)] = *ref
+            }
+
+            r.offset = a.offset * b.offset
+        } else {
+            r.isInvalid = true
+        }
+    } else {
+        printDebugContext()
+        panic("unhandled op")
+    }
+
+    return r
+}
+
+staticAnalyzerCalculateCollapsedValue(a bahValueCollapsed*) collpasedCalculationResult {
+    // printDebugContext()
+    if a.type == bahValueCollapsedInval {
+        return collpasedCalculationResult {
+            isInvalid: true
+        }
+    }
+
+    if a.type == bahValueCollapsedNum {
+        return collpasedCalculationResult {
+            refs: null
+            offset: <int>a.value
+        }
+    }
+
+    if a.type == bahValueCollapsedLen {
+        
+        i=0; for i < len(_staticAnalyzerCalcVarStack), i++ {
+            if _staticAnalyzerCalcVarStack[i].var == a.value {
+                return _staticAnalyzerCalcVarStack[i].value
+            }
+        }
+
+        an = parserCtx.scopeCtx.gatValueAnalysis(a.value)
+
+        r = collpasedCalculationResult {
+            refs: null
+            singleRef: staticAnalyzerVarReference {
+                var: a.value
+                times: 1
+            }
+        }
+        if (an != null && an.max[1].type != bahValueCollapsedInval && (an.max[1].type != bahValueCollapsedLen || an.max[1].value != an.var)) {
+            r = staticAnalyzerCalculateCollapsedValue(&an.max[1])
+        }
+
+        _staticAnalyzerCalcVarStack[len(_staticAnalyzerCalcVarStack)] = _staticAnalyzerCalcStack {
+            var: a.value
+            value: r
+        }
+        return r
+    }
+
+    if a.isOp() {
+        currPemdas = 3
+        if a.type != bahValueCollapsedOpSub {
+            currPemdas = 4
+        }
+
+
+        //rearrange tree for position dependent operations
+        if (a.type == bahValueCollapsedOpSub || a.type == bahValueCollapsedOpDiv) && a.b.isOp() && a.b.pemdas == currPemdas {
+            currVal = a.b
+            prevVal = a
+            currRes = staticAnalyzerCalculateCollapsedValue(a.a)
+
+            for currVal.pemdas == currPemdas, currVal = currVal.b {
+                currRes = staticAnalyzerCalculateCollapsedValueOperation(currRes, staticAnalyzerCalculateCollapsedValue(currVal.a), prevVal.type)
+
+                if currVal.b.isOp() == false {
+                    currRes = staticAnalyzerCalculateCollapsedValueOperation(currRes, staticAnalyzerCalculateCollapsedValue(currVal.b), currVal.type)
+                    break
+                }
+                prevVal = currVal
+            }
+
+            if currVal.isOp() && currVal.pemdas != currPemdas {
+                currRes = staticAnalyzerCalculateCollapsedValueOperation(currRes, staticAnalyzerCalculateCollapsedValue(currVal), prevVal.type)
+            }
+
+            return currRes
+
+        }
+        aRes = staticAnalyzerCalculateCollapsedValue(a.a)
+        bRes = staticAnalyzerCalculateCollapsedValue(a.b)
+        return staticAnalyzerCalculateCollapsedValueOperation(aRes, bRes, a.type)
+    }
+
+    panic("Unhandled collpased value type: "+intToStr(a.type))
+    return collpasedCalculationResult {
+        isInvalid: true
+    }
+}
+
+//results:
+//0 ==
+//1 <
+//2 >
+//3 ...
+
+staticAnalyzerWeightAndSumCollapsedResult(a collpasedCalculationResult, b collpasedCalculationResult) int {
+    //TODO: qsort current references based on collected logical infos
+    //      attribute the index in the sorted array as the weight
+
+    //for now, just for testing, all weights = 1
+
+    if a.isInvalid || b.isInvalid {
+        return 3
+    }
+
+    aSum = 0
+    bSum = 0
+
+    if a.singleRef.var != null {
+        if b.countRefsTo(a.singleRef.var) == 0 {
+            return 3
+        }
+        weight = 1
+        aSum += a.singleRef.times * weight
+    }
+
+    if b.singleRef.var != null {
+        if a.countRefsTo(b.singleRef.var) == 0 {
+            return 3
+        }
+        weight = 1
+        bSum += b.singleRef.times * weight
+    }
+
+    i=0; for i < len(a.refs), i++ {
+        if b.countRefsTo(a.refs[i].var) == 0 {
+            return 3
+        }
+        weight = 1
+        aSum += a.refs[i].times * weight
+    }
+
+    i=0; for i < len(b.refs), i++ {
+        if a.countRefsTo(b.refs[i].var) == 0 {
+            return 3
+        }
+        weight = 1
+        bSum += b.refs[i].times * weight
+    }
+
+    // println("a: "+intToStr(aSum)+" + "+intToStr(a.offset)+"\tb: "+intToStr(bSum)+" + "+intToStr(b.offset))
+
+    if aSum == bSum {
+        aSum += a.offset
+        bSum += b.offset
+
+        if aSum == bSum {
+            return 0
+        }
+    }
+
+    if aSum < bSum {
+        return 1
+    }
+
+    // if aSum > bSum {
+    return 2
+    // }
+}
+
+staticAnalyzerIsCollapsedValueLessThan(a bahValueCollapsed*, b bahValueCollapsed*) bool {
+    clear(_staticAnalyzerCalcVarStack)
+    resA = staticAnalyzerCalculateCollapsedValue(a)
+    clear(_staticAnalyzerCalcVarStack)
+    resB = staticAnalyzerCalculateCollapsedValue(b)
+
+    // printDebugContext()
+    // println(a.toStr() + " < " + b.toStr()+" ?")
+
+    r = staticAnalyzerWeightAndSumCollapsedResult(resA, resB) == 1
+
+    // if r == true {
+    //     println("yes")
+    // } else {
+    //     println("nope")
+    // }
+
+    return r
+}
+staticAnalyzerIsCollapsedValueMoreThan(a bahValueCollapsed*, b bahValueCollapsed*) bool {
+    clear(_staticAnalyzerCalcVarStack)
+    resA = staticAnalyzerCalculateCollapsedValue(a)
+    clear(_staticAnalyzerCalcVarStack)
+    resB = staticAnalyzerCalculateCollapsedValue(b)
+
+    // printDebugContext()
+    // println(a.toStr() + " > " + b.toStr()+" ?")
+
+    r = staticAnalyzerWeightAndSumCollapsedResult(resA, resB) == 2
+
+    // if r == true {
+    //     println("yes")
+    // } else {
+    //     println("nope")
+    // }
+
+    return r
+}
+
+staticAnalyzerCheckArrayBounds(var bahVariable*, val bahValue*) {
+
+    if parserCtx.scopeCtx.scopeValidAnalysis == false {
+        return
+    }
+    if var == null || var.isConst {
+        return
+    }
+
+    if var.type.type != BAH_TYPE_ARRAY {
+        return
+    }
+
+    if staticAnalyzerIsValueAnalyzable(val) == false {
+        return
+    }
+
+    varAnalysis = parserCtx.scopeCtx.gatValueAnalysis(var)
+
+    if varAnalysis == null {
+        return
+    }
+
+    indexMin = staticAnalyzerCalcMinValue(val, var)
+    indexMax = staticAnalyzerCalcMaxValue(val, var)
+
+    staticAnalyzerrDoArrayBoundChecks(val, varAnalysis, indexMin, indexMax)
 }
