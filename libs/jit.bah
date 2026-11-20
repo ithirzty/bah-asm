@@ -121,12 +121,12 @@ struct jitObject {
         return this.of.getSymbol(name)
     }
 
-    call(name str, argBuffer ptr) bool {
-        fn = <function(ptr)>this.getSymbol(".wrapped_"+name)
+    call(name str, argBuffer ptr, returnPointer ptr) bool {
+        fn = <function(ptr, ptr)>this.getSymbol(".wrapped_"+name)
         if fn == null {
             return false
         }
-        fn(argBuffer)
+        fn(argBuffer, returnPointer)
         return true
     }
 
@@ -303,13 +303,6 @@ ret
     }
     parserCtx.declareMode = false
 
-    // i=0; for i < len(parserCtx.variables), i++ {
-    //     var = parserCtx.variables[i]
-    //     if var.scope == 0 && var.isConst == false {
-    //         gen.generateGlobalVarDecl(var.name, var.type.size)
-    //     }
-    // }
-
     isObjectFile = false
 
     parseLines(tokens, 0, len(tokens))
@@ -321,12 +314,14 @@ ret
         }
 
         args = []asmSymbol {
-            gen.generateVarDecl("args", 8, false)
+            gen.generateVarDecl("args", 8, false),
+            gen.generateVarDecl("retPtr", 8, false)
         }
 
         gen.generateFnStart(".wrapped_"+fn.name, args, 0)
         gen.generateFnCallStart()
         argsSym = asmSymbolStack(16, 8)
+        retPtrSym = asmSymbolStack(32, 8)
         offset = 0
 
         currArg = fn.type.child
@@ -338,7 +333,40 @@ ret
             offset += currArg.size
         }
 
-        gen.generateFnCall(asmSymbolValue(fn.name), 0, null, false)
+        returnSize = 0
+        isFloat = false
+        if fn.type.ret != null {
+            returnSize = fn.type.ret.size
+            if fn.type.ret.type == BAH_TYPE_STRCT {
+                if fn.type.ret.child.next != null && fn.type.ret.child.next.type == BAH_TYPE_FLOAT {
+                    if fn.type.ret.child.next.next != null {
+                        if fn.type.ret.child.next.next.type == BAH_TYPE_FLOAT {
+                            isFloat = true
+                        }
+                    } else {
+                        isFloat = true
+                    }
+                }
+            } else if fn.type.ret.type == BAH_TYPE_FLOAT {
+                isFloat = true
+            }
+        }
+
+        retSym = gen.generateFnCall(asmSymbolValue(fn.name), returnSize, null, isFloat)
+
+        if isFloat && fn.type.ret.type == BAH_TYPE_STRCT {
+            retSym = asmSymbolStack(gen.generateStackAlloc(retSym), retSym.size)
+        }
+
+        zv = asmSymbolValue("$0")
+        zv.size = 8
+        condSym = gen.generateCompare(retPtrSym, zv, ASM_OP_NOT_EQ, ASM_NUM_UINT)
+        gen.generateIf(condSym)
+        retPtrSym = gen.generateDestDereference(retPtrSym)
+        retPtrSym.size = returnSize
+        gen.generateMoveValue(retSym, retPtrSym)
+        gen.generateEndIf(false)
+
         gen.generateFnEnd(null)
     }
 

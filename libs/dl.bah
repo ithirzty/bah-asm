@@ -382,6 +382,10 @@ struct objectFile {
         memcpy(this.dataAddress, dataAddr, dataSection.sh_size)
         memset(this.bssAddress, 0, bssSection.sh_size)
         memcpy(this.textAddress, txtAddr, textSection.sh_size)
+
+        i=0; for i < len(this.got), i++ {
+            this.got[i].addr = this._getSymAddrFromName(this.got[i].name)
+        }
     }
 
     open(filePath str) bool {
@@ -456,8 +460,10 @@ struct objectFile {
 
         ag.data = <ptr>(<uint>of.textAddress + textSection.sh_size)
         ag.realLength = len(this.got)
+        ag.length = len(this.got)
+        memcpy(ag.data, cArr(this.got), gotSize)
         GC_registerRoot(ag.data, gotSize)
-        of._buidGOTtable()
+        
 
         GC_registerRoot(of.dataAddress, dataSection.sh_size)
         GC_registerRoot(of.bssAddress, bssSection.sh_size)
@@ -465,6 +471,10 @@ struct objectFile {
         memcpy(of.dataAddress, this.dataAddress, dataSection.sh_size)
         memset(of.bssAddress, 0, bssSection.sh_size)
         memcpy(of.textAddress, this.textAddress, textSection.sh_size)
+
+        i=0; for i < len(of.got), i++ {
+            of.got[i].addr = of._getSymAddrFromName(of.got[i].name)
+        }
 
         of.weakLinker()
         return of
@@ -488,6 +498,9 @@ struct objectFile {
     }
 
     close() {
+        if this.dataAddress == null {
+            return
+        }
         GC_removeRoot(this.dataAddress)
         GC_removeRoot(this.bssAddress)
         GC_removeRoot(cArr(this.got))

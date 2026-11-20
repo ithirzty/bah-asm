@@ -810,8 +810,6 @@ staticAnalyzerConsiderVarValue(var bahVariable*, val bahValue*, hasToBeTrue bool
     }
 
     if var.type.type == BAH_TYPE_ARRAY {
-
-
         indexMin = staticAnalyzerCalcMinValue(val, var)
         indexMax = staticAnalyzerCalcMaxValue(val, var)
 
@@ -852,12 +850,10 @@ staticAnalyzerConsiderVarValue(var bahVariable*, val bahValue*, hasToBeTrue bool
             //is more because an array cannot get less big by appending to it
             if (varAnalysis.isMinValid() == false || bounds[0].isMoreThan(varAnalysis.min[0])) {
                 varAnalysis.min = bounds
-                // println("arr: "+var.name+" = "+bounds[0].toStr())
             }
 
             if (varAnalysis.isMaxValid() == false || bounds[1].isMoreThan(varAnalysis.max[1])) {
                 varAnalysis.max = bounds
-                // println("arr: "+var.name+" = "+bounds[1].toStr())
             }
         }
     } else {
@@ -865,11 +861,7 @@ staticAnalyzerConsiderVarValue(var bahVariable*, val bahValue*, hasToBeTrue bool
             staticAnalyzerCalcMinValue(val, var), staticAnalyzerCalcMaxValue(val, var)
         ]
         varAnalysis.max = varAnalysis.min
-        // println("set: "+var.name + " = " + varAnalysis.min[1].toStr())
     }
-
-
-    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
 }
 
 staticAnalyzerConsiderVarMaxValue(var bahVariable*, val bahValue*) {
@@ -904,8 +896,6 @@ staticAnalyzerConsiderVarMaxValue(var bahVariable*, val bahValue*) {
     if varAnalysis.max[0].isLessThan(varAnalysis.min[1]) {
         varAnalysis.min = varAnalysis.max
     }
-
-    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
 }
 
 staticAnalyzerConsiderVarMinValue(var bahVariable*, val bahValue*) {
@@ -940,8 +930,6 @@ staticAnalyzerConsiderVarMinValue(var bahVariable*, val bahValue*) {
     if varAnalysis.min[1].isMoreThan(varAnalysis.max[0]) {
         varAnalysis.max = varAnalysis.min
     }
-
-    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
 }
 
 staticAnalyzerConsiderVarNotValue(var bahVariable*, val bahValue*) {
@@ -988,8 +976,6 @@ staticAnalyzerConsiderVarNotValue(var bahVariable*, val bahValue*) {
         bounds[1] -= oneCollpsd
         varAnalysis.max = bounds
     }
-
-    // staticAnalyzerUpdateParentScopeVarBounds(varAnalysis)
 }
 
 staticAnalyzerConsiderCondition(val bahValue*) {
@@ -1095,13 +1081,6 @@ staticAnalyzerConsiderCondition(val bahValue*) {
             }
         }
     }
-}
-
-staticAnalyzerArraySkipRealoc(lval bahLeftValue*, val bahValue*) bool {
-
-    
-
-    return false
 }
 
 staticAnalyzerCalculateCollapsedValueOperation(a collpasedCalculationResult, b collpasedCalculationResult, opType int) collpasedCalculationResult {

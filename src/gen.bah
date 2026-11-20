@@ -1391,12 +1391,10 @@ generateBahLeftValueSymbol(lval bahLeftValue*) asmSymbol {
         gen.generateFnCallArgument(sym)
         gen.generateFnCallArgument(indexSym)
 
-        if lval.skipRealoc == false {
-            if containsPtr(lval.left.type.child) == false {
-                gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr_nonPointer"), 0, null, false)
-            } else {
-                gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr"), 0, null, false)
-            }
+        if containsPtr(lval.left.type.child) == false {
+            gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr_nonPointer"), 0, null, false)
+        } else {
+            gen.generateFnCall(asmSymbolValue("__Bah_realocate_arr"), 0, null, false)
         }
 
         sym = gen.generateDestDereference(sym)

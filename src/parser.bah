@@ -2516,7 +2516,7 @@ parseFor(tokens []bahToken, start uint, end uint) {
     }
 
     gen.generateFor()
-    staticAnalyzerdIndex = len(gen.instructions)-1
+    staticAnalyzerIndex = len(gen.instructions)-1
 
     shouldOptimizeForLoop = false
     if gen.enableOptimizations && (isValueInexpensive(condVal) || condVal.value == BAH_VALUE_OP && isValueInexpensive(condVal.left) && isValueInexpensive(condVal.right)) {
@@ -2530,10 +2530,10 @@ parseFor(tokens []bahToken, start uint, end uint) {
     }
 
     if shouldOptimizeForLoop == false {
-        staticAnalyzerdIndex = -1
+        staticAnalyzerIndex = -1
     }
 
-    gen.generateForCond(generateBahValueSymbol(condVal, null), staticAnalyzerdIndex)
+    gen.generateForCond(generateBahValueSymbol(condVal, null), staticAnalyzerIndex)
 
     forLoopScope = new parserScope {
         isConditional: true
@@ -3213,11 +3213,6 @@ parseVariableSet(tokens []bahToken, start uint, end uint, eqlIndex uint, lValCon
                 rValSym = gen.generateTmpSym(rValSym, rValSym.size)
             }
 
-            if lVal.isArray && staticAnalyzerArraySkipRealoc(lVal, rVal) {
-                printDebugContext()
-                lVal.skipRealoc = true
-            }
-
             if lVal.isArray {
                 staticAnalyzerConsiderVarValue(lVal.left.variable, lVal.index, false)
             } else if lVal.isVariable && shouldOptimizerSkipValue == false {
@@ -3494,20 +3489,20 @@ parseLine(tokens []bahToken, start uint, end uint) {
                                     }
 
                                     if shouldOptimizerSkipValue == false {
-                                    oneBV = bahValue {
-                                        tok: bahToken{cont: "1"}
-                                        type: val[0].left.type
-                                        isStaticValue: true
+                                        oneBV = bahValue {
+                                            tok: bahToken{cont: "1"}
+                                            type: val[0].left.type
+                                            isStaticValue: true
+                                        }
+                                        rVal = bahValue {
+                                            tok: val[0].tok
+                                            value: BAH_VALUE_OP
+                                            type: val[0].left.type
+                                            left: val[0].left
+                                            right: &oneBV
+                                        }
+                                        staticAnalyzerConsiderVarValue(var, &rVal, false)
                                     }
-                                    rVal = bahValue {
-                                        tok: val[0].tok
-                                        value: BAH_VALUE_OP
-                                        type: val[0].left.type
-                                        left: val[0].left
-                                        right: &oneBV
-                                    }
-                                    staticAnalyzerConsiderVarValue(var, &rVal, false)
-                                }
 
                                 }
                             }

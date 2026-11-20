@@ -209,13 +209,13 @@ json_scan_inner(thisp ptr, e reflectElement) {
 
     //For all primitive types, value will be a pointer, the address to which we need to scan the data.
 
-    if this.str() == "null" {
+    if type == "str" && (this.str() != "null" || this.type == JSON_TYPE_STRING) {
+        v = <str*>value
+        *v = this.str()
         return
     }
 
-    if type == "str" {
-        v = <str*>value
-        *v = this.str()
+    if this.str() == "null" {
         return
     }
 

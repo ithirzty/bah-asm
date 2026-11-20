@@ -229,7 +229,6 @@ struct bahLeftValue {
     right: bahLeftValue*
 
     isConst: bool
-    skipRealoc: bool
 
     isVariable:  bool //final symbol in the left-val tree
     isArray:     bool //is only the array in which is the left-val
@@ -532,23 +531,6 @@ struct parserScope {
         }
 
         return null
-
-        // i=0; for i < len(this.varValueAnalysis), i++ {
-        //     if this.varValueAnalysis[i].var == var {
-        //         return &this.varValueAnalysis[i]
-        //     }
-        // }
-
-        // if this.parent == null {
-        //     return null
-        // }
-
-        // r = this.parent.gatValueAnalysis(var)
-        // if r == null {
-        //     return null
-        // }
-        // this.varValueAnalysis[len(this.varValueAnalysis)] = *r
-        // return &this.varValueAnalysis[len(this.varValueAnalysis)-1]
     }
 
     isState(state uint) bool {
@@ -632,6 +614,14 @@ struct parserContext {
         }
 
         if this.scopeCtx.scopeValidAnalysis && this.scopeCtx.isState(BAH_SCOPE_RETURNED) == false && this.scopeCtx.isState(BAH_SCOPE_EXITTED) == false && (this.scopeCtx.isLoop || this.scopeCtx.isState(BAH_SCOPE_ALWAYS_TRUE)) {
+
+            if this.scopeCtx.loopIterator != null {
+                itva = this.scopeCtx.gatValueAnalysis(this.scopeCtx.loopIterator)
+                if itva != null {
+                    itva.min = itva.max
+                }
+            }
+
             j=0; for j < len(this.scopeCtx.varValueAnalysis), j++ {
                 varAnalysis = &this.scopeCtx.varValueAnalysis[j]
                 if varAnalysis.var.scope >= this.scope {
